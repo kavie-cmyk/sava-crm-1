@@ -156,6 +156,7 @@
 <script src="shared.js"></script>
 <script>
 let S = loadState();
+let curLine = "all", curView = "dash", query = "";
 function save() { storeState(S); }
 function resetDemo() { S = seed(); save(); render(); toast("Đã reset dữ liệu mẫu"); }
 function comp(id) { return S.companies.find(c => c.id === id) || {name:"—"}; }
