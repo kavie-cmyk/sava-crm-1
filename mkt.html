@@ -63,6 +63,15 @@
 <div class="wrap">
   <div class="banner">⚠️ <b>Bản prototype</b> — dữ liệu mẫu dùng chung với giao diện BD trong cùng trình duyệt. MKT chấm xong, quay lại trang BD mở game đó sẽ thấy kết quả ngay.</div>
   <div class="scope">🔒 <b>Phạm vi của giao diện này:</b> MKT chỉ thấy các <b>game đối tác mà BD mang về</b> (mảng Publishing) để đánh giá tiềm năng thị trường. Các phần khác của CRM — deal, term rev-share, hợp đồng, khách AI/Metaverse, leads — <b>không hiển thị ở đây</b>.</div>
+  <div style="background:#f0f9ff;border:1.5px solid #38bdf8;border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:13.5px">
+    📊 <b>Đánh giá chi tiết kèm dữ liệu thị trường</b> (Market Score, benchmark CPI theo genre, Pre-Scan, Hard Gate, phễu sourcing) nằm ở <b>SAVA Publishing OS</b> — nơi có sẵn dữ liệu thị trường đầy đủ hơn trang này:
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn" style="background:#0284c7;text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing">🔎 Mở Tìm kiếm cơ hội (Sourcing) ↗</a>
+      <a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#games">🎮 Mở Lựa chọn trò chơi ↗</a>
+      <a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#market">📈 Mở Phân tích thị trường ↗</a>
+    </div>
+    <div class="mut" style="margin-top:9px">Trang MKT này giữ vai trò <b>hàng chờ + chấm nhanh tóm tắt</b> để BD thấy ngay trong CRM; đánh giá chuyên sâu thì làm ở Publishing OS.</div>
+  </div>
 
   <div class="stats">
     <div class="stat"><div class="k">⏳ Chờ MKT đánh giá</div><div class="v" id="stPending">–</div></div>
@@ -123,8 +132,9 @@ function card(g) {
         ${g.trailerUrl ? `<a href="#" onclick="toast('Bản mẫu: link này sẽ mở trailer của game'); return false">🎬 Xem trailer ↗</a>` : ""}
       </div>
       ${result}
-      <div style="margin-top:12px">
-        <button class="btn" onclick="toggleForm('${g.id}')">${ev ? "✏️ Chấm lại" : "🎯 Đánh giá game này"}</button>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="toggleForm('${g.id}')">${ev ? "✏️ Chấm nhanh lại" : "🎯 Chấm nhanh tại đây"}</button>
+        <a class="btn" style="background:#0284c7;text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing">📊 Đánh giá chi tiết ở Publishing OS ↗</a>
       </div>
       ${form(g)}
     </div></div></div>`;
