@@ -90,6 +90,7 @@
   .tl .ev { margin-bottom:12px; font-size:13px; }
   .tl .ev .when { color:var(--mut); font-size:12px; }
   select, .drawer input { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; }
+  .drawer textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; font-family:inherit; min-height:60px; }
   /* Modal + toast */
   .modal { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none; z-index:60; align-items:center; justify-content:center; }
   .modal.on { display:flex; }
@@ -220,7 +221,7 @@ function vDash() {
     return `<div class="panel"><h3><span class="chip" style="background:${L.color}">${L.name}</span> <span class="mut">${L.desc} — đối tượng: ${L.target}</span></h3>${rows}</div>`;
   }).join("");
   const tasks = S.tasks.filter(t => !t.done).slice(0,5).map(taskRow).join("");
-  const acts = S.activities.slice(0,5).map(a => { const d = S.deals.find(x=>x.id===a.deal); return `<div class="tl"><div class="ev" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}><b>${a.type}</b> — ${d?d.title:""}<div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`; }).join("");
+  const acts = S.activities.slice(0,5).map(a => { const d = S.deals.find(x=>x.id===a.deal); return `<div class="tl"><div class="ev" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}><b>${a.type}</b>${a.url ? " 🔗" : ""} — ${d?d.title:""}<div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`; }).join("");
   document.getElementById("view").innerHTML = kpiHTML() + `<div class="grid2"><div>${funnel}</div><div>
     <div class="panel"><h3>⏰ Việc cần làm</h3>${tasks}</div>
     <div class="panel"><h3>🕘 Hoạt động gần nhất</h3>${acts}</div></div></div>`;
@@ -312,7 +313,7 @@ function openDeal(id) {
   const L = LINES[d.line], c = comp(d.company), g = d.game ? game(d.game) : null;
   const st = stageOf(d.line, d.stage);
   const fields = L.fields.map(([k, lb]) => `<div class="k">${lb}</div><div>${(d.custom && d.custom[k]) || "—"}</div>`).join("");
-  const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
+  const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLink('${(a.url || "").replace(/'/g, "")}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
   const evalBox = (d.line === "publishing" && g && g.scores) ? `<h3 style="margin:16px 0 6px">📊 Chấm điểm thẩm định game</h3>` + Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận: <b>${g.verdict}</b></div>` : "";
   const stageOpts = L.stages.map(s => `<option value="${s[0]}" ${s[0]===d.stage?'selected':''}>${s[1]} (${s[2]}%)</option>`).join("");
   const t = d.term || {}, ct = d.contract || {};
@@ -357,7 +358,18 @@ function openDeal(id) {
     <select id="stageSel" onchange="moveStage('${d.id}', this.value)" style="margin-top:5px; width:100%">${stageOpts}</select>
     ${evalBox}
     <h3 style="margin:18px 0 4px">🕘 Timeline hoạt động</h3>${acts}
-    <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng sửa trực tiếp ở khối trên, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: ghi chú/call/Zalo, đính link Drive, lịch sử người sửa.</div>`;
+    <div style="background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px">
+      <b style="font-size:13.5px">➕ Thêm hoạt động / ghi chú vào deal này</b>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px">
+        <select id="na_type">${["Note", "Call", "Email", "Meeting", "Demo", "Zalo", "Messenger"].map(t => `<option>${t}</option>`).join("")}</select>
+        <select id="na_who">${Object.entries(USERS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+      </div>
+      <textarea id="na_text" placeholder="Nội dung: đã trao đổi gì, kết quả ra sao, bước tiếp theo là gì..." style="margin-top:8px"></textarea>
+      <input id="na_url" placeholder="🔗 Dán link đúng cuộc hội thoại đó (URL thread Gmail, link chat Messenger, link file Drive...)" style="width:100%;margin-top:8px">
+      <div class="mut" style="margin-top:5px">Cách lấy link: <b>Gmail</b> — mở đúng email đó, copy địa chỉ trên thanh trình duyệt; <b>Messenger</b> — mở đúng cuộc chat trên messenger.com, copy địa chỉ. Mỗi hoạt động chỉ ghim đúng 1 cuộc hội thoại vào đúng deal này, không kéo cả hộp thư.</div>
+      <button class="btn" style="margin-top:9px" onclick="addActivity('${d.id}')">+ Thêm vào timeline</button>
+    </div>
+    <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng sửa trực tiếp ở khối trên, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>`;
   document.getElementById("drawer").classList.add("on");
   document.getElementById("scrim").classList.add("on");
 }
@@ -701,6 +713,46 @@ function deleteTask(id) {
   if (!confirm(`Xóa việc "${t.title}"?`)) return;
   S.tasks = S.tasks.filter(x => x.id !== id);
   save(); render(); toast("Đã xóa việc: " + t.title);
+}
+
+
+/* --- Hoạt động (timeline): thêm / sửa / xóa + gắn đúng link cuộc hội thoại vào deal --- */
+function openActLink(url) {
+  if (!url) return;
+  if (url.includes("mẫu") || !/^https?:\/\//i.test(url)) { toast("Bản mẫu: ở bản thật, link này mở đúng cuộc hội thoại / tài liệu đã ghim vào deal"); return; }
+  window.open(url, "_blank", "noopener");
+}
+function addActivity(dealId) {
+  const text = document.getElementById("na_text").value.trim();
+  if (!text) { toast("Nhập nội dung hoạt động trước đã"); return; }
+  S.activities.unshift({ id: "a" + Date.now(), deal: dealId, type: document.getElementById("na_type").value, who: document.getElementById("na_who").value, when: "Vừa xong", text, url: document.getElementById("na_url").value.trim() });
+  save(); openDeal(dealId); render(); toast("Đã thêm hoạt động vào timeline");
+}
+function editActivity(id) {
+  const a = S.activities.find(x => x.id === id); if (!a) return;
+  openEdit(`<h3 style="font-size:16px">✏️ Sửa hoạt động</h3>
+    ${field("Loại", sel("ea_type", [["Note", "Note"], ["Call", "Call"], ["Email", "Email"], ["Meeting", "Meeting"], ["Demo", "Demo"], ["Zalo", "Zalo"], ["Messenger", "Messenger"]], a.type))}
+    ${field("Người thực hiện", ownerSel("ea_who", a.who))}
+    ${field("Thời gian", txt("ea_when", a.when))}
+    ${field("Nội dung", `<textarea id="ea_text">${esc(a.text || "")}</textarea>`)}
+    ${field("Link đúng cuộc hội thoại / tài liệu đó", txt("ea_url", a.url || "", "Dán link thread Gmail / chat Messenger / file Drive"))}
+    ${formFoot("saveActivity", `'${a.id}'`)}`);
+}
+function saveActivity(id) {
+  const a = S.activities.find(x => x.id === id); if (!a) return;
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  a.type = document.getElementById("ea_type").value;
+  a.who = document.getElementById("ea_who").value;
+  a.when = v("ea_when") || a.when;
+  a.text = v("ea_text");
+  a.url = v("ea_url");
+  save(); closeEdit(); render(); openDeal(a.deal); toast("Đã lưu hoạt động");
+}
+function deleteActivity(id) {
+  const a = S.activities.find(x => x.id === id); if (!a) return;
+  if (!confirm("Xóa hoạt động này khỏi timeline?")) return;
+  S.activities = S.activities.filter(x => x.id !== id);
+  save(); render(); openDeal(a.deal); toast("Đã xóa hoạt động");
 }
 
 render();

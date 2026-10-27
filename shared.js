@@ -90,11 +90,11 @@ function seed() { return {
     {id:"t6", title:"Chuẩn bị pitch deck Merge Kingdom EN", assignee:"zac", due:"Tuần này", deal:"d2", done:true, overdue:false},
   ],
   activities: [
-    {id:"a1", deal:"d1", type:"Meeting", who:"linh", when:"Hôm qua", text:"Publisher chơi thử build, khen core loop, hỏi kế hoạch live-ops 3 tháng đầu."},
+    {id:"a1", deal:"d1", type:"Meeting", who:"linh", when:"Hôm qua", text:"Publisher chơi thử build, khen core loop, hỏi kế hoạch live-ops 3 tháng đầu.", url:"https://www.messenger.com/ (link cuộc chat mẫu)"},
     {id:"a2", deal:"d4", type:"Note", who:"tuan", when:"Hôm nay", text:"Đã chơi build 2 giờ: gameplay chắc, monetization còn yếu, cần chấm vòng 2."},
-    {id:"a3", deal:"d7", type:"Call", who:"linh", when:"Hôm qua", text:"POC chạy 60% dữ liệu test, tỉ lệ trả lời đúng ~82%, cần thêm dữ liệu FAQ."},
+    {id:"a3", deal:"d7", type:"Call", who:"linh", when:"Hôm qua", text:"POC chạy 60% dữ liệu test, tỉ lệ trả lời đúng ~82%, cần thêm dữ liệu FAQ.", url:"https://drive.google.com/ (link file ghi âm mẫu)"},
     {id:"a4", deal:"d10", type:"Demo", who:"linh", when:"3 ngày trước", text:"Khách trải nghiệm prototype showroom, yêu cầu thêm bản đồ dự án 2D."},
-    {id:"a5", deal:"d2", type:"Email", who:"linh", when:"2 ngày trước", text:"Đã gửi pitch deck + build beta cho PlayNest, chờ phản hồi."},
+    {id:"a5", deal:"d2", type:"Email", who:"linh", when:"2 ngày trước", text:"Đã gửi pitch deck + build beta cho PlayNest, chờ phản hồi.", url:"https://mail.google.com/ (link thread email mẫu)"},
   ],
 };}
 
