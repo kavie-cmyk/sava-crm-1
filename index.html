@@ -164,7 +164,16 @@ let S = loadState();
 let curLine = "all", curView = "dash", query = "";
 function save() { storeState(S); }
 function resetDemo() { S = seed(); save(); render(); toast("Đã reset dữ liệu mẫu"); }
-function comp(id) { return S.companies.find(c => c.id === id) || {name:"—"}; }
+function comp(id) { return S.companies.find(c => c.id === id) || {id:"", name:"—", type:"", contact:"—", phone:""}; }
+let drawerCtx = null;
+function refreshDrawer() {
+  if (!drawerCtx) return;
+  const { type, id } = drawerCtx;
+  if (type === "company") openCompany(id);
+  else if (type === "deal") openDeal(id);
+  else if (type === "game") openGame(id);
+  else if (type === "lead") openLead(id);
+}
 function game(id) { return S.games.find(g => g.id === id); }
 function isGame(d) { return isGameDeal(d); }
 </script>
@@ -220,8 +229,8 @@ function vDash() {
     }).join("");
     return `<div class="panel"><h3><span class="chip" style="background:${L.color}">${L.name}</span> <span class="mut">${L.desc} — đối tượng: ${L.target}</span></h3>${rows}</div>`;
   }).join("");
-  const tasks = S.tasks.filter(t => !t.done).slice(0,5).map(taskRow).join("");
-  const acts = S.activities.slice(0,5).map(a => { const d = S.deals.find(x=>x.id===a.deal); return `<div class="tl"><div class="ev" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}><b>${a.type}</b>${a.url ? " 🔗" : ""} — ${d?d.title:""}<div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`; }).join("");
+  const tasks = S.tasks.filter(t => !t.done && (curLine === "all" || (t.deal && (S.deals.find(x => x.id === t.deal) || {}).line === curLine))).slice(0,5).map(taskRow).join("");
+  const acts = S.activities.filter(a => curLine === "all" || (S.deals.find(x => x.id === a.deal) || {}).line === curLine).slice(0,5).map(a => { const d = S.deals.find(x=>x.id===a.deal); return `<div class="tl"><div class="ev" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}><b>${a.type}</b>${a.url ? " 🔗" : ""} — ${d?d.title:""}<div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`; }).join("");
   document.getElementById("view").innerHTML = kpiHTML() + `<div class="grid2"><div>${funnel}</div><div>
     <div class="panel"><h3>⏰ Việc cần làm</h3>${tasks}</div>
     <div class="panel"><h3>🕘 Hoạt động gần nhất</h3>${acts}</div></div></div>`;
@@ -230,7 +239,7 @@ function taskRow(t) {
   const d = S.deals.find(x => x.id === t.deal);
   return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}>${t.title}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}'); return false">${d.title}</a> · `:''}${USERS[t.assignee]} · <span class="${t.overdue&&!t.done?'overdue':''}">${t.due}${t.overdue&&!t.done?' — QUÁ HẠN':''}</span></div></div><div style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" onclick="editTask('${t.id}')">✏️</button><button class="btn ghost small" title="Xóa việc" onclick="deleteTask('${t.id}')">🗑</button></div></div>`;
 }
-function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); }
+function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
 
 function vBoard() {
   const line = curLine === "all" ? "game_studio" : curLine;
@@ -260,7 +269,7 @@ function drop(e, line, stage) {
 
 function vCompanies() {
   const rows = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query))).map(c => {
-    const open = S.deals.filter(d => d.company === c.id && isOpen(d)).length;
+    const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     const roleChips = Object.entries(c.roles).map(([k,r]) => `<span class="chip" style="background:${LINES[k].color}">${LINES[k].name}: ${r}</span>`).join("");
     return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${c.name}</b><div class="mut">${c.type} · 👆 bấm để xem chi tiết</div></td><td>${roleChips}</td><td>${c.contact}<div class="mut">${c.phone}</div></td><td><b>${open} deal mở</b><div class="mut">bấm dòng để mở deal</div></td><td>${c.last}</td></tr>`;
   }).join("");
@@ -269,21 +278,22 @@ function vCompanies() {
 }
 
 function vGames() {
-  const show = S.games.filter(g => curLine==="all" || (curLine==="game_studio" && g.own==="ours") || (curLine==="publishing" && g.own==="partner"));
+  const show = S.games.filter(g => (curLine==="all" || (curLine==="game_studio" && g.own==="ours") || (curLine==="publishing" && g.own==="partner")) && (!query || (g.title + " " + g.genre).toLowerCase().includes(query)));
   const cards = show.map(g => {
     const deals = S.deals.filter(d => d.game === g.id);
-    const scores = g.scores ? Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận thẩm định: <b>${g.verdict}</b> · Điểm TB: <b>${(Object.values(g.scores).reduce((a,b)=>a+b,0)/5).toFixed(1)}</b></div>` : "";
+    const scores = g.scores ? Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận thẩm định: <b>${g.verdict}</b> · Điểm TB: <b>${(Object.values(g.scores).reduce((a,b)=>a+b,0)/Math.max(1, Object.keys(g.scores).length)).toFixed(1)}</b></div>` : "";
     return `<div class="gcard" onclick="openGame('${g.id}')" style="cursor:pointer" title="Bấm để xem chi tiết game + deal liên quan"><div class="emoji">${g.emoji}</div><h4>${g.title}</h4>
       <div class="mut">${g.genre} · ${g.platform}</div>
       <div style="margin:6px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${g.stage}</span> ${g.own==='partner' ? `<span class="pill" style="background:${g.mktEval?'#22c55e':'#f59e0b'}">${g.mktEval?'MKT: '+g.mktEval.verdict:'MKT: chờ đánh giá'}</span>` : ''}</div>
       <div style="font-size:13px">${g.desc}</div>${scores}
       <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>d.title).join("; ") || "—"}</div></div>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div><div class="cards">${cards}</div><div class="mut" style="margin-top:10px">💡 <b>Bấm vào thẻ game</b> để xem chi tiết + các deal liên quan (bấm tiếp vào deal để mở term/hợp đồng). Mảng Game Studio dùng game <b>của Sava</b> để đi chào publisher; mảng Publishing thẩm định game <b>của đối tác</b> bằng bảng điểm như trên.</div>`;
+  const emptyNote = !show.length && (curLine === "ai" || curLine === "metaverse") ? `<div class="panel mut" style="font-size:13.5px">Mảng này không dùng game — game chỉ thuộc mảng Game Studio (game của Sava) và Publishing (game đối tác).</div>` : "";
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">💡 <b>Bấm vào thẻ game</b> để xem chi tiết + các deal liên quan (bấm tiếp vào deal để mở term/hợp đồng). Mảng Game Studio dùng game <b>của Sava</b> để đi chào publisher; mảng Publishing thẩm định game <b>của đối tác</b> bằng bảng điểm như trên.</div>`;
 }
 
 function vLeads() {
-  const rows = S.leads.filter(l => (curLine==="all"||l.line===curLine)).map(l => {
+  const rows = S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + l.note).toLowerCase().includes(query))).map(l => {
     const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status];
     return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${l.name}</b><div class="mut">${l.note}</div></td><td><span class="chip" style="background:${LINES[l.line].color}">${LINES[l.line].name}</span></td><td>${l.source}</td><td>${l.when}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
@@ -295,7 +305,9 @@ function convertLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   l.status = "converted";
   const firstStage = LINES[l.line].stages[0][0];
-  const nd = { id:"d"+Date.now(), line:l.line, title:l.name+" — cơ hội mới", company:S.companies[0].id, stage:firstStage, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
+  const nc = { id:"c"+Date.now(), name:l.name, type:LINES[l.line].target, roles:{ [l.line]:LINES[l.line].target }, contact:"—", phone:"", last:"Vừa tạo" };
+  S.companies.push(nc);
+  const nd = { id:"d"+Date.now(), line:l.line, title:l.name+" — cơ hội mới", company:nc.id, stage:firstStage, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
   if (GAME_LINES.includes(l.line)) { nd.term = { rev_share:"Chưa đề xuất", advance:"—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" }; nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" }; }
   else { nd.amount = 0; nd.cur = "VND"; }
   S.deals.push(nd);
@@ -303,13 +315,14 @@ function convertLead(id) {
 }
 
 function vTasks() {
-  const list = S.tasks.map(taskRow).join("");
+  const list = S.tasks.filter(t => !query || t.title.toLowerCase().includes(query)).map(taskRow).join("");
   document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (3 người)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}<div class="mut" style="margin-top:8px">Bấm ô vuông để đánh dấu xong — ở bản thật, việc quá hạn sẽ hiện badge đỏ ở Tổng quan và gửi digest mỗi sáng.</div></div>`;
 }
 
 /* Drawer chi tiết deal */
 function openDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
+  drawerCtx = { type: "deal", id };
   const L = LINES[d.line], c = comp(d.company), g = d.game ? game(d.game) : null;
   const st = stageOf(d.line, d.stage);
   const fields = L.fields.map(([k, lb]) => `<div class="k">${lb}</div><div>${(d.custom && d.custom[k]) || "—"}</div>`).join("");
@@ -344,7 +357,7 @@ function openDeal(id) {
        <div class="k">Link HĐ / báo giá</div><div>${(d.contract&&d.contract.url)?"📄 Đã gắn link (mở trong deal)":"Chưa gắn — bản thật gắn link Drive ở đây"}</div>`;
   document.getElementById("drawer").innerHTML = `<button class="x" onclick="closeDrawer()">✕</button>
     <span class="chip" style="background:${L.color}">${L.name}</span>
-    <h2>${d.title}</h2><div class="mut"><a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${c.name} →</a> · ${c.type}${g?` · <a href="#" onclick="openGame('${g.id}'); return false" title="Mở game">🎮 ${g.title} →</a>`:""}</div>
+    <h2>${d.title}</h2><div class="mut">${c.id ? `<a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${c.name} →</a>` : `${c.name}`} · ${c.type}${g?` · <a href="#" onclick="openGame('${g.id}'); return false" title="Mở game">🎮 ${g.title} →</a>`:""}</div>
     <div style="display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap"><button class="btn" onclick="editDeal('${d.id}')">✏️ Sửa thông tin deal</button><button class="btn danger" onclick="deleteDeal('${d.id}')">🗑 Xóa deal</button></div>
     <div class="kv">
       ${valueRows}
@@ -381,7 +394,7 @@ function saveTermContract(id) {
   d.contract = { status:v("c_status"), no:v("c_no"), signed:v("c_signed"), url:v("c_url") };
   save(); openDeal(id); render(); toast("Đã lưu term + link hợp đồng cho: " + d.title);
 }
-function closeDrawer() { document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
+function closeDrawer() { drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
 function showDrawer(html) { document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); }
 function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${d.title}</div>
@@ -391,6 +404,7 @@ function dealMini(d) {
 }
 function openCompany(id) {
   const c = comp(id); if (!c || !c.id) return;
+  drawerCtx = { type: "company", id };
   const deals = S.deals.filter(d => d.company === id);
   const open = deals.filter(isOpen).length, won = deals.filter(d => d.stage === "won").length;
   const gamesOwned = S.games.filter(g => g.company === id);
@@ -405,11 +419,11 @@ function openCompany(id) {
     <div class="kv">
       <div class="k">Đầu mối chính</div><div>${c.contact}</div>
       <div class="k">Điện thoại</div><div>${c.phone || "—"}</div>
-      <div class="k">Tổng deal</div><div><b>${deals.length}</b> (${open} đang mở, ${won} đã thắng)</div>
-      <div class="k">Việc đang treo</div><div>${tasks.length} việc chưa xong</div>
+      <div class="k">Tổng deal (tất cả mảng)</div><div><b>${deals.length}</b> (${open} đang mở, ${won} đã thắng)</div>
+      <div class="k">Việc đang treo (tất cả mảng)</div><div>${tasks.length} việc chưa xong</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editCompany('${c.id}')">✏️ Sửa công ty</button><button class="btn danger" onclick="deleteCompany('${c.id}')">🗑 Xóa công ty</button></div>
-    <button class="btn" onclick="closeDrawer(); openAddFor('${c.name.replace(/'/g,"")}')">+ Thêm deal cho công ty này</button>
+    <button class="btn" onclick="closeDrawer(); openAddFor('${c.id}')">+ Thêm deal cho công ty này</button>
     <h3 style="margin:18px 0 8px">📋 Các deal của công ty này (bấm để xem chi tiết deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}
     ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${g.emoji} ${g.title}</div><div class="c">${g.genre} · ${g.stage} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div></div>`).join("") : ""}
@@ -419,9 +433,10 @@ function openCompany(id) {
 }
 function openGame(id) {
   const g = game(id); if (!g) return;
+  drawerCtx = { type: "game", id };
   const deals = S.deals.filter(d => d.game === id);
   const owner = g.company ? comp(g.company) : null;
-  const scores = g.scores ? Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận thẩm định: <b>${g.verdict}</b> · Điểm TB: <b>${(Object.values(g.scores).reduce((a,b)=>a+b,0)/5).toFixed(1)}</b></div>` : "";
+  const scores = g.scores ? Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận thẩm định: <b>${g.verdict}</b> · Điểm TB: <b>${(Object.values(g.scores).reduce((a,b)=>a+b,0)/Math.max(1, Object.keys(g.scores).length)).toFixed(1)}</b></div>` : "";
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <div style="font-size:36px">${g.emoji}</div>
     <h2>${g.title}</h2><div class="mut">${g.genre} · ${g.platform}</div>
@@ -429,7 +444,7 @@ function openGame(id) {
     <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap"><button class="btn" onclick="editGame('${g.id}')">✏️ Sửa game</button><button class="btn danger" onclick="deleteGame('${g.id}')">🗑 Xóa game</button></div>
     <div style="font-size:13.5px">${g.desc}</div>
     <div class="kv">
-      ${owner ? `<div class="k">Studio sở hữu</div><div><a href="#" onclick="openCompany('${owner.id}'); return false">${owner.name} →</a></div>` : `<div class="k">Chủ sở hữu</div><div>Sava Meta</div>`}
+      ${g.own === "partner" ? (owner && owner.id ? `<div class="k">Studio sở hữu</div><div><a href="#" onclick="openCompany('${owner.id}'); return false">${owner.name} →</a></div>` : `<div class="k">Studio sở hữu</div><div>— (studio không còn / đã bị xóa)</div>`) : (owner && owner.id ? `<div class="k">Studio sở hữu</div><div><a href="#" onclick="openCompany('${owner.id}'); return false">${owner.name} →</a></div>` : `<div class="k">Chủ sở hữu</div><div>Sava Meta</div>`)}
       <div class="k">Deal liên quan</div><div>${deals.length} deal</div>
     </div>
     ${scores ? `<h3 style="margin:14px 0 6px">📊 Chấm điểm thẩm định</h3>${scores}` : ""}
@@ -441,6 +456,7 @@ function openGame(id) {
 }
 function openLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
+  drawerCtx = { type: "lead", id };
   const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status];
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <span class="chip" style="background:${LINES[l.line].color}">${LINES[l.line].name}</span>
@@ -455,9 +471,15 @@ function openLead(id) {
     ${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${LINES[l.line].name}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${LINES[l.line].name}.</div>`}
     <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>`);
 }
-function openAddFor(companyName) {
+function openAddFor(companyId) {
+  const c = comp(companyId); if (!c || !c.id) return;
   openAdd();
-  document.getElementById("f_company").value = companyName;
+  document.getElementById("f_company").value = c.name;
+  const roleKeys = Object.keys(c.roles || {});
+  let line = null;
+  if (curLine !== "all" && c.roles && c.roles[curLine]) line = curLine;
+  else if (roleKeys.length) line = roleKeys[0];
+  if (line) { document.getElementById("f_line").value = line; fillStages(); }
 }
 
 /* Thêm deal */
@@ -480,6 +502,7 @@ function saveDeal() {
   const companyName = document.getElementById("f_company").value.trim() || "Đối tác mới (mẫu)";
   let c = S.companies.find(x => x.name === companyName);
   if (!c) { c = { id:"c"+Date.now(), name:companyName, type:LINES[line].target, roles:{[line]:LINES[line].target}, contact:"—", phone:"", last:"Vừa tạo" }; S.companies.push(c); }
+  else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
   const nd = { id:"d"+Date.now(), line, title, company:c.id, stage:document.getElementById("f_stage").value, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
   if (GAME_LINES.includes(line)) {
     const adv = +document.getElementById("f_amount").value||0;
@@ -540,6 +563,7 @@ function saveEditDeal(id) {
   const cName = v("e_company") || "Đối tác mới (mẫu)";
   let c = S.companies.find(x => x.name === cName);
   if (!c) { c = { id: "c" + Date.now(), name: cName, type: LINES[line].target, roles: { [line]: LINES[line].target }, contact: "—", phone: "", last: "Vừa tạo" }; S.companies.push(c); }
+  else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
   d.title = title; d.company = c.id; d.line = line;
   d.stage = document.getElementById("e_stage").value;
   d.owner = document.getElementById("e_owner").value;
@@ -597,8 +621,9 @@ function saveCompany(id) {
 function deleteCompany(id) {
   const c = comp(id); if (!c.id) return;
   const n = S.deals.filter(d => d.company === id).length;
-  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ mất liên kết công ty.` : "") + `\nKhông khôi phục được.`)) return;
+  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + `\nKhông khôi phục được.`)) return;
   S.companies = S.companies.filter(x => x.id !== id);
+  S.deals.forEach(d => { if (d.company === id) delete d.company; });
   S.games.forEach(g => { if (g.company === id) delete g.company; });
   save(); closeDrawer(); render(); toast("Đã xóa công ty: " + c.name);
 }
@@ -633,7 +658,7 @@ function saveGame(id) {
   const own = document.getElementById("e_gown").value;
   let scores = null;
   const vals = BD_SCORE_KEYS.map(k => document.getElementById("e_gs_" + k).value);
-  if (vals.some(x => x !== "")) { scores = {}; BD_SCORE_KEYS.forEach((k, i) => scores[k] = Math.min(10, Math.max(0, +vals[i] || 0))); }
+  if (vals.some(x => x !== "")) { scores = {}; BD_SCORE_KEYS.forEach((k, i) => { if (vals[i] !== "") scores[k] = Math.min(10, Math.max(0, +vals[i] || 0)); }); }
   const data = { title, emoji: v("e_gemoji") || "🎮", own, genre: v("e_ggenre"), platform: v("e_gplatform"), stage: v("e_gstage"),
     desc: v("e_gdesc"), bdNote: v("e_gnote"), buildUrl: v("e_gbuild"), trailerUrl: v("e_gtrailer") };
   if (own === "partner") {
@@ -642,8 +667,8 @@ function saveGame(id) {
     data.scores = scores; data.verdict = v("e_gverdict") || "Đang chấm";
   }
   let g;
-  if (id) { g = game(id); Object.assign(g, data); if (own === "ours") { delete g.company; delete g.scores; } if (data.company === undefined) delete g.company; }
-  else { g = { id: "g" + Date.now(), mktEval: null, ...data }; if (own === "ours") { delete g.company; delete g.scores; } if (data.company === undefined) delete g.company; S.games.push(g); }
+  if (id) { g = game(id); Object.assign(g, data); if (own === "ours") { delete g.company; delete g.scores; delete g.mktEval; delete g.verdict; } if (data.company === undefined) delete g.company; }
+  else { g = { id: "g" + Date.now(), mktEval: null, ...data }; if (own === "ours") { delete g.company; delete g.scores; delete g.mktEval; delete g.verdict; } if (data.company === undefined) delete g.company; S.games.push(g); }
   save(); closeEdit(); render(); openGame(g.id); toast("Đã lưu game: " + title);
 }
 function deleteGame(id) {
@@ -663,7 +688,7 @@ function editLead(id) {
     ${field("Tên lead / tổ chức", txt("e_lname", l.name))}
     ${field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), l.line))}
     ${field("Nguồn", txt("e_lsource", l.source, "VD: Form savameta.com / Giới thiệu / Facebook"))}
-    ${field("Trạng thái", sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"], ["converted", "Đã chuyển đổi"]], l.status))}
+    ${l.status === "converted" ? field("Trạng thái", `<div style="padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#f1f5f9;font-weight:600">Đã chuyển đổi <span class="mut" style="font-weight:400">(trạng thái này chỉ do nút "Chuyển thành deal" đặt, không sửa tay)</span></div>`) : field("Trạng thái", sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"]], l.status))}
     ${field("Thời gian", txt("e_lwhen", l.when, "VD: Hôm nay"))}
     ${field("Ghi chú", `<textarea id="e_lnote">${esc(l.note || "")}</textarea>`)}
     ${formFoot("saveLead", id ? `'${id}'` : "null")}`);
@@ -671,7 +696,9 @@ function editLead(id) {
 function saveLead(id) {
   const v = i => (document.getElementById(i)?.value || "").trim();
   const name = v("e_lname"); if (!name) { toast("Tên lead không được để trống"); return; }
-  const data = { name, line: document.getElementById("e_lline").value, source: v("e_lsource"), status: document.getElementById("e_lstatus").value, when: v("e_lwhen") || "Vừa xong", note: v("e_lnote") };
+  const statusEl = document.getElementById("e_lstatus");
+  const existing = id ? S.leads.find(x => x.id === id) : null;
+  const data = { name, line: document.getElementById("e_lline").value, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: v("e_lwhen") || "Vừa xong", note: v("e_lnote") };
   let l;
   if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
   else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }
@@ -706,13 +733,13 @@ function saveTask(id) {
   let t;
   if (id) { t = S.tasks.find(x => x.id === id); data.overdue = t.overdue && !done; Object.assign(t, data); if (dv) t.deal = dv; else delete t.deal; }
   else { t = { id: "t" + Date.now(), ...data }; if (dv) t.deal = dv; S.tasks.push(t); }
-  save(); closeEdit(); render(); toast("Đã lưu việc: " + title);
+  save(); closeEdit(); render(); refreshDrawer(); toast("Đã lưu việc: " + title);
 }
 function deleteTask(id) {
   const t = S.tasks.find(x => x.id === id); if (!t) return;
   if (!confirm(`Xóa việc "${t.title}"?`)) return;
   S.tasks = S.tasks.filter(x => x.id !== id);
-  save(); render(); toast("Đã xóa việc: " + t.title);
+  save(); render(); refreshDrawer(); toast("Đã xóa việc: " + t.title);
 }
 
 
