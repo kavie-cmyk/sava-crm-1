@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Sava Meta — Đánh giá game (MKT)</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -53,41 +53,33 @@
   #toast.on { transform:translateX(-50%); }
   @media (max-width:700px){ .stats{grid-template-columns:1fr} .scorebar .lb{width:150px} }
 </style>
+<meta name="theme-color" content="#f5f6f8">
+<link rel="stylesheet" href="apple-design.css">
 </head>
-<body>
-<header>
-  <div class="logo">SAVA<span>META</span></div>
-  <div class="tag">🎯 GIAO DIỆN MKT — ĐÁNH GIÁ GAME</div>
-  <a href="index.html">← Về giao diện BD (chỉ để đối chiếu khi demo)</a>
-</header>
+<body class="marketing">
+<header><a class="brand" href="index.html" aria-label="Sava Meta CRM — Tổng quan">
+  <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="m7 22 7-14h5l-7 14H7Z" fill="#12869b"/><path d="m16 22 7-14h3l-7 14h-3Z" fill="#75b7c3"/><path d="M7 25h18" stroke="#12869b" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+  <span><span class="brand-name">SAVA<span>META</span></span><span class="brand-caption" style="display:block">CRM WORKSPACE</span></span></a><div class="tag">MARKETING</div><a href="index.html">← Về CRM Kinh doanh</a></header>
 <div class="wrap">
-  <div class="banner">⚠️ <b>Bản prototype</b> — dữ liệu mẫu dùng chung với giao diện BD trong cùng trình duyệt. MKT chấm xong, quay lại trang BD mở game đó sẽ thấy kết quả ngay.</div>
-  <div class="scope">🔒 <b>Phạm vi của giao diện này:</b> MKT chỉ thấy các <b>game đối tác mà BD mang về</b> (mảng Publishing) để đánh giá tiềm năng thị trường. Các phần khác của CRM — deal, term rev-share, hợp đồng, khách AI/Metaverse, leads — <b>không hiển thị ở đây</b>.</div>
-  <div style="background:#f0f9ff;border:1.5px solid #38bdf8;border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:13.5px">
-    📊 <b>Đánh giá chi tiết kèm dữ liệu thị trường</b> (Market Score, benchmark CPI theo genre, Pre-Scan, Hard Gate, phễu sourcing) nằm ở <b>SAVA Publishing OS</b> — nơi có sẵn dữ liệu thị trường đầy đủ hơn trang này:
-    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-      <a class="btn" style="background:#0284c7;text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing">🔎 Mở Tìm kiếm cơ hội (Sourcing) ↗</a>
-      <a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#games">🎮 Mở Lựa chọn trò chơi ↗</a>
-      <a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#market">📈 Mở Phân tích thị trường ↗</a>
-    </div>
-    <div class="mut" style="margin-top:9px">Trang MKT này giữ vai trò <b>hàng chờ + chấm nhanh tóm tắt</b> để BD thấy ngay trong CRM; đánh giá chuyên sâu thì làm ở Publishing OS.</div>
-  </div>
-
+  <div class="toolbar"><div class="page-heading"><h1>Đánh giá game</h1><p class="page-description">Hàng chờ game đối tác từ BD, dành cho đội Marketing.</p></div></div>
+  <details class="prototype-note"><summary><span class="status-dot" aria-hidden="true"></span><b>Bản dùng thử</b><span class="note-secondary">Dữ liệu dùng chung với CRM Kinh doanh</span><span class="note-more">Thông tin dữ liệu<i data-icon="chevron"></i></span></summary><p>Dữ liệu mẫu được lưu trong cùng trình duyệt với giao diện BD. Kết quả chấm nhanh xuất hiện trong hồ sơ game ở CRM. Trang này chỉ hiển thị game đối tác của mảng Publishing, không hiển thị deal, điều khoản hợp tác, hợp đồng hoặc các mảng khác.</p></details>
+  <div class="publishing-resource"><div><strong>Đánh giá sâu hơn với Publishing OS</strong><p>Market Score, benchmark CPI, Pre-Scan và Hard Gate.</p></div><div class="resource-links"><a class="btn ghost" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing">Sourcing ↗</a><a class="btn ghost" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#games">Games ↗</a><a class="btn ghost" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#market">Thị trường ↗</a></div></div>
   <div class="stats">
-    <div class="stat"><div class="k">⏳ Chờ MKT đánh giá</div><div class="v" id="stPending">–</div></div>
-    <div class="stat"><div class="k">✅ Đã đánh giá</div><div class="v" id="stDone">–</div></div>
-    <div class="stat"><div class="k">🏆 Kết luận "Nên nhận"</div><div class="v" id="stYes">–</div></div>
+    <div class="stat"><div class="k">Chờ đánh giá</div><div class="v" id="stPending">–</div></div>
+    <div class="stat"><div class="k">Đã đánh giá</div><div class="v" id="stDone">–</div></div>
+    <div class="stat"><div class="k">Đề xuất nên nhận</div><div class="v" id="stYes">–</div></div>
   </div>
 
-  <div class="tabs">
-    <button data-tab="pending" class="on">⏳ Chờ đánh giá</button>
-    <button data-tab="done">✅ Đã đánh giá</button>
+  <div class="tabs" role="group" aria-label="Lọc trạng thái đánh giá">
+    <button data-tab="pending" class="on">Chờ đánh giá</button>
+    <button data-tab="done">Đã đánh giá</button>
     <button data-tab="all">Tất cả game đối tác</button>
   </div>
   <div id="list"></div>
 </div>
 <div id="toast"></div>
 
+<script src="apple-ui.js"></script>
 <script src="shared.js"></script>
 <script>
 let S = loadState();
@@ -122,7 +114,7 @@ function card(g) {
       <h3>${g.title}</h3>
       <div class="mut">${g.genre} · ${g.platform} · Giai đoạn: ${g.stage} · Studio: ${studioOf(g)}</div>
       <div style="margin-top:6px">
-        <span class="pill" style="background:${ev ? '#22c55e' : '#f59e0b'}">${ev ? '✅ MKT đã đánh giá: ' + ev.verdict : '⏳ Chờ MKT đánh giá'}</span>
+        <span class="pill" style="background:${ev ? '#22c55e' : '#f59e0b'}">${ev ? '✅ MKT đã đánh giá: ' + ev.verdict : 'Chờ đánh giá'}</span>
         ${deal ? `<span class="pill gray">BD đang xử lý ở stage: ${stageOf('publishing', deal.stage)[1]}</span>` : ""}
       </div>
       <div style="font-size:13.5px; margin-top:8px">${g.desc}</div>
@@ -166,7 +158,7 @@ function toggleForm(id) {
   openForms.has(id) ? openForms.delete(id) : openForms.add(id);
   render();
   const el = document.getElementById("form_" + id);
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (el) el.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "nearest" });
 }
 document.addEventListener("change", e => {
   if (e.target.name && e.target.name.startsWith("vd_")) {
@@ -197,3 +189,4 @@ render();
 </script>
 </body>
 </html>
+

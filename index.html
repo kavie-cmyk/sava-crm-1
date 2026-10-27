@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Sava Meta CRM — Prototype</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -105,33 +105,54 @@
   .task.done .tt { text-decoration: line-through; color:var(--mut); }
   @media (max-width: 900px) { .kpis{grid-template-columns:repeat(2,1fr)} .grid2{grid-template-columns:1fr} .side{width:64px} .side .logo,.side .sub,.nav button span,.side .foot{display:none} .main{margin-left:64px} }
 </style>
+<meta name="theme-color" content="#f5f6f8">
+<link rel="stylesheet" href="apple-design.css">
 </head>
 <body>
-<aside class="side">
-  <div class="logo">SAVA<span>META</span></div>
-  <div class="sub">CRM — bản prototype</div>
-  <nav class="nav" id="nav">
-    <button data-view="dash" class="on">🏠 <span>Tổng quan</span></button>
-    <button data-view="board">📋 <span>Pipeline</span></button>
-    <button data-view="companies">🏢 <span>Khách hàng</span></button>
-    <button data-view="games">🎮 <span>Games</span></button>
-    <button data-view="leads">📥 <span>Leads</span></button>
-    <button data-view="tasks">✅ <span>Công việc</span></button>
-  </nav>
-  <div id="pubosBox" style="padding:12px 18px;border-top:1px solid #1e293b"><div style="font-size:12.5px;color:#e2e8f0"><b>Publishing OS:</b> Chưa kết nối</div></div>
-  <div class="foot"><a href="mkt.html" style="display:inline-block;background:#7c3aed;color:#fff;padding:7px 11px;border-radius:7px;text-decoration:none;font-size:12.5px;font-weight:700">🎯 Mở giao diện MKT</a><br><a href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing" target="_blank" rel="noopener" style="display:inline-block;margin-top:7px;background:#0ea5e9;color:#fff;padding:7px 11px;border-radius:7px;text-decoration:none;font-size:12.5px;font-weight:700">📊 Publishing OS — đánh giá + dữ liệu thị trường ↗</a><br><br>Team: 3 người dùng thử<br><button onclick="resetDemo()">↺ Reset dữ liệu mẫu</button></div>
-</aside>
-
-<main class="main">
-  <div class="demo-banner">⚠️ <b>Bản prototype để bấm thử</b> — dữ liệu CRM là dữ liệu mẫu (không phải khách thật), lưu trong trình duyệt. Game đối tác có thể <b>đẩy thật sang SAVA Publishing OS</b> sau khi bấm “Kết nối Publishing OS” ở sidebar. Đây là <b>giao diện BD</b>. Giao diện cho MKT ở trang <a href="mkt.html"><b>Đánh giá game (MKT)</b></a> — MKT chỉ thấy game chờ đánh giá, không thấy deal/term/hợp đồng hay các mảng khác. Hai giao diện dùng chung dữ liệu ngay trong trình duyệt này.</div>
-  <div class="linetabs" id="linetabs"></div>
-  <div class="toolbar">
-    <h1 id="viewTitle">Tổng quan</h1>
-    <input id="search" placeholder="🔎 Tìm khách, deal, game, lead...">
-    <button class="btn" onclick="openAdd()">+ Thêm deal</button>
+<aside class="side" id="workspaceSide" aria-label="Không gian làm việc">
+  <a class="brand" href="index.html" aria-label="Sava Meta CRM — Tổng quan">
+  <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="m7 22 7-14h5l-7 14H7Z" fill="#12869b"/><path d="m16 22 7-14h3l-7 14h-3Z" fill="#75b7c3"/><path d="M7 25h18" stroke="#12869b" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+  <span><span class="brand-name">SAVA<span>META</span></span><span class="brand-caption" style="display:block">CRM WORKSPACE</span></span></a>
+  <div class="workspace-switch"><span class="workspace-icon"><i data-icon="company"></i></span><div><strong>Phòng Kinh doanh</strong><small>Sava Meta · CRM</small></div></div>
+  <div class="nav-heading">Không gian làm việc</div>
+  <nav class="nav" id="nav" aria-label="Điều hướng chính"><button data-view="dash" class="on"><i data-icon="overview"></i><span>Tổng quan</span></button>
+<button data-view="board" class=""><i data-icon="pipeline"></i><span>Pipeline</span></button>
+<button data-view="companies" class=""><i data-icon="company"></i><span>Khách hàng</span></button>
+<button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
+<button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
+<button data-view="tasks" class=""><i data-icon="check"></i><span>Công việc</span></button></nav>
+  <div id="pubosBox"><div><b>Publishing OS</b>Chưa kết nối</div></div>
+  <div class="foot">
+    <a href="mkt.html"><i data-icon="game"></i>Đánh giá game · Marketing<i data-icon="arrow"></i></a>
+    <a href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing" target="_blank" rel="noopener"><i data-icon="external"></i>SAVA Publishing OS</a>
+    <div class="foot-label">Môi trường dùng thử · 3 người</div>
+    <button onclick="resetDemo()"><i data-icon="reset"></i> Đặt lại dữ liệu mẫu</button>
   </div>
+</aside>
+<div class="side-scrim" aria-hidden="true"></div>
+<main class="main">
+  <header class="workspace-header">
+    <div class="workspace-path"><button id="workspaceMenu" class="icon-button menu-toggle" aria-label="Mở menu không gian làm việc" aria-controls="workspaceSide" aria-expanded="false"><i data-icon="menu"></i></button><span>Workspace</span><span aria-hidden="true">/</span><strong>Phòng Kinh doanh</strong></div>
+    <div class="header-actions"><a class="role-link" href="mkt.html">Giao diện Marketing<i data-icon="arrow"></i></a><span class="avatar" aria-label="Giao diện Business Development">BD</span></div>
+  </header>
+  <details class="prototype-note">
+    <summary><span class="status-dot" aria-hidden="true"></span><b>Bản dùng thử</b><span class="note-secondary">Dữ liệu CRM mẫu · Lưu trên trình duyệt</span><span class="note-more">Thông tin dữ liệu<i data-icon="chevron"></i></span></summary>
+    <p>Dữ liệu CRM là dữ liệu mẫu, không phải khách hàng thật, và được lưu trong trình duyệt. Giao diện BD và Marketing dùng chung dữ liệu trên cùng trình duyệt. Marketing chỉ xem hàng chờ đánh giá game đối tác. Kết nối Publishing OS cho phép gửi dữ liệu game và deal sang hệ thống thật; thao tác đồng bộ hiện có vẫn hoạt động.</p>
+  </details>
+  <div class="toolbar">
+    <div class="page-heading"><h1 id="viewTitle">Tổng quan</h1><p class="page-description" id="viewDescription">Theo dõi cơ hội, đối tác và công việc của team.</p></div>
+    <div class="page-actions"><div class="search-control"><i data-icon="search"></i><input id="search" aria-label="Tìm kiếm trong mục đang xem" placeholder="Tìm kiếm trong mục này…" autocomplete="off"><kbd>/</kbd><button id="clearSearch" class="clear-search" aria-label="Xóa tìm kiếm"><i data-icon="close"></i></button></div><button class="btn" onclick="openAdd()"><i data-icon="plus"></i>Thêm deal</button></div>
+  </div>
+  <div class="linetabs" id="linetabs" role="group" aria-label="Lọc theo mảng kinh doanh"></div>
   <div id="view"></div>
 </main>
+<nav class="mobile-nav" aria-label="Điều hướng trên điện thoại"><button data-view="dash" class="on" aria-label="Tổng quan"><i data-icon="overview"></i><span>Tổng quan</span></button>
+<button data-view="board" class="" aria-label="Pipeline"><i data-icon="pipeline"></i><span>Pipeline</span></button>
+<button data-view="companies" class="" aria-label="Khách hàng"><i data-icon="company"></i><span>Khách hàng</span></button>
+<button data-view="games" class="" aria-label="Games"><i data-icon="game"></i><span>Games</span></button>
+<button data-view="leads" class="" aria-label="Leads"><i data-icon="inbox"></i><span>Leads</span></button>
+<button data-view="tasks" class="" aria-label="Công việc"><i data-icon="check"></i><span>Công việc</span></button></nav>
+
 
 <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
 <aside class="drawer" id="drawer"></aside>
@@ -167,6 +188,7 @@
 </div>
 <div class="modal" id="editModal"><div class="box" id="editBox"></div></div>
 <div id="toast"></div>
+<script src="apple-ui.js"></script>
 <script src="shared.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="pubos.js"></script>
@@ -233,8 +255,8 @@ function dealsFiltered() {
 }
 function lineTabs() {
   const el = document.getElementById("linetabs");
-  const mk = (k, label, color) => `<button class="${curLine===k?'on':''}" style="${curLine===k?`background:${color}`:''}" onclick="setLine('${k}')">${label}</button>`;
-  el.innerHTML = mk("all","🌐 Tất cả 4 mảng","#0f172a") + Object.entries(LINES).map(([k,v]) => mk(k, v.name, v.color)).join("");
+  const mk = (k, label, color) => `<button class="${curLine===k?'on':''}" onclick="setLine('${k}')"><span class="line-dot" style="background:${color}" aria-hidden="true"></span>${label}</button>`;
+  el.innerHTML = mk("all","Tất cả","#83929d") + Object.entries(LINES).map(([k,v]) => mk(k, v.name, v.color)).join("");
 }
 function setLine(k) { curLine = k; render(); }
 function setView(v) { curView = v; render(); }
@@ -244,55 +266,61 @@ document.getElementById("search").addEventListener("input", e => { query = e.tar
 function render() {
   lineTabs();
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === curView));
-  const titles = { dash:"Tổng quan " + (curLine==="all"?"— 4 mảng":LINES[curLine].name), board:"Pipeline — kéo thả để chuyển stage", companies:"Khách hàng / Đối tác", games:"Games", leads:"Leads — đầu mối mới", tasks:"Công việc của team" };
+  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", tasks:"Công việc" };
+  const descriptions = { dash:"Theo dõi cơ hội, đối tác và công việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", tasks:"Những việc cần theo dõi và hoàn thành của team." };
   document.getElementById("viewTitle").textContent = titles[curView];
+  document.getElementById("viewDescription").textContent = descriptions[curView];
   ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, tasks:vTasks })[curView]();
 }
 
+function pipelineValue(ds) {
+  const values = {};
+  ds.forEach(d => { if (d.amount) values[d.cur] = (values[d.cur] || 0) + d.amount; });
+  return Object.entries(values).map(([cur, value]) => {
+    if (cur === 'VND' && value >= 1e9) return (value / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ ₫';
+    return money(value, cur);
+  }).join(' + ') || '0';
+}
 function kpiHTML() {
-  const ds = dealsFiltered();
-  const open = ds.filter(isOpen);
-  const openVal = {}; open.forEach(d => { if (d.amount) openVal[d.cur] = (openVal[d.cur]||0) + d.amount; });
-  const valStr = Object.entries(openVal).map(([c,v]) => money(v,c)).join(" + ") || "0";
-  const gameMode = GAME_LINES.includes(curLine);
-  const kpi2 = gameMode
-    ? `<div class="kpi"><div class="k">Mô hình doanh thu</div><div class="v" style="font-size:18px">Rev share</div><div class="s">Deal game không có giá trị HĐ cố định — mở deal để xem term + link HĐ</div></div>`
-    : `<div class="kpi"><div class="k">Giá trị pipeline đang mở</div><div class="v" style="font-size:18px">${valStr}</div><div class="s">Chỉ tính mảng AI / Metaverse (deal dự án có giá trị HĐ)</div></div>`;
-  return `<div class="kpis">
-    <div class="kpi"><div class="k">Deal đang mở</div><div class="v">${open.length}</div><div class="s">Tổng ${ds.length} deal</div></div>
-    ${kpi2}
-    <div class="kpi"><div class="k">Deal quá hạn việc / nguội &gt;5 ngày</div><div class="v">${open.filter(d=>d.idle>=5).length}</div><div class="s">Cần follow-up ngay</div></div>
-    <div class="kpi"><div class="k">Lead mới chưa xử lý</div><div class="v">${S.leads.filter(l=>(curLine==="all"||l.line===curLine)&&l.status==="new").length}</div><div class="s">Trong hộp Leads</div></div>
+  const ds = dealsFiltered(), open = ds.filter(isOpen), gameMode = GAME_LINES.includes(curLine);
+  const item = (label, value, description, icon, cls='') => `<div class="kpi ${cls}"><span class="kpi-icon">${SavaUI.icon(icon)}</span><div class="k">${label}</div><div class="v ${typeof value === 'string' ? 'text-value' : ''}">${value}</div><div class="s">${description}</div></div>`;
+  return `<div class="kpis">${item('Deal đang mở', open.length, `Trên tổng ${ds.length} cơ hội`, 'pipeline')}
+    ${gameMode ? item('Mô hình doanh thu', 'Rev share', 'Xem thỏa thuận trong từng deal', 'money') : item('Giá trị pipeline', pipelineValue(open), 'Giá trị hợp đồng dự kiến · AI & Metaverse', 'money')}
+    ${item('Deal cần theo dõi', open.filter(d=>d.idle>=5).length, 'Chưa cập nhật từ 5 ngày trở lên', 'clock', 'attention')}
+    ${item('Lead mới', S.leads.filter(l=>(curLine==='all'||l.line===curLine)&&l.status==='new').length, 'Chưa xử lý trong hộp Leads', 'inbox')}
   </div>`;
 }
 function vDash() {
-  const lines = curLine === "all" ? Object.keys(LINES) : [curLine];
+  const lines = curLine === 'all' ? Object.keys(LINES) : [curLine];
+  const icons = {game_studio:'game',publishing:'pipeline',ai:'spark',metaverse:'cube'};
   const funnel = lines.map(k => {
     const L = LINES[k];
-    const rows = L.stages.filter(s => s[0] !== "lost").map(s => {
-      const ds = S.deals.filter(d => d.line === k && d.stage === s[0]);
-      const amt = {}; ds.forEach(d => { if (d.amount) amt[d.cur] = (amt[d.cur]||0) + d.amount; });
-      const amtStr = GAME_LINES.includes(k) ? "theo rev share" : (Object.entries(amt).map(([c,v]) => money(v,c)).join(" + ") || "—");
-      const max = 6;
-      return `<div class="funnel-row" style="cursor:pointer" title="Bấm để mở pipeline mảng này" onclick="curLine='${k}'; setView('board')"><div class="nm">${s[1]} <span class="mut">(${ds.length})</span></div><div class="bar"><i style="width:${Math.min(100, ds.length/max*100)}%; background:${L.color}"></i></div><div class="amt">${amtStr}</div></div>`;
-    }).join("");
-    return `<div class="panel"><h3><span class="chip" style="background:${L.color}">${L.name}</span> <span class="mut">${L.desc} — đối tượng: ${L.target}</span></h3>${rows}</div>`;
-  }).join("");
-  const tasks = S.tasks.filter(t => !t.done && (curLine === "all" || (t.deal && (S.deals.find(x => x.id === t.deal) || {}).line === curLine))).slice(0,5).map(taskRow).join("");
-  const acts = S.activities.filter(a => curLine === "all" || (S.deals.find(x => x.id === a.deal) || {}).line === curLine).slice(0,5).map(a => { const d = S.deals.find(x=>x.id===a.deal); return `<div class="tl"><div class="ev" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}><b>${a.type}</b>${a.url ? " 🔗" : ""} — ${d?d.title:""}<div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`; }).join("");
-  document.getElementById("view").innerHTML = kpiHTML() + `<div class="grid2"><div>${funnel}</div><div>
-    <div class="panel"><h3>⏰ Việc cần làm</h3>${tasks}</div>
-    <div class="panel"><h3>🕘 Hoạt động gần nhất</h3>${acts}</div></div></div>`;
+    const dsLine = S.deals.filter(d => d.line === k && (!query || (d.title+' '+comp(d.company).name).toLowerCase().includes(query)));
+    const open = dsLine.filter(isOpen), max = Math.max(1, dsLine.length);
+    const rows = L.stages.filter(s=>s[0]!=='lost').map(stage => {
+      const count = dsLine.filter(d=>d.stage===stage[0]).length;
+      return `<div class="funnel-row" title="Mở pipeline ${L.name}: ${stage[1]}" onclick="curLine='${k}';setView('board')"><div class="nm">${stage[1]}</div><div class="bar"><i style="width:${count/max*100}%;background:${L.color}"></i></div><div class="stage-count">${count}</div></div>`;
+    }).join('');
+    return `<section class="panel line-panel" style="--line-accent:${L.color}"><div class="line-panel-heading"><span class="line-symbol">${SavaUI.icon(icons[k])}</span><div><h3>${L.name}</h3><p>${L.target}</p></div><button class="icon-button line-open" onclick="curLine='${k}';setView('board')" aria-label="Mở pipeline ${L.name}">${SavaUI.icon('arrow')}</button></div><div class="line-total"><strong>${open.length}</strong><span>deal đang mở</span></div><div class="line-value">${GAME_LINES.includes(k)?'Hợp tác theo thỏa thuận rev share':pipelineValue(open)+' · Giá trị dự kiến'}</div>${rows}</section>`;
+  }).join('');
+  const scopedTasks = S.tasks.filter(t=>!t.done&&(curLine==='all'||(S.deals.find(x=>x.id===t.deal)||{}).line===curLine)&&(!query||(t.title+' '+(S.deals.find(x=>x.id===t.deal)||{}).title).toLowerCase().includes(query)));
+  const tasks = scopedTasks.slice(0,5).map(taskRow).join('') || '<div class="empty-state">Không có công việc phù hợp.</div>';
+  const activityIcons = {Meeting:'meeting',Note:'note',Call:'call',Email:'mail',Demo:'cube'};
+  const activities = S.activities.filter(a=>(curLine==='all'||(S.deals.find(x=>x.id===a.deal)||{}).line===curLine)&&(!query||(a.text+' '+(S.deals.find(x=>x.id===a.deal)||{}).title).toLowerCase().includes(query))).slice(0,4).map(a=>{
+    const d = S.deals.find(x=>x.id===a.deal);
+    return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${d?d.title:a.type}</strong><p>${a.text}</p><div class="when">${a.type} · ${USERS[a.who]} · ${a.when}</div></div></div>`;
+  }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
+  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả công việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>`;
 }
 function taskRow(t) {
   const d = S.deals.find(x => x.id === t.deal);
-  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}>${t.title}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}'); return false">${d.title}</a> · `:''}${USERS[t.assignee]} · <span class="${t.overdue&&!t.done?'overdue':''}">${t.due}${t.overdue&&!t.done?' — QUÁ HẠN':''}</span></div></div><div style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" onclick="editTask('${t.id}')">✏️</button><button class="btn ghost small" title="Xóa việc" onclick="deleteTask('${t.id}')">🗑</button></div></div>`;
+  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`onclick="openDeal('${d.id}')"`:''}>${t.title}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}');return false">${d.title}</a><br>`:''}${USERS[t.assignee]} · <span class="${t.overdue&&!t.done?'overdue':''}">${t.due}${t.overdue&&!t.done?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
 
 function vBoard() {
   const line = curLine === "all" ? "game_studio" : curLine;
-  const note = curLine === "all" ? `<div class="demo-banner" style="background:#eff6ff;border-color:#93c5fd;color:#1e40af">Đang xem pipeline <b>Game Studio</b> — bấm tab từng mảng ở trên để xem pipeline của mảng đó (mỗi mảng 1 pipeline riêng).</div>` : "";
+  const note = curLine === "all" ? `<div class="prototype-note" style="padding:11px 14px;margin-bottom:18px">Đang xem <b>Game Studio</b>. Chọn mảng ở trên để đổi pipeline.</div>` : "";
   const L = LINES[line];
   const cols = L.stages.map(s => {
     const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (!query || (d.title+" "+comp(d.company).name).toLowerCase().includes(query)));
@@ -321,10 +349,10 @@ function vCompanies() {
   const rows = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query))).map(c => {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     const roleChips = Object.entries(c.roles).map(([k,r]) => `<span class="chip" style="background:${LINES[k].color}">${LINES[k].name}: ${r}</span>`).join("");
-    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${c.name}</b><div class="mut">${c.type} · 👆 bấm để xem chi tiết</div></td><td>${roleChips}</td><td>${c.contact}<div class="mut">${c.phone}</div></td><td><b>${open} deal mở</b><div class="mut">bấm dòng để mở deal</div></td><td>${c.last}</td></tr>`;
+    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${c.name}</b><div class="mut">${c.type}</div></td><td>${roleChips}</td><td>${c.contact}<div class="mut">${c.phone}</div></td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${c.last}</td></tr>`;
   }).join("");
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có khách nào ở mảng này.</td></tr>'}</table>
-  <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để mở hồ sơ công ty: xem toàn bộ deal của họ, bấm tiếp vào từng deal để xem term / hợp đồng / timeline. Một công ty chỉ có 1 hồ sơ duy nhất nhưng mang nhiều vai trò: VD FreshMart vừa là khách mảng AI vừa là khách mảng Metaverse.</div></div>`;
+  <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 
 function vGames() {
@@ -339,7 +367,7 @@ function vGames() {
       <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>d.title).join("; ") || "—"}</div></div>`;
   }).join("");
   const emptyNote = !show.length && (curLine === "ai" || curLine === "metaverse") ? `<div class="panel mut" style="font-size:13.5px">Mảng này không dùng game — game chỉ thuộc mảng Game Studio (game của Sava) và Publishing (game đối tác).</div>` : "";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">💡 <b>Bấm vào thẻ game</b> để xem chi tiết + các deal liên quan (bấm tiếp vào deal để mở term/hợp đồng). Mảng Game Studio dùng game <b>của Sava</b> để đi chào publisher; mảng Publishing thẩm định game <b>của đối tác</b> bằng bảng điểm như trên.</div>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">Game Studio: game của Sava. Publishing: game của đối tác.</div>`;
 }
 
 function vLeads() {
@@ -374,7 +402,7 @@ function convertLead(id) {
 
 function vTasks() {
   const list = S.tasks.filter(t => !query || t.title.toLowerCase().includes(query)).map(taskRow).join("");
-  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (3 người)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}<div class="mut" style="margin-top:8px">Bấm ô vuông để đánh dấu xong — ở bản thật, việc quá hạn sẽ hiện badge đỏ ở Tổng quan và gửi digest mỗi sáng.</div></div>`;
+  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (3 người)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành công việc.</div></div>`;
 }
 
 /* Drawer chi tiết deal */
@@ -1128,3 +1156,4 @@ render();
 </script>
 </body>
 </html>
+
