@@ -144,7 +144,15 @@
     <label>Tên deal</label>
     <input id="f_title" placeholder="VD: Game X — Publisher Y">
     <label>Công ty / đối tác</label>
-    <input id="f_company" placeholder="Tên công ty">
+    <input id="f_company" placeholder="Tên công ty" oninput="fillDealGames()">
+    <div id="f_gameWrap" style="display:none">
+      <label>Game gắn với deal <span id="f_gameReq" style="color:#dc2626"></span></label>
+      <select id="f_game" onchange="onDealFormGameChange()"></select>
+      <div id="f_newGameWrap" style="display:none; margin-top:6px">
+        <input id="f_newGame" placeholder="Tên game mới — sẽ tạo game đối tác gắn công ty ở trên">
+      </div>
+      <div class="mut" id="f_gameHint" style="margin-top:4px"></div>
+    </div>
     <label id="f_amount_label">Giá trị dự kiến</label>
     <input id="f_amount" type="number" placeholder="500000000">
     <label>Tiền tệ</label>
@@ -292,6 +300,7 @@ function vBoard() {
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
     const cards = ds.map(d => `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t">${d.title}</div><div class="c">${comp(d.company).name}${d.game?" · 🎮 "+game(d.game).title:""}</div>
+      ${d.line==="publishing" ? (d.pubos&&d.pubos.sourcingId ? '<div class="c" style="color:#16a34a">✅ Đã đồng bộ Publishing OS</div>' : d.pubosPending ? '<div class="c" style="color:#d97706">⏳ Chờ đồng bộ Publishing OS</div>' : '') : ''}
       <div class="a">${isGame(d) ? "🤝 " + (d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
       <div class="meta"><span>👤 ${USERS[d.owner]}</span><span>📅 ${d.due}</span><span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`).join("");
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
@@ -359,7 +368,8 @@ function convertLead(id) {
   if (GAME_LINES.includes(l.line)) { nd.term = { rev_share:"Chưa đề xuất", advance:"—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" }; nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" }; }
   else { nd.amount = 0; nd.cur = "VND"; }
   S.deals.push(nd);
-  save(); toast("Đã chuyển lead " + l.name + " thành deal ở stage đầu của mảng " + LINES[l.line].name); setView("board"); if (curLine==="all") curLine = l.line; render();
+  save(); pubosAfterDealSaved(nd);
+  toast("Đã chuyển lead " + l.name + " thành deal ở stage đầu của mảng " + LINES[l.line].name); setView("board"); if (curLine==="all") curLine = l.line; render();
 }
 
 function vTasks() {
@@ -414,6 +424,11 @@ function openDeal(id) {
     <span class="chip" style="background:${L.color}">${L.name}</span>
     <h2>${d.title}</h2><div class="mut">${c.id ? `<a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${c.name} →</a>` : `${c.name}`} · ${c.type}${g?` · <a href="#" onclick="openGame('${g.id}'); return false" title="Mở game">🎮 ${g.title} →</a>`:""}</div>
     <div style="display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap"><button class="btn" onclick="editDeal('${d.id}')">✏️ Sửa thông tin deal</button><button class="btn danger" onclick="deleteDeal('${d.id}')">🗑 Xóa deal</button></div>
+    ${d.line === "publishing" ? `<div style="margin-top:10px;font-size:13px">${d.pubos && d.pubos.sourcingId
+      ? `✅ <b>Đã đồng bộ Publishing OS</b> · Sourcing của deal này: <b>${d.pubos.sourcingId}</b>${d.pubosDirty ? ' · <span style="color:#d97706;font-weight:600">⏳ có thay đổi chờ đồng bộ</span>' : ''}<div id="pubosDealResult" style="margin-top:8px"></div>`
+      : d.pubosPending
+        ? `⏳ <b>Chờ đồng bộ Publishing OS</b> — deal sẽ tự đẩy sang khi CRM kết nối Publishing OS bằng tài khoản Editor/Admin.`
+        : `Chưa đồng bộ Publishing OS${d.game ? "" : " — gắn game cho deal này (nút ✏️ Sửa) để đủ điều kiện đồng bộ"}.`}</div>` : ""}
     <div class="kv">
       ${valueRows}
       <div class="k">Người phụ trách</div><div>${USERS[d.owner]}</div>
@@ -441,6 +456,8 @@ function openDeal(id) {
     <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng sửa trực tiếp ở khối trên, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>`;
   document.getElementById("drawer").classList.add("on");
   document.getElementById("scrim").classList.add("on");
+  /* Drawer deal: ưu tiên kết quả của sourcing RIÊNG deal này (game có thể có nhiều deal). */
+  if (d.line === "publishing" && d.pubos && d.pubos.sourcingId && window.PubOS && PubOS.isConnected()) { try { PubOS.loadDealResultIntoDrawer(d, g); } catch (e) {} }
 }
 function moveStage(id, stage) { const d = S.deals.find(x=>x.id===id); d.stage = stage; d.idle = 0; save(); openDeal(id); render(); toast("Đã chuyển stage: " + stageOf(d.line, stage)[1]); }
 function saveTermContract(id) {
@@ -538,6 +555,75 @@ async function pubosFetchResult(id) {
   if (target) target.innerHTML = '<div class="mut">⏳ Đang lấy kết quả từ Publishing OS...</div>';
   await PubOS.loadResultIntoDrawer(g);
 }
+/* --- Điều phối đồng bộ CRM <-> Publishing OS theo DEAL ---
+   Deal là đơn vị kích hoạt: deal Publishing có company + game mới đồng bộ.
+   Tạo công ty/game đơn lẻ KHÔNG tự đẩy. Không bao giờ chặn người dùng:
+   chưa kết nối / Viewer / lỗi mạng -> cờ pubosPending (chưa đẩy) hoặc
+   pubosDirty (đã liên kết nhưng sửa chưa đẩy) + đồng bộ bù khi kết nối lại. */
+function pubosCanSync() { return !!window.PubOS && PubOS.isConnected() && PubOS.canEdit(); }
+function pubosDealEligible(d) { return !!d && d.line === "publishing" && !!d.company && !!d.game && !(d.pubos && d.pubos.sourcingId); }
+async function pubosAfterDealSaved(d) {
+  if (!d || d.line !== "publishing" || !d.company || !d.game) return;
+  const linked = !!(d.pubos && d.pubos.sourcingId);
+  if (!pubosCanSync()) {
+    if (!linked && !d.pubosPending) { d.pubosPending = true; save(); }
+    else if (linked && !d.pubosDirty) { d.pubosDirty = true; save(); }
+    return;
+  }
+  const g = game(d.game);
+  if (!g) { if (!linked) { d.pubosPending = true; save(); } return; }
+  try {
+    if (!linked) {
+      const m = await PubOS.pushDeal(g, comp(d.company).name);
+      d.pubos = { sourcingId: m.sourcingId, pushedAt: m.pushedAt, pushedBy: m.pushedBy };
+      delete d.pubosPending; delete d.pubosDirty;
+      save(); render(); refreshDrawer();
+      toast("Đã đồng bộ deal sang Publishing OS: " + d.title);
+    } else {
+      await PubOS.syncDealSourcing(d, g, comp(d.company).name);
+      if (d.pubosDirty) { delete d.pubosDirty; save(); render(); refreshDrawer(); }
+    }
+  } catch (e) {
+    if (!linked) d.pubosPending = true; else d.pubosDirty = true;
+    save(); render();
+  }
+}
+async function pubosSyncCompanyNow(c) {
+  const linkedGame = S.games.find(g => g.company === c.id && g.pubos && g.pubos.partnerId);
+  const linkedDeal = S.deals.find(d => d.company === c.id && d.pubos && d.pubos.sourcingId);
+  await PubOS.syncPartner(c, linkedGame ? linkedGame.pubos.partnerId : null, linkedDeal ? linkedDeal.pubos.sourcingId : null);
+  if (c.pubosDirty) { delete c.pubosDirty; save(); }
+}
+function pubosAfterCompanySaved(c) {
+  if (!c || !window.PubOS) return;
+  const linked = S.games.some(g => g.company === c.id && g.pubos && g.pubos.gameId) || S.deals.some(d => d.company === c.id && d.pubos && d.pubos.sourcingId);
+  if (!linked) return; /* công ty chưa liên kết PubOS -> không đẩy gì cả */
+  if (!pubosCanSync()) { if (!c.pubosDirty) { c.pubosDirty = true; save(); } return; }
+  pubosSyncCompanyNow(c).catch(() => { c.pubosDirty = true; save(); });
+}
+function pubosAfterGameSaved(g) {
+  if (!g || g.own !== "partner" || !(g.pubos && g.pubos.gameId) || !window.PubOS) return;
+  if (!pubosCanSync()) { if (!g.pubosDirty) { g.pubosDirty = true; save(); } return; }
+  const studio = g.company ? comp(g.company).name : "";
+  PubOS.syncGame(g, studio).then(() => { if (g.pubosDirty) { delete g.pubosDirty; save(); render(); refreshDrawer(); } })
+    .catch(() => { g.pubosDirty = true; save(); });
+}
+let pubosSweeping = false;
+async function pubosSweep() {
+  if (pubosSweeping || !pubosCanSync()) return;
+  pubosSweeping = true;
+  try {
+    for (const c of S.companies.filter(x => x.pubosDirty)) { try { await pubosSyncCompanyNow(c); } catch (e) {} }
+    for (const g of S.games.filter(x => x.pubosDirty && x.pubos && x.pubos.gameId)) {
+      try { await PubOS.syncGame(g, g.company ? comp(g.company).name : ""); delete g.pubosDirty; } catch (e) {}
+    }
+    /* Chỉ đẩy bù deal ĐÃ gắn cờ chờ (tạo/sửa lúc chưa kết nối) — không tự đẩy
+       deal cũ/dữ liệu mẫu chưa từng được đánh dấu chờ đồng bộ. */
+    for (const d of S.deals.filter(x => x.line === "publishing" && (x.pubosPending || x.pubosDirty))) { await pubosAfterDealSaved(d); }
+    save(); render(); refreshDrawer();
+  } finally { pubosSweeping = false; }
+}
+window.onPubOSConnected = function () { pubosSweep(); };
 function openLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   drawerCtx = { type: "lead", id };
@@ -578,7 +664,12 @@ function openAddFor(companyId) {
 function openAdd() {
   const sel = document.getElementById("f_line");
   sel.innerHTML = Object.entries(LINES).map(([k,v]) => `<option value="${k}" ${k===curLine?'selected':''}>${v.name}</option>`).join("");
-  fillStages(); document.getElementById("modal").classList.add("on");
+  fillStages();
+  /* Reset ô game mỗi lần mở form — tránh sót lựa chọn/tên game mới của lần tạo trước */
+  const fg = document.getElementById("f_game"); if (fg) fg.value = "";
+  const fng = document.getElementById("f_newGame"); if (fng) fng.value = "";
+  onDealFormGameChange();
+  document.getElementById("modal").classList.add("on");
 }
 function fillStages() {
   const line = document.getElementById("f_line").value;
@@ -586,16 +677,66 @@ function fillStages() {
   document.getElementById("f_amount_label").textContent = GAME_LINES.includes(line)
     ? "Advance / MG dự kiến (để trống cũng được — deal game tính theo rev share, term nhập sau trong chi tiết deal)"
     : "Giá trị hợp đồng dự kiến";
+  fillDealGames();
+}
+/* Ô chọn game trong form tạo deal: mảng game mới hiện.
+   Publishing: chỉ liệt kê game đối tác (own='partner') thuộc đúng công ty vừa gõ
+   + lựa chọn tạo nhanh game mới. Game Studio: game của Sava (own='ours'). */
+function fillDealGames() {
+  const wrap = document.getElementById("f_gameWrap"), selG = document.getElementById("f_game");
+  if (!wrap || !selG) return;
+  const line = document.getElementById("f_line").value;
+  if (!GAME_LINES.includes(line)) { wrap.style.display = "none"; return; }
+  wrap.style.display = "";
+  const cName = document.getElementById("f_company").value.trim();
+  const c = S.companies.find(x => x.name === cName);
+  const gs = line === "publishing"
+    ? S.games.filter(g => g.own === "partner" && c && g.company === c.id)
+    : S.games.filter(g => g.own === "ours");
+  const prev = selG.value;
+  selG.innerHTML = `<option value="">— Chọn game ${line === "publishing" ? "(bắt buộc)" : "(không bắt buộc)"} —</option>` +
+    gs.map(g => `<option value="${g.id}">${esc(g.title)}</option>`).join("") +
+    `<option value="__new__">＋ Tạo game mới…</option>`;
+  if ([...selG.options].some(o => o.value === prev)) selG.value = prev;
+  document.getElementById("f_gameReq").textContent = line === "publishing" ? "(bắt buộc — deal Publishing phải gắn 1 game của công ty này)" : "";
+  document.getElementById("f_gameHint").textContent = line === "publishing"
+    ? (c ? (gs.length ? "Game đối tác của " + c.name + " — deal tạo xong sẽ tự đồng bộ sang Publishing OS." : "Công ty này chưa có game đối tác nào — chọn “＋ Tạo game mới…” để tạo nhanh tại đây.") : "Gõ đúng tên công ty đã có để thấy game của họ, hoặc chọn “＋ Tạo game mới…” (game mới sẽ gắn với công ty vừa gõ).")
+    : "Game của Sava đem đi chào publisher (không đồng bộ Publishing OS).";
+  onDealFormGameChange();
+}
+function onDealFormGameChange() {
+  const selG = document.getElementById("f_game"), nw = document.getElementById("f_newGameWrap");
+  if (nw) nw.style.display = selG && selG.value === "__new__" ? "" : "none";
 }
 function closeAdd() { document.getElementById("modal").classList.remove("on"); }
 function saveDeal() {
   const title = document.getElementById("f_title").value.trim(); if (!title) { toast("Nhập tên deal trước đã"); return; }
   const line = document.getElementById("f_line").value;
+  /* Game của deal: kiểm tra TRƯỚC khi tạo công ty/game để hủy sớm không để lại rác.
+     Deal Publishing BẮT BUỘC có company + game (game là đơn vị được pick để phát hành). */
+  let gameSel = "", newGameTitle = "";
+  if (GAME_LINES.includes(line)) {
+    gameSel = document.getElementById("f_game") ? document.getElementById("f_game").value : "";
+    if (gameSel === "__new__") {
+      newGameTitle = document.getElementById("f_newGame").value.trim();
+      if (!newGameTitle) { toast("Nhập tên game mới, hoặc chọn 1 game có sẵn"); return; }
+    }
+    if (line === "publishing" && !gameSel) { toast("Deal Publishing bắt buộc gắn 1 game — chọn game của công ty hoặc tạo game mới ngay trong form"); return; }
+  }
   const companyName = document.getElementById("f_company").value.trim() || "Đối tác mới (mẫu)";
   let c = S.companies.find(x => x.name === companyName);
   if (!c) { c = { id:"c"+Date.now(), name:companyName, type:LINES[line].target, roles:{[line]:LINES[line].target}, contact:"—", phone:"", last:"Vừa tạo" }; S.companies.push(c); }
   else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
+  let gameId = "";
+  if (gameSel === "__new__") {
+    const ng = { id:"g"+Date.now(), title:newGameTitle, own: line === "publishing" ? "partner" : "ours", genre:"", platform:"", stage:"", emoji:"🎮", desc:"", bdNote:"", buildUrl:"", trailerUrl:"", mktEval:null };
+    if (line === "publishing") { ng.company = c.id; ng.scores = null; ng.verdict = "Đang chấm"; }
+    else { delete ng.mktEval; }
+    S.games.push(ng); gameId = ng.id;
+  } else if (gameSel) { const gg = game(gameSel); if (gg) gameId = gg.id; }
+  if (line === "publishing" && !gameId) { toast("Deal Publishing bắt buộc gắn 1 game — chọn game của công ty hoặc tạo game mới ngay trong form"); return; }
   const nd = { id:"d"+Date.now(), line, title, company:c.id, leads:[], stage:document.getElementById("f_stage").value, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
+  if (gameId) nd.game = gameId;
   if (GAME_LINES.includes(line)) {
     const adv = +document.getElementById("f_amount").value||0;
     nd.term = { rev_share:"Chưa đề xuất", advance: adv ? adv.toLocaleString("vi-VN") : "—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" };
@@ -603,6 +744,7 @@ function saveDeal() {
   } else { nd.amount = +document.getElementById("f_amount").value||0; nd.cur = document.getElementById("f_cur").value; }
   S.deals.push(nd);
   save(); closeAdd(); curLine = line; setView("board"); toast("Đã thêm deal vào pipeline " + LINES[line].name);
+  pubosAfterDealSaved(nd);
 }
 
 /* ===== CRUD: sửa / xóa mọi đối tượng ngay trong prototype ===== */
@@ -674,6 +816,7 @@ function saveEditDeal(id) {
   }
   save(); closeEdit(); render(); openDeal(id);
   toast("Đã lưu deal: " + d.title);
+  pubosAfterDealSaved(d);
 }
 function deleteDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
@@ -709,6 +852,7 @@ function saveCompany(id) {
   if (id) { c = comp(id); Object.assign(c, { name, type: v("e_ctype"), contact: v("e_ccontact"), phone: v("e_cphone"), roles, last: "Vừa sửa" }); }
   else { c = { id: "c" + Date.now(), name, type: v("e_ctype") || "Đối tác", contact: v("e_ccontact") || "—", phone: v("e_cphone"), last: "Vừa tạo", roles }; S.companies.push(c); }
   save(); closeEdit(); render(); openCompany(c.id); toast("Đã lưu công ty: " + name);
+  pubosAfterCompanySaved(c);
 }
 function deleteCompany(id) {
   const c = comp(id); if (!c.id) return;
@@ -764,6 +908,7 @@ function saveGame(id) {
   if (id) { g = game(id); Object.assign(g, data); if (own === "ours") { delete g.company; delete g.scores; delete g.mktEval; delete g.verdict; } if (data.company === undefined) delete g.company; }
   else { g = { id: "g" + Date.now(), mktEval: null, ...data }; if (own === "ours") { delete g.company; delete g.scores; delete g.mktEval; delete g.verdict; } if (data.company === undefined) delete g.company; S.games.push(g); }
   save(); closeEdit(); render(); openGame(g.id); toast("Đã lưu game: " + title);
+  pubosAfterGameSaved(g);
 }
 function deleteGame(id) {
   const g = game(id); if (!g) return;

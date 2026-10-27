@@ -128,6 +128,17 @@
     return _profile;
   }
 
+  /* Báo cho CRM (index.html) mỗi khi kết nối thành công — kể cả khôi phục
+     session — để CRM tự đẩy bù deal đang chờ + đồng bộ bù record dirty. */
+  function notifyConnected() {
+    if (typeof global.onPubOSConnected === "function") {
+      try {
+        var p = global.onPubOSConnected();
+        if (p && typeof p.catch === "function") p.catch(function () {});
+      } catch (e) {}
+    }
+  }
+
   /* ---------------- auth ---------------- */
   async function connect(email, password) {
     var client = getClient();
@@ -139,6 +150,7 @@
     if (!_session) throw new Error("Đăng nhập không trả về session.");
     await loadProfile();
     renderSidebar();
+    notifyConnected();
     return { session: _session, profile: _profile };
   }
   async function disconnect() {
@@ -157,7 +169,7 @@
         var res = await client.auth.getSession();
         if (res && res.error) throw res.error;
         var sess = res && res.data ? res.data.session : null;
-        if (sess) { _session = sess; await loadProfile(); }
+        if (sess) { _session = sess; await loadProfile(); notifyConnected(); }
       }
     } catch (e) { _lastError = e && e.message ? e.message : String(e); }
     renderSidebar();
@@ -179,17 +191,23 @@
     return (global.supabase && typeof global.supabase.createClient === "function") ? true : null;
   }
 
-  /* ---------------- push game ---------------- */
-  async function pushGame(crmGame, studioName) {
+  /* ---------------- push game ----------------
+     Tách 2 bước dùng chung:
+     - ensurePartnerGame: partner theo tên studio (không tạo trùng) + upsert game
+       (giữ nguyên scorecard/tests và các field intake phía PubOS không thuộc BD).
+     - createSourcingRecord: tạo 1 sourcing stage Lead mới.
+     pushGame (nút thủ công trong drawer game) = ensure + sourcing nếu game chưa có.
+     pushDeal (tự động theo deal Publishing) = ensure + LUÔN tạo sourcing riêng cho deal. */
+  function assertCanPush(crmGame, studioName) {
     if (!crmGame) throw new Error("Không có game để đẩy.");
     if (!isConnected()) throw new Error("Chưa kết nối Publishing OS — hãy Kết nối trước.");
     if (!canEdit()) throw new Error("Tài khoản Viewer chỉ đọc được, không đẩy được dữ liệu. Cần role Editor/Admin trên Publishing OS.");
     var studio = String(studioName || "").trim();
     if (!studio) throw new Error("Game chưa có studio sở hữu — gắn studio cho game trước khi đẩy.");
-    var email = userEmail();
-    var uid = userId();
+    return studio;
+  }
+  async function ensurePartnerGame(crmGame, studio, email, uid) {
     var existing = (crmGame.pubos && typeof crmGame.pubos === "object") ? crmGame.pubos : null;
-    var isUpdate = !!(existing && existing.gameId);
 
     /* (a) Partner theo tên studio */
     var partnerRows = await selectAll("partners");
@@ -264,42 +282,56 @@
       data: gameRecord,
       updated_by: uid
     });
-
-    /* (c) Sourcing stage Lead — chỉ tạo khi chưa liên kết (đẩy cập nhật không tạo trùng) */
-    var sourcingId = (existing && existing.sourcingId) || null;
-    if (!isUpdate || !sourcingId) {
-      var sourcingRows = await selectAll("sourcing");
-      sourcingId = nextPrefixedId(sourcingRows.map(function (r) { return recordOf(r).id || r.id; }), "SRC-");
-      var sourcingRecord = {
-        id: sourcingId,
-        partnerId: partnerId,
-        gameId: gameId,
-        leadName: crmGame.title || "",
-        game: crmGame.title || "",
-        studio: studio,
-        source: "SAVA CRM",
-        screeningResult: "",
-        status: "Đang xử lý",
-        stage: "Lead",
-        leadDate: todayISO(),
-        owner: email
-      };
-      await upsertRow("sourcing", {
-        id: sourcingId,
-        partner_id: sourcingRecord.partnerId,
-        game_id: sourcingRecord.gameId,
-        lead_name: sourcingRecord.leadName,
-        stage: sourcingRecord.stage,
-        owner: sourcingRecord.owner,
-        data: sourcingRecord,
-        updated_by: uid
-      });
-    }
-
-    /* (d) Mapping lưu vào game CRM (object được truyền vào chính là game trong S.games) */
-    var mapping = {
+    return { partnerId: partnerId, gameId: gameId };
+  }
+  async function createSourcingRecord(partnerId, gameId, crmGame, studio, email, uid) {
+    var sourcingRows = await selectAll("sourcing");
+    var sourcingId = nextPrefixedId(sourcingRows.map(function (r) { return recordOf(r).id || r.id; }), "SRC-");
+    var sourcingRecord = {
+      id: sourcingId,
       partnerId: partnerId,
       gameId: gameId,
+      leadName: crmGame.title || "",
+      game: crmGame.title || "",
+      studio: studio,
+      source: "SAVA CRM",
+      screeningResult: "",
+      status: "Đang xử lý",
+      stage: "Lead",
+      leadDate: todayISO(),
+      owner: email
+    };
+    await upsertRow("sourcing", {
+      id: sourcingId,
+      partner_id: sourcingRecord.partnerId,
+      game_id: sourcingRecord.gameId,
+      lead_name: sourcingRecord.leadName,
+      stage: sourcingRecord.stage,
+      owner: sourcingRecord.owner,
+      data: sourcingRecord,
+      updated_by: uid
+    });
+    return sourcingId;
+  }
+  async function pushGame(crmGame, studioName) {
+    var studio = assertCanPush(crmGame, studioName);
+    var email = userEmail();
+    var uid = userId();
+    var existing = (crmGame.pubos && typeof crmGame.pubos === "object") ? crmGame.pubos : null;
+    var isUpdate = !!(existing && existing.gameId);
+
+    var pg = await ensurePartnerGame(crmGame, studio, email, uid);
+
+    /* Sourcing stage Lead — chỉ tạo khi chưa liên kết (đẩy cập nhật không tạo trùng) */
+    var sourcingId = (existing && existing.sourcingId) || null;
+    if (!isUpdate || !sourcingId) {
+      sourcingId = await createSourcingRecord(pg.partnerId, pg.gameId, crmGame, studio, email, uid);
+    }
+
+    /* Mapping lưu vào game CRM (object được truyền vào chính là game trong S.games) */
+    var mapping = {
+      partnerId: pg.partnerId,
+      gameId: pg.gameId,
       sourcingId: sourcingId,
       pushedAt: new Date().toISOString(),
       pushedBy: email
@@ -308,12 +340,166 @@
     return mapping;
   }
 
-  /* ---------------- fetch result ---------------- */
-  async function fetchResult(crmGame) {
-    if (!crmGame || !crmGame.pubos || !crmGame.pubos.gameId) throw new Error("Game chưa liên kết Publishing OS.");
+  /* Đẩy theo DEAL Publishing: partner/game dùng mapping game-level như pushGame,
+     nhưng sourcing là CỦA RIÊNG deal — mỗi deal 1 sourcing mới (stage Lead).
+     g.pubos giữ vai trò mapping game-level: giữ sourcingId cũ nếu đã có (để
+     fetchResult ở drawer game không vỡ), chỉ điền khi game chưa từng có sourcing.
+     Trả về mapping cho deal: {sourcingId, pushedAt, pushedBy} (+ id để tiện debug). */
+  async function pushDeal(crmGame, studioName) {
+    var studio = assertCanPush(crmGame, studioName);
+    var email = userEmail();
+    var uid = userId();
+    var prev = (crmGame.pubos && typeof crmGame.pubos === "object") ? crmGame.pubos : {};
+    var pg = await ensurePartnerGame(crmGame, studio, email, uid);
+    var sourcingId = await createSourcingRecord(pg.partnerId, pg.gameId, crmGame, studio, email, uid);
+    var pushedAt = new Date().toISOString();
+    crmGame.pubos = {
+      partnerId: pg.partnerId,
+      gameId: pg.gameId,
+      sourcingId: prev.sourcingId || sourcingId,
+      pushedAt: pushedAt,
+      pushedBy: email
+    };
+    return { sourcingId: sourcingId, partnerId: pg.partnerId, gameId: pg.gameId, pushedAt: pushedAt, pushedBy: email };
+  }
+
+  /* ---------------- đồng bộ 1 chiều các trường BD sở hữu ----------------
+     TUYỆT ĐỐI không ghi đè trường của MKT/PubOS: sourcing.stage/screeningResult/
+     status/các mốc ngày phễu, games.scorecard. Mọi upsert đều đọc record hiện có
+     rồi spread giữ nguyên, chỉ thay đúng trường BD sở hữu. */
+  async function syncPartner(crmCompany, partnerId, sourcingIdHint) {
+    if (!crmCompany) throw new Error("Không có công ty để đồng bộ.");
+    if (!isConnected()) throw new Error("Chưa kết nối Publishing OS — hãy Kết nối trước.");
+    if (!canEdit()) throw new Error("Tài khoản Viewer chỉ đọc được, không đồng bộ được dữ liệu.");
+    var email = userEmail();
+    var uid = userId();
+    var pid = partnerId || null;
+    if (!pid && sourcingIdHint) {
+      var srow = await selectById("sourcing", sourcingIdHint);
+      var srec = srow ? recordOf(srow) : null;
+      if (srec) pid = srec.partnerId || (srow && srow.partner_id) || null;
+    }
+    if (!pid) {
+      var rows = await selectAll("partners");
+      for (var i = 0; i < rows.length; i++) {
+        var rec0 = recordOf(rows[i]);
+        if (normName(rec0.profile && rec0.profile["Tên Partner / Studio"]) === normName(crmCompany.name)) { pid = rec0.id || rows[i].id; break; }
+      }
+    }
+    if (!pid) throw new Error("Không xác định được Partner bên Publishing OS để đồng bộ công ty.");
+    var row = await selectById("partners", pid);
+    if (!row) throw new Error("Không tìm thấy Partner " + pid + " bên Publishing OS.");
+    var rec = recordOf(row);
+    var profile = Object.assign({}, rec.profile || {}, { "Tên Partner / Studio": crmCompany.name, "Partner ID": pid });
+    if (crmCompany.type) profile["Loại hình"] = crmCompany.type;
+    if (crmCompany.contact && crmCompany.contact !== "—") profile["Đầu mối"] = crmCompany.contact;
+    if (crmCompany.phone) profile["Điện thoại"] = crmCompany.phone;
+    var newRec = Object.assign({}, rec, { id: pid, profile: profile });
+    await upsertRow("partners", {
+      id: pid,
+      name: crmCompany.name,
+      status: row.status != null ? row.status : (profile["Trạng thái"] || PARTNER_DEFAULT_STATUS),
+      owner: row.owner != null ? row.owner : (profile["Owner Publishing"] || email),
+      data: newRec,
+      updated_by: uid
+    });
+    return pid;
+  }
+  async function syncGame(crmGame, studioName) {
+    if (!crmGame || !crmGame.pubos || !crmGame.pubos.gameId) throw new Error("Game chưa liên kết Publishing OS — không có gì để đồng bộ.");
+    if (!isConnected()) throw new Error("Chưa kết nối Publishing OS — hãy Kết nối trước.");
+    if (!canEdit()) throw new Error("Tài khoản Viewer chỉ đọc được, không đồng bộ được dữ liệu.");
+    var email = userEmail();
+    var uid = userId();
+    var gameId = crmGame.pubos.gameId;
+    var grow = await selectById("games", gameId);
+    if (!grow) throw new Error("Không tìm thấy game " + gameId + " bên Publishing OS để đồng bộ.");
+    var rec = recordOf(grow);
+    var oldIntake = rec.intake || {};
+    var studio = String(studioName || "").trim() || oldIntake.Studio || "";
+    var newIntake = Object.assign({}, oldIntake, {
+      Candidate_ID: gameId,
+      Game_Title: crmGame.title || oldIntake.Game_Title || "",
+      Studio: studio,
+      Genre: crmGame.genre || oldIntake.Genre || "",
+      Platform: crmGame.platform || oldIntake.Platform || "",
+      Build_Stage: crmGame.stage || oldIntake.Build_Stage || "",
+      Owner: email,
+      Build_URL: crmGame.buildUrl || oldIntake.Build_URL || "",
+      Trailer_URL: crmGame.trailerUrl || oldIntake.Trailer_URL || "",
+      Description: crmGame.desc || oldIntake.Description || "",
+      BD_Note: crmGame.bdNote || oldIntake.BD_Note || "",
+      Source: "Từ SAVA CRM",
+      CRM_Game_ID: crmGame.id || oldIntake.CRM_Game_ID || ""
+    });
+    /* Giữ nguyên scorecard/tests + mọi key khác của record phía họ */
+    var gameRecord = Object.assign({}, rec, { id: gameId, intake: newIntake });
+    await upsertRow("games", {
+      id: gameId,
+      title: newIntake.Game_Title,
+      studio: newIntake.Studio,
+      stage: (gameRecord.scorecard && gameRecord.scorecard.decisionStage) || newIntake.Build_Stage,
+      recommendation: (gameRecord.scorecard && gameRecord.scorecard.recommendation) || (grow.recommendation != null ? grow.recommendation : null),
+      owner: newIntake.Owner,
+      data: gameRecord,
+      updated_by: uid
+    });
+    return gameId;
+  }
+  async function syncDealSourcing(crmDeal, crmGame, studioName) {
+    if (!crmDeal || !crmDeal.pubos || !crmDeal.pubos.sourcingId) throw new Error("Deal chưa liên kết Publishing OS — không có sourcing để đồng bộ.");
+    if (!crmGame) throw new Error("Deal chưa gắn game — không đồng bộ sourcing được.");
+    if (!isConnected()) throw new Error("Chưa kết nối Publishing OS — hãy Kết nối trước.");
+    if (!canEdit()) throw new Error("Tài khoản Viewer chỉ đọc được, không đồng bộ được dữ liệu.");
+    var email = userEmail();
+    var uid = userId();
+    var studio = String(studioName || "").trim();
+    /* Game của deal có thể vừa được đổi sang game chưa từng đẩy -> ensure trước */
+    var gameId = (crmGame.pubos && crmGame.pubos.gameId) || null;
+    var partnerId = (crmGame.pubos && crmGame.pubos.partnerId) || null;
+    if (!gameId) {
+      if (!studio) throw new Error("Deal chưa có công ty/studio — không đồng bộ sourcing được.");
+      var pg = await ensurePartnerGame(crmGame, studio, email, uid);
+      partnerId = pg.partnerId; gameId = pg.gameId;
+      crmGame.pubos = Object.assign({}, crmGame.pubos || {}, { partnerId: partnerId, gameId: gameId, pushedAt: new Date().toISOString(), pushedBy: email });
+    }
+    var srow = await selectById("sourcing", crmDeal.pubos.sourcingId);
+    if (!srow) throw new Error("Không tìm thấy sourcing " + crmDeal.pubos.sourcingId + " bên Publishing OS.");
+    var rec = recordOf(srow);
+    /* Spread record hiện có: stage/screeningResult/status/leadDate... giữ nguyên tuyệt đối,
+       chỉ thay các trường BD sở hữu (leadName/game/studio + liên kết partner/game). */
+    var newRec = Object.assign({}, rec, {
+      id: crmDeal.pubos.sourcingId,
+      partnerId: partnerId || rec.partnerId,
+      gameId: gameId || rec.gameId,
+      leadName: crmGame.title || rec.leadName || "",
+      game: crmGame.title || rec.game || "",
+      studio: studio || rec.studio || ""
+    });
+    await upsertRow("sourcing", {
+      id: crmDeal.pubos.sourcingId,
+      partner_id: newRec.partnerId,
+      game_id: newRec.gameId,
+      lead_name: newRec.leadName,
+      stage: rec.stage || (srow && srow.stage) || "Lead",
+      owner: rec.owner || (srow && srow.owner) || email,
+      data: newRec,
+      updated_by: uid
+    });
+    return crmDeal.pubos.sourcingId;
+  }
+
+  /* ---------------- fetch result ----------------
+     sourcingIdOverride: khi mở drawer DEAL, ưu tiên sourcing của chính deal đó
+     (1 game có thể có nhiều deal -> nhiều sourcing). */
+  async function fetchResult(crmGame, sourcingIdOverride) {
+    var gamePubos = (crmGame && crmGame.pubos) || {};
+    var sourcingId = sourcingIdOverride || gamePubos.sourcingId || null;
+    var gameId = gamePubos.gameId || null;
+    if (!sourcingId && !gameId) throw new Error("Game chưa liên kết Publishing OS.");
     if (!isConnected()) throw new Error("Chưa kết nối Publishing OS — hãy Kết nối để lấy kết quả đánh giá.");
-    var sourcingRow = crmGame.pubos.sourcingId ? await selectById("sourcing", crmGame.pubos.sourcingId) : null;
-    var gameRow = await selectById("games", crmGame.pubos.gameId);
+    var sourcingRow = sourcingId ? await selectById("sourcing", sourcingId) : null;
+    var gameRow = gameId ? await selectById("games", gameId) : null;
     var sData = sourcingRow ? recordOf(sourcingRow) : null;
     var gData = gameRow ? recordOf(gameRow) : null;
     return {
@@ -414,9 +600,12 @@
     var html = head +
       '<div style="font-size:13px;line-height:1.6"><b>✅ Đã liên kết Publishing OS</b><br>' +
       "Partner: <b>" + esc(p.partnerId) + "</b> · Game: <b>" + esc(p.gameId) + "</b> · Sourcing: <b>" + esc(p.sourcingId || "—") + "</b><br>" +
-      '<span class="mut">Đẩy lúc ' + esc(p.pushedAt || "") + (p.pushedBy ? " bởi " + esc(p.pushedBy) : "") + "</span></div>" +
+      '<span class="mut">Đẩy lúc ' + esc(p.pushedAt || "") + (p.pushedBy ? " bởi " + esc(p.pushedBy) : "") + "</span><br>" +
+      (g.pubosDirty
+        ? '<span style="color:#d97706;font-weight:600">⏳ Chờ đồng bộ Publishing OS — có thay đổi trong CRM chưa đẩy sang (tự đồng bộ khi kết nối lại).</span>'
+        : '<span style="color:#16a34a;font-weight:600">✅ Đã đồng bộ Publishing OS</span>') + "</div>" +
       '<div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">';
-    if (isConnected() && canEdit()) html += '<button class="btn ghost" type="button" onclick="pubosPushGame(\'' + esc(g.id) + '\')">↻ Đẩy cập nhật</button>';
+    if (isConnected() && canEdit()) html += '<button class="btn ghost" type="button" title="Đẩy cập nhật sang Publishing OS" onclick="pubosPushGame(\'' + esc(g.id) + '\')">↻ Đồng bộ lại</button>';
     if (isConnected()) html += '<button class="btn" type="button" onclick="pubosFetchResult(\'' + esc(g.id) + '\')">🔄 Lấy kết quả đánh giá</button>';
     html += '<a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="' + PUBOS_WEB + '#sourcing">🔎 Mở Sourcing ↗</a>' +
       '<a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="' + PUBOS_WEB + '#games">🎮 Mở Games ↗</a></div>';
@@ -430,6 +619,20 @@
     if (!target) return null;
     try {
       var r = await fetchResult(crmGame);
+      target.innerHTML = renderResultHTML(r);
+      return r;
+    } catch (e) {
+      target.innerHTML = '<div style="color:#dc2626;font-size:13px">⚠️ Không lấy được kết quả từ Publishing OS: ' + esc(e && e.message ? e.message : String(e)) + " — dữ liệu CRM không bị ảnh hưởng.</div>";
+      return null;
+    }
+  }
+  /* Kết quả đánh giá hiển thị trong drawer DEAL: dùng sourcing của chính deal. */
+  async function loadDealResultIntoDrawer(crmDeal, crmGame) {
+    var target = typeof document !== "undefined" ? document.getElementById("pubosDealResult") : null;
+    if (!target) return null;
+    if (!crmDeal || !crmDeal.pubos || !crmDeal.pubos.sourcingId) return null;
+    try {
+      var r = await fetchResult(crmGame, crmDeal.pubos.sourcingId);
       target.innerHTML = renderResultHTML(r);
       return r;
     } catch (e) {
@@ -457,6 +660,10 @@
     canEdit: canEdit,
     getClient: getClient,
     pushGame: pushGame,
+    pushDeal: pushDeal,
+    syncPartner: syncPartner,
+    syncGame: syncGame,
+    syncDealSourcing: syncDealSourcing,
     fetchResult: fetchResult,
     renderSidebar: renderSidebar,
     openConnectModal: openConnectModal,
@@ -466,6 +673,7 @@
     renderGameSection: renderGameSection,
     renderResultHTML: renderResultHTML,
     loadResultIntoDrawer: loadResultIntoDrawer,
+    loadDealResultIntoDrawer: loadDealResultIntoDrawer,
     _nextPrefixedId: nextPrefixedId,
     /* Chỉ dùng cho kiểm thử mock — không dùng ở production flow */
     _setMockClient: function (client, session, profile) {
