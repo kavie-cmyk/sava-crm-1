@@ -489,6 +489,86 @@
     return crmDeal.pubos.sourcingId;
   }
 
+  /* ---------------- thu hồi sourcing khi BD xóa deal ----------------
+     Logic suy stage chép đúng app.js của Publishing OS (sourcingDate /
+     sourcingQualified / sourcingCurrentStage) — không đoán field.
+     Chỉ thu hồi khi lead CHƯA bị MKT xử lý, cả 3 điều kiện cùng đúng:
+     stage suy ra === 'Lead', screeningResult trống, status === 'Đang xử lý'.
+     Thu hồi = đánh dấu Loại (status='Loại', reasonLost='Khác') + ghi chú vào
+     notes — KHÔNG xóa record (tài khoản kết nối là editor, không có quyền
+     delete; chỉ admin bên Publishing OS mới xóa được). */
+  var SOURCING_STAGES = ["Lead", "Qualified", "Evaluation", "Deal", "Test", "Launch", "Scale"];
+  function sourcingDate(x, key) {
+    if (!x) return "";
+    return x[key] || (x.milestones && x.milestones[key]) || "";
+  }
+  function sourcingQualified(x) {
+    var sr = String((x && x.screeningResult) || "").trim();
+    if (sr === "Loại") return "Không";
+    if (["Cân nhắc, cần đánh giá thêm", "Tiếp tục", "Tiếp tục nhưng cần chỉnh sửa"].indexOf(sr) !== -1) return "Có";
+    if ((x && x.qualified) === "Có" || (x && x.qualified) === true || sourcingDate(x, "qualifiedDate")) return "Có";
+    if ((x && x.qualified) === "Không" || (x && x.qualified) === false) return "Không";
+    var si = SOURCING_STAGES.indexOf(x && x.stage);
+    return si >= 1 ? "Có" : "Chờ";
+  }
+  function sourcingCurrentStage(x) {
+    if (sourcingDate(x, "scaleDate")) return "Scale";
+    if (sourcingDate(x, "launchDate")) return "Launch";
+    if (sourcingDate(x, "testDate")) return "Test";
+    if (sourcingDate(x, "dealDate")) return "Deal";
+    if (sourcingDate(x, "evaluationDate")) return "Evaluation";
+    if (sourcingQualified(x) === "Có") return "Evaluation";
+    if (sourcingDate(x, "qualifiedDate")) return "Qualified";
+    return SOURCING_STAGES.indexOf(x && x.stage) > 0 ? x.stage : "Lead";
+  }
+  function todaySaigonDDMMYYYY() {
+    try {
+      return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Saigon", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
+    } catch (e) {
+      var d = new Date();
+      return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+    }
+  }
+  async function withdrawSourcing(sourcingId) {
+    if (!sourcingId) return { ok: false, reason: "notfound" };
+    var row;
+    try {
+      row = await selectById("sourcing", sourcingId);
+    } catch (e) {
+      return { ok: false, reason: "error" };
+    }
+    if (!row) return { ok: false, reason: "notfound" };
+    var rec = recordOf(row);
+    var stage = sourcingCurrentStage(rec);
+    if (stage !== "Lead") return { ok: false, reason: "stage", stage: stage };
+    if (String(rec.screeningResult || "").trim() !== "") return { ok: false, reason: "screening", stage: stage };
+    if ((rec.status || "Đang xử lý") !== "Đang xử lý") return { ok: false, reason: "status", stage: stage };
+    /* Đủ điều kiện: ghi lại ĐÚNG shape của createSourcingRecord (cột tách sẵn
+       + data + updated_by), data giữ nguyên toàn bộ — chỉ thay 3 field. */
+    var noteLine = "BD đã xóa deal trong CRM ngày " + todaySaigonDDMMYYYY() + " — thu hồi từ SAVA CRM";
+    var newRec = Object.assign({}, rec, {
+      id: rec.id || sourcingId,
+      status: "Loại",
+      reasonLost: "Khác",
+      notes: (rec.notes ? String(rec.notes) + "\n" : "") + noteLine
+    });
+    try {
+      await upsertRow("sourcing", {
+        id: sourcingId,
+        partner_id: newRec.partnerId != null ? newRec.partnerId : (row.partner_id != null ? row.partner_id : null),
+        game_id: newRec.gameId != null ? newRec.gameId : (row.game_id != null ? row.game_id : null),
+        lead_name: newRec.leadName != null ? newRec.leadName : (row.lead_name != null ? row.lead_name : null),
+        stage: rec.stage != null ? rec.stage : (row.stage != null ? row.stage : "Lead"),
+        owner: newRec.owner != null ? newRec.owner : (row.owner != null ? row.owner : null),
+        data: newRec,
+        updated_by: userId()
+      });
+    } catch (e) {
+      return { ok: false, reason: "error" };
+    }
+    return { ok: true };
+  }
+
   /* ---------------- fetch result ----------------
      sourcingIdOverride: khi mở drawer DEAL, ưu tiên sourcing của chính deal đó
      (1 game có thể có nhiều deal -> nhiều sourcing). */
@@ -664,6 +744,7 @@
     syncPartner: syncPartner,
     syncGame: syncGame,
     syncDealSourcing: syncDealSourcing,
+    withdrawSourcing: withdrawSourcing,
     fetchResult: fetchResult,
     renderSidebar: renderSidebar,
     openConnectModal: openConnectModal,
@@ -675,6 +756,8 @@
     loadResultIntoDrawer: loadResultIntoDrawer,
     loadDealResultIntoDrawer: loadDealResultIntoDrawer,
     _nextPrefixedId: nextPrefixedId,
+    _sourcingCurrentStage: sourcingCurrentStage,
+    _sourcingQualified: sourcingQualified,
     /* Chỉ dùng cho kiểm thử mock — không dùng ở production flow */
     _setMockClient: function (client, session, profile) {
       _client = client; _session = session || null; _profile = profile || null; _libMissing = false;

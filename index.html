@@ -612,6 +612,7 @@ let pubosSweeping = false;
 async function pubosSweep() {
   if (pubosSweeping || !pubosCanSync()) return;
   pubosSweeping = true;
+  let withdrawBlocked = [];
   try {
     for (const c of S.companies.filter(x => x.pubosDirty)) { try { await pubosSyncCompanyNow(c); } catch (e) {} }
     for (const g of S.games.filter(x => x.pubosDirty && x.pubos && x.pubos.gameId)) {
@@ -620,7 +621,28 @@ async function pubosSweep() {
     /* Chỉ đẩy bù deal ĐÃ gắn cờ chờ (tạo/sửa lúc chưa kết nối) — không tự đẩy
        deal cũ/dữ liệu mẫu chưa từng được đánh dấu chờ đồng bộ. */
     for (const d of S.deals.filter(x => x.line === "publishing" && (x.pubosPending || x.pubosDirty))) { await pubosAfterDealSaved(d); }
+    /* Hàng chờ thu hồi sourcing (deal đã xóa lúc chưa kết nối / lỗi mạng):
+       kiểm LẠI điều kiện tại thời điểm sweep — đủ thì thu hồi + gỡ khỏi hàng;
+       MKT đã xử lý rồi thì gỡ khỏi hàng + báo 1 lần, TUYỆT ĐỐI không ghi gì;
+       notfound / lỗi mạng thì giữ lại trong hàng chờ, không báo ồn.
+       pubosCanSync() đã chặn ở đầu hàm nên Viewer không chạm vào hàng chờ. */
+    if (Array.isArray(S.pubosWithdrawals) && S.pubosWithdrawals.length && window.PubOS && typeof PubOS.withdrawSourcing === "function") {
+      const remaining = [];
+      for (const w of [...S.pubosWithdrawals]) {
+        let r = null;
+        try { r = await PubOS.withdrawSourcing(w.sourcingId); } catch (e) { r = null; }
+        if (r && r.ok) { /* đã thu hồi — gỡ khỏi hàng chờ */ }
+        else if (r && (r.reason === "stage" || r.reason === "screening" || r.reason === "status")) { withdrawBlocked.push(w.sourcingId); }
+        else { remaining.push(w); }
+      }
+      S.pubosWithdrawals = remaining;
+    }
     save(); render(); refreshDrawer();
+    if (withdrawBlocked.length) {
+      toast(withdrawBlocked.length === 1
+        ? "Lead " + withdrawBlocked[0] + " không còn thu hồi được vì MKT đã xử lý"
+        : "Lead " + withdrawBlocked.join(", ") + " không còn thu hồi được vì MKT đã xử lý");
+    }
   } finally { pubosSweeping = false; }
 }
 window.onPubOSConnected = function () { pubosSweep(); };
@@ -818,13 +840,75 @@ function saveEditDeal(id) {
   toast("Đã lưu deal: " + d.title);
   pubosAfterDealSaved(d);
 }
-function deleteDeal(id) {
+function performDeleteDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
-  if (!confirm(`Xóa hẳn deal "${d.title}"?\n\nHoạt động gắn với deal này cũng bị xóa; các việc gắn với deal sẽ bị gỡ liên kết (việc vẫn còn). Không khôi phục được.`)) return;
   S.deals = S.deals.filter(x => x.id !== id);
   S.activities = S.activities.filter(a => a.deal !== id);
   S.tasks.forEach(t => { if (t.deal === id) delete t.deal; });
   save(); closeDrawer(); render(); toast("Đã xóa deal: " + d.title);
+}
+function queuePubosWithdrawal(sourcingId, dealTitle) {
+  if (!Array.isArray(S.pubosWithdrawals)) S.pubosWithdrawals = [];
+  if (!S.pubosWithdrawals.some(w => w.sourcingId === sourcingId)) {
+    S.pubosWithdrawals.push({ sourcingId, dealTitle, at: new Date().toISOString() });
+  }
+  save();
+}
+function showDeleteDealResult(html) {
+  openEdit(`<h3 style="font-size:16px">🗑 Kết quả xóa deal</h3><div style="font-size:14px;line-height:1.6;margin-top:8px">${html}</div><div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button class="btn" onclick="closeEdit()">Đã hiểu</button></div>`);
+}
+function deleteDealOnlyCRM(id) {
+  closeEdit();
+  performDeleteDeal(id);
+}
+async function deleteDealWithWithdraw(id) {
+  const d = S.deals.find(x => x.id === id); if (!d) return;
+  const sourcingId = d.pubos && d.pubos.sourcingId;
+  const dealTitle = d.title;
+  closeEdit();
+  if (!sourcingId) { performDeleteDeal(id); return; }
+  if (!pubosCanSync()) {
+    /* Chưa kết nối / Viewer / không có PubOS: xếp hàng chờ thu hồi khi kết nối lại bằng Editor/Admin */
+    queuePubosWithdrawal(sourcingId, dealTitle);
+    performDeleteDeal(id);
+    showDeleteDealResult(`Đã xóa deal trong CRM. Chưa thu hồi được lead <b>${esc(sourcingId)}</b> bên Publishing OS lúc này (chưa kết nối hoặc tài khoản chỉ là Viewer) — đã xếp vào hàng chờ, CRM sẽ tự thử thu hồi khi kết nối lại bằng tài khoản Editor/Admin.`);
+    return;
+  }
+  let r = null;
+  try { r = await PubOS.withdrawSourcing(sourcingId); } catch (e) { r = { ok: false, reason: "error" }; }
+  if (r && r.ok) {
+    performDeleteDeal(id);
+    showDeleteDealResult(`Đã xóa deal + đã thu hồi <b>${esc(sourcingId)}</b> bên Publishing OS (đánh dấu Loại).`);
+  } else if (r && (r.reason === "stage" || r.reason === "screening" || r.reason === "status")) {
+    performDeleteDeal(id);
+    showDeleteDealResult(`Đã xóa deal trong CRM. Lead <b>${esc(sourcingId)}</b> KHÔNG bị thu hồi vì MKT đã xử lý (stage hiện tại: <b>${esc(r.stage || "—")}</b>) — nhắn MKT nếu cần dừng.`);
+  } else {
+    /* notfound / lỗi mạng: không mất dấu — xếp hàng chờ, sweep sẽ thử lại */
+    queuePubosWithdrawal(sourcingId, dealTitle);
+    performDeleteDeal(id);
+    showDeleteDealResult(`Đã xóa deal trong CRM. Chưa thu hồi được lead <b>${esc(sourcingId)}</b> bên Publishing OS lúc này${r && r.reason === "notfound" ? " (không tìm thấy bản ghi bên đó)" : " (lỗi kết nối)"} — đã xếp vào hàng chờ, CRM sẽ tự thử thu hồi khi kết nối lại.`);
+  }
+}
+function deleteDeal(id) {
+  const d = S.deals.find(x => x.id === id); if (!d) return;
+  if (d.line === "publishing" && d.pubos && d.pubos.sourcingId) {
+    const sourcingId = d.pubos.sourcingId;
+    openEdit(`<h3 style="font-size:16px">🗑 Xóa deal "${esc(d.title)}"?</h3>
+      <div style="font-size:14px;line-height:1.6;margin-top:8px">
+        <p>⚠️ <b>Cảnh báo:</b> Xóa deal trong CRM <b>không xóa được</b> bản ghi bên Publishing OS. Bản ghi bên Publishing OS sẽ không tự xóa — chỉ admin bên đó mới xóa được.</p>
+        <p style="margin-top:8px">Lead bên Publishing OS của deal này: <b>${esc(sourcingId)}</b></p>
+        <p style="margin-top:8px">Bạn có thể chọn <b>thu hồi</b> lead đó — nhưng CRM chỉ tự thu hồi (đánh dấu Loại) khi MKT <b>chưa xử lý</b> lead. Nếu MKT đã xử lý rồi, CRM sẽ không đụng vào bản ghi và sẽ báo để bạn nhắn MKT.</p>
+        <p class="mut" style="margin-top:8px">Hoạt động gắn với deal này cũng bị xóa; các việc gắn với deal sẽ bị gỡ liên kết (việc vẫn còn). Không khôi phục được.</p>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn ghost" onclick="closeEdit()">Hủy bỏ</button>
+        <button class="btn ghost" onclick="deleteDealOnlyCRM('${d.id}')">Chỉ xóa deal trong CRM, giữ nguyên bên kia</button>
+        <button class="btn danger" onclick="deleteDealWithWithdraw('${d.id}')">Xóa deal + Thu hồi lead bên Publishing OS</button>
+      </div>`);
+    return;
+  }
+  if (!confirm(`Xóa hẳn deal "${d.title}"?\n\nHoạt động gắn với deal này cũng bị xóa; các việc gắn với deal sẽ bị gỡ liên kết (việc vẫn còn). Không khôi phục được.`)) return;
+  performDeleteDeal(id);
 }
 
 /* --- Công ty --- */
@@ -857,7 +941,8 @@ function saveCompany(id) {
 function deleteCompany(id) {
   const c = comp(id); if (!c.id) return;
   const n = S.deals.filter(d => d.company === id).length;
-  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + `\nKhông khôi phục được.`)) return;
+  const linkedPubOS = S.games.some(g => g.company === id && g.pubos) || S.deals.some(d => d.company === id && d.pubos && d.pubos.sourcingId);
+  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + (linkedPubOS ? `\n\nBản ghi bên Publishing OS sẽ không tự xóa — chỉ admin bên đó mới xóa được.` : "") + `\nKhông khôi phục được.`)) return;
   S.companies = S.companies.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.company === id) delete d.company; });
   S.games.forEach(g => { if (g.company === id) delete g.company; });
@@ -913,7 +998,7 @@ function saveGame(id) {
 function deleteGame(id) {
   const g = game(id); if (!g) return;
   const n = S.deals.filter(d => d.game === id).length;
-  if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\n${n} deal đang gắn game này sẽ bị gỡ liên kết game.` : "") + `\nKhông khôi phục được.`)) return;
+  if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\n${n} deal đang gắn game này sẽ bị gỡ liên kết game.` : "") + (g.pubos ? `\n\nBản ghi bên Publishing OS sẽ không tự xóa — chỉ admin bên đó mới xóa được.` : "") + `\nKhông khôi phục được.`)) return;
   S.games = S.games.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.game === id) delete d.game; });
   save(); closeDrawer(); render(); toast("Đã xóa game: " + g.title);
