@@ -118,11 +118,12 @@
     <button data-view="leads">📥 <span>Leads</span></button>
     <button data-view="tasks">✅ <span>Công việc</span></button>
   </nav>
+  <div id="pubosBox" style="padding:12px 18px;border-top:1px solid #1e293b"><div style="font-size:12.5px;color:#e2e8f0"><b>Publishing OS:</b> Chưa kết nối</div></div>
   <div class="foot"><a href="mkt.html" style="display:inline-block;background:#7c3aed;color:#fff;padding:7px 11px;border-radius:7px;text-decoration:none;font-size:12.5px;font-weight:700">🎯 Mở giao diện MKT</a><br><a href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing" target="_blank" rel="noopener" style="display:inline-block;margin-top:7px;background:#0ea5e9;color:#fff;padding:7px 11px;border-radius:7px;text-decoration:none;font-size:12.5px;font-weight:700">📊 Publishing OS — đánh giá + dữ liệu thị trường ↗</a><br><br>Team: 3 người dùng thử<br><button onclick="resetDemo()">↺ Reset dữ liệu mẫu</button></div>
 </aside>
 
 <main class="main">
-  <div class="demo-banner">⚠️ <b>Bản prototype để bấm thử</b> — dữ liệu mẫu (không phải khách thật), chưa nối Supabase. Đây là <b>giao diện BD</b>. Giao diện cho MKT ở trang <a href="mkt.html"><b>Đánh giá game (MKT)</b></a> — MKT chỉ thấy game chờ đánh giá, không thấy deal/term/hợp đồng hay các mảng khác. Hai giao diện dùng chung dữ liệu ngay trong trình duyệt này.</div>
+  <div class="demo-banner">⚠️ <b>Bản prototype để bấm thử</b> — dữ liệu CRM là dữ liệu mẫu (không phải khách thật), lưu trong trình duyệt. Game đối tác có thể <b>đẩy thật sang SAVA Publishing OS</b> sau khi bấm “Kết nối Publishing OS” ở sidebar. Đây là <b>giao diện BD</b>. Giao diện cho MKT ở trang <a href="mkt.html"><b>Đánh giá game (MKT)</b></a> — MKT chỉ thấy game chờ đánh giá, không thấy deal/term/hợp đồng hay các mảng khác. Hai giao diện dùng chung dữ liệu ngay trong trình duyệt này.</div>
   <div class="linetabs" id="linetabs"></div>
   <div class="toolbar">
     <h1 id="viewTitle">Tổng quan</h1>
@@ -159,6 +160,8 @@
 <div class="modal" id="editModal"><div class="box" id="editBox"></div></div>
 <div id="toast"></div>
 <script src="shared.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="pubos.js"></script>
 <script>
 let S = loadState();
 let curLine = "all", curView = "dash", query = "";
@@ -506,9 +509,34 @@ function openGame(id) {
     ${scores ? `<h3 style="margin:14px 0 6px">📊 Chấm điểm thẩm định</h3>${scores}` : ""}
     ${g.own==='partner' ? `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:11px 13px;margin-top:14px;font-size:13px"><b>📊 Đánh giá chi tiết kèm dữ liệu thị trường</b> (Market Score, CPI benchmark, Pre-Scan, Hard Gate) nằm ở SAVA Publishing OS:<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn" style="background:#0ea5e9;text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#games">🎮 Mở Lựa chọn trò chơi ↗</a><a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing">🔎 Mở Tìm kiếm cơ hội ↗</a></div></div>` : ""}
     ${g.own==='partner' ? (g.mktEval ? `<h3 style="margin:16px 0 6px">📣 Đánh giá của MKT <span class="mut" style="font-weight:400">(${USERS[g.mktEval.by]} · ${g.mktEval.at})</span></h3>` + MKT_CRITERIA.map(([k,lb]) => `<div class="score"><div class="lb">${lb.split(" (")[0]}</div><div class="bar"><i style="width:${(g.mktEval.scores[k]||0)*10}%; background:#8b5cf6"></i></div><b>${g.mktEval.scores[k]}/10</b></div>`).join("") + `<div style="font-size:13px; margin-top:8px">Kết luận MKT: <b>${g.mktEval.verdict}</b></div><div style="font-size:13px; margin-top:4px">💬 ${g.mktEval.comment}</div>` : `<h3 style="margin:16px 0 6px">📣 Đánh giá của MKT</h3><div class="mut">⏳ Đang chờ MKT đánh giá — <a href="mkt.html">mở giao diện MKT →</a></div>`) : ""}
+    ${g.own==='partner' ? `<div id="pubosSection"></div>` : ""}
     <h3 style="margin:16px 0 8px">📋 Deal liên quan (bấm để mở deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
     <div class="mut" style="margin-top:14px">Ở bản thật: gắn link build, pitch deck, trailer tại đây; mỗi lần chấm điểm là 1 bản ghi riêng có người chấm + ngày chấm.</div>`);
+  if (window.PubOS && g.own === "partner") { try { PubOS.renderGameSection(g); } catch (e) {} }
+}
+/* --- Cầu nối Publishing OS: index.html chỉ gọi, toàn bộ logic Supabase ở pubos.js --- */
+async function pubosPushGame(id) {
+  const g = game(id); if (!g) return;
+  const msg = document.getElementById("pubosMsg");
+  if (!window.PubOS) { if (msg) msg.textContent = "⚠️ Không tải được pubos.js — kiểm tra mạng rồi tải lại trang."; return; }
+  if (msg) msg.textContent = "⏳ Đang đẩy sang Publishing OS...";
+  try {
+    const studio = g.company ? comp(g.company).name : "";
+    await PubOS.pushGame(g, studio);
+    save(); render(); openGame(id);
+    toast("Đã đẩy \"" + g.title + "\" sang Publishing OS");
+  } catch (e) {
+    const m2 = document.getElementById("pubosMsg");
+    if (m2) m2.textContent = "⚠️ Đẩy thất bại: " + (e && e.message ? e.message : String(e)) + " — dữ liệu CRM không bị ảnh hưởng.";
+    toast("Đẩy sang Publishing OS thất bại — xem chi tiết trong drawer");
+  }
+}
+async function pubosFetchResult(id) {
+  const g = game(id); if (!g || !window.PubOS) return;
+  const target = document.getElementById("pubosResult");
+  if (target) target.innerHTML = '<div class="mut">⏳ Đang lấy kết quả từ Publishing OS...</div>';
+  await PubOS.loadResultIntoDrawer(g);
 }
 function openLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
