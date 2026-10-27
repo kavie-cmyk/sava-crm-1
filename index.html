@@ -165,6 +165,44 @@ let curLine = "all", curView = "dash", query = "";
 function save() { storeState(S); }
 function resetDemo() { S = seed(); save(); render(); toast("Đã reset dữ liệu mẫu"); }
 function comp(id) { return S.companies.find(c => c.id === id) || {id:"", name:"—", type:"", contact:"—", phone:""}; }
+/* --- Mô hình Lead–Company–Deal ---
+   lead.company: id công ty (1 công ty có nhiều lead); lead.person: người đầu mối.
+   deal.leads: mảng id lead — nguồn sự thật DUY NHẤT cho quan hệ deal↔lead.
+   Phía lead/company suy ra bằng cách quét ngược deals, không lưu trùng 2 chiều. */
+function leadCompany(l) { if (!l || !l.company) return null; return S.companies.find(c => c.id === l.company) || null; }
+function leadCompanyName(l) { const c = leadCompany(l); return c ? c.name : "— (chưa gắn công ty)"; }
+function dealsForLead(leadId) { return S.deals.filter(d => Array.isArray(d.leads) && d.leads.includes(leadId)); }
+function leadsForDeal(d) { if (!d || !Array.isArray(d.leads)) return []; return d.leads.map(id => S.leads.find(l => l.id === id)).filter(Boolean); }
+function leadsForCompany(companyId) { return S.leads.filter(l => l.company === companyId); }
+function leadLabel(l) { return leadCompanyName(l) + (l.person ? " — " + l.person : ""); }
+function leadMini(l) {
+  const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
+  return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${leadCompanyName(l)}</div>
+    <div class="c">${l.person ? "👤 " + l.person + " · " : ""}<span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : (l.line || "")}</span> ${stMap[l.status] || l.status || ""}</div>
+    <div class="c" style="margin-top:3px">${l.note || ""}</div></div>`;
+}
+function attachLeadToDeal(leadId, dealId) {
+  const d = S.deals.find(x => x.id === dealId); const l = S.leads.find(x => x.id === leadId);
+  if (!d || !l) { toast("Không tìm thấy lead/deal để gắn"); return; }
+  if (!Array.isArray(d.leads)) d.leads = [];
+  if (!d.leads.includes(leadId)) d.leads.push(leadId);
+  save(); render();
+  toast("Đã gắn lead " + leadCompanyName(l) + " vào deal: " + d.title);
+}
+function detachLeadFromDeal(leadId, dealId) {
+  const d = S.deals.find(x => x.id === dealId); if (!d) return;
+  d.leads = (Array.isArray(d.leads) ? d.leads : []).filter(x => x !== leadId);
+  save(); render(); refreshDrawer();
+  toast("Đã gỡ lead khỏi deal: " + d.title);
+}
+function attachLeadFromLeadDrawer(leadId) {
+  const selEl = document.getElementById("lead_attach_deal"); if (!selEl || !selEl.value) { toast("Chọn deal để gắn trước đã"); return; }
+  attachLeadToDeal(leadId, selEl.value); openLead(leadId);
+}
+function attachLeadFromDealDrawer(dealId) {
+  const selEl = document.getElementById("deal_attach_lead"); if (!selEl || !selEl.value) { toast("Chọn lead để gắn trước đã"); return; }
+  attachLeadToDeal(selEl.value, dealId); openDeal(dealId);
+}
 let drawerCtx = null;
 function refreshDrawer() {
   if (!drawerCtx) return;
@@ -293,21 +331,28 @@ function vGames() {
 }
 
 function vLeads() {
-  const rows = S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + l.note).toLowerCase().includes(query))).map(l => {
-    const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status];
-    return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${l.name}</b><div class="mut">${l.note}</div></td><td><span class="chip" style="background:${LINES[l.line].color}">${LINES[l.line].name}</span></td><td>${l.source}</td><td>${l.when}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td>
+  const rows = S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query))).map(l => {
+    const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status] || ["—","#64748b"];
+    const lc = leadCompany(l);
+    const relDeals = dealsForLead(l.id);
+    const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${d.title} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
+    return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${lc.name} →</a>` : "— (chưa gắn công ty)"}</b>${l.person ? `<div>👤 ${l.person}</div>` : ""}<div class="mut">${l.note || ""}</div></td><td><span class="chip" style="background:${LINES[l.line].color}">${LINES[l.line].name}</span></td><td>${l.source}</td><td>${l.when}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div><div class="panel"><table><tr><th>Lead</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th></th></tr>${rows}</table>
-  <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để xem chi tiết lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div></div>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div><div class="panel"><table><tr><th>Lead (công ty + người đầu mối)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${rows}</table>
+  <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div></div>`;
 }
 function convertLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   l.status = "converted";
   const firstStage = LINES[l.line].stages[0][0];
-  const nc = { id:"c"+Date.now(), name:l.name, type:LINES[l.line].target, roles:{ [l.line]:LINES[l.line].target }, contact:"—", phone:"", last:"Vừa tạo" };
-  S.companies.push(nc);
-  const nd = { id:"d"+Date.now(), line:l.line, title:l.name+" — cơ hội mới", company:nc.id, stage:firstStage, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
+  // Deal mới lấy company từ chính lead; chỉ khi lead chưa gắn công ty hợp lệ mới tạo công ty từ tên lead.
+  let companyId = leadCompany(l) ? l.company : null;
+  if (!companyId) {
+    const nc = { id:"c"+Date.now(), name:l.name, type:LINES[l.line].target, roles:{ [l.line]:LINES[l.line].target }, contact:l.person || "—", phone:"", last:"Vừa tạo" };
+    S.companies.push(nc); companyId = nc.id; l.company = nc.id;
+  }
+  const nd = { id:"d"+Date.now(), line:l.line, title:(leadCompany(l) ? leadCompany(l).name : l.name)+" — cơ hội mới", company:companyId, leads:[l.id], stage:firstStage, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
   if (GAME_LINES.includes(l.line)) { nd.term = { rev_share:"Chưa đề xuất", advance:"—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" }; nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" }; }
   else { nd.amount = 0; nd.cur = "VND"; }
   S.deals.push(nd);
@@ -328,6 +373,13 @@ function openDeal(id) {
   const fields = L.fields.map(([k, lb]) => `<div class="k">${lb}</div><div>${(d.custom && d.custom[k]) || "—"}</div>`).join("");
   const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLink('${(a.url || "").replace(/'/g, "")}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
   const evalBox = (d.line === "publishing" && g && g.scores) ? `<h3 style="margin:16px 0 6px">📊 Chấm điểm thẩm định game</h3>` + Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận: <b>${g.verdict}</b></div>` : "";
+  const attachedLeads = leadsForDeal(d);
+  const attachCandidates = S.leads.filter(l => !(Array.isArray(d.leads) && d.leads.includes(l.id)))
+    .sort((a, b) => ((b.company === d.company) - (a.company === d.company)) || ((b.line === d.line) - (a.line === d.line)));
+  const leadsBox = `<h3 style="margin:18px 0 8px">📥 Lead đầu mối</h3>
+    <div class="mut" style="margin-bottom:8px">Một deal có thể được tiếp cận qua nhiều lead. Bấm vào lead để mở chi tiết lead.</div>
+    ${attachedLeads.map(l => `<div style="margin-bottom:6px">${leadMini(l)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào.</div>'}
+    ${attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="deal_attach_lead" style="flex:1;min-width:220px">${attachCandidates.map(l => `<option value="${l.id}">${leadLabel(l)} — ${LINES[l.line] ? LINES[l.line].name : l.line}${l.company === d.company ? " (cùng công ty)" : (l.line === d.line ? " (cùng mảng)" : "")}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào chưa gắn để chọn.</div>'}`;
   const stageOpts = L.stages.map(s => `<option value="${s[0]}" ${s[0]===d.stage?'selected':''}>${s[1]} (${s[2]}%)</option>`).join("");
   const t = d.term || {}, ct = d.contract || {};
   const termBox = isGame(d) ? `
@@ -369,6 +421,7 @@ function openDeal(id) {
     ${termBox}
     <label class="mut">Chuyển stage</label><br>
     <select id="stageSel" onchange="moveStage('${d.id}', this.value)" style="margin-top:5px; width:100%">${stageOpts}</select>
+    ${leadsBox}
     ${evalBox}
     <h3 style="margin:18px 0 4px">🕘 Timeline hoạt động</h3>${acts}
     <div style="background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px">
@@ -424,6 +477,9 @@ function openCompany(id) {
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editCompany('${c.id}')">✏️ Sửa công ty</button><button class="btn danger" onclick="deleteCompany('${c.id}')">🗑 Xóa công ty</button></div>
     <button class="btn" onclick="closeDrawer(); openAddFor('${c.id}')">+ Thêm deal cho công ty này</button>
+    <h3 style="margin:18px 0 8px">📥 Leads của công ty này (bấm để xem chi tiết lead)</h3>
+    ${leadsForCompany(c.id).map(leadMini).join("") || '<div class="mut">Chưa có lead nào thuộc công ty này.</div>'}
+    <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>
     <h3 style="margin:18px 0 8px">📋 Các deal của công ty này (bấm để xem chi tiết deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}
     ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${g.emoji} ${g.title}</div><div class="c">${g.genre} · ${g.stage} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div></div>`).join("") : ""}
@@ -457,18 +513,26 @@ function openGame(id) {
 function openLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   drawerCtx = { type: "lead", id };
-  const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status];
+  const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status] || ["—","#64748b"];
+  const lc = leadCompany(l);
+  const relDeals = dealsForLead(l.id);
+  const attachDeals = S.deals.filter(d => !(Array.isArray(d.leads) && d.leads.includes(l.id)));
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <span class="chip" style="background:${LINES[l.line].color}">${LINES[l.line].name}</span>
-    <h2>📥 ${l.name}</h2><div class="mut">${l.when} · Nguồn: ${l.source}</div>
+    <h2>📥 ${lc ? lc.name : l.name}</h2><div class="mut">${l.when} · Nguồn: ${l.source}</div>
     <div class="kv">
+      <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${lc.name} →</a>` : "— (chưa gắn công ty)"}</div>
+      <div class="k">Người đầu mối</div><div>${l.person || "—"}</div>
       <div class="k">Trạng thái</div><div><span class="pill" style="background:${st[1]}">${st[0]}</span></div>
       <div class="k">Mảng quan tâm</div><div>${LINES[l.line].name} — ${LINES[l.line].desc}</div>
       <div class="k">Đối tượng của mảng</div><div>${LINES[l.line].target}</div>
-      <div class="k">Nội dung</div><div>${l.note}</div>
+      <div class="k">Nội dung</div><div>${l.note || ""}</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn" onclick="editLead('${l.id}')">✏️ Sửa lead</button><button class="btn danger" onclick="deleteLead('${l.id}')">🗑 Xóa lead</button></div>
-    ${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${LINES[l.line].name}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${LINES[l.line].name}.</div>`}
+    <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (bấm để mở deal)</h3>
+    ${relDeals.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}
+    ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="lead_attach_deal" style="flex:1;min-width:220px">${attachDeals.map(d => `<option value="${d.id}">${d.title} — ${LINES[d.line] ? LINES[d.line].name : d.line}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : ""}
+    <div style="margin-top:16px">${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${LINES[l.line].name}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${LINES[l.line].name}.</div>`}</div>
     <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>`);
 }
 function openAddFor(companyId) {
@@ -503,7 +567,7 @@ function saveDeal() {
   let c = S.companies.find(x => x.name === companyName);
   if (!c) { c = { id:"c"+Date.now(), name:companyName, type:LINES[line].target, roles:{[line]:LINES[line].target}, contact:"—", phone:"", last:"Vừa tạo" }; S.companies.push(c); }
   else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
-  const nd = { id:"d"+Date.now(), line, title, company:c.id, stage:document.getElementById("f_stage").value, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
+  const nd = { id:"d"+Date.now(), line, title, company:c.id, leads:[], stage:document.getElementById("f_stage").value, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
   if (GAME_LINES.includes(line)) {
     const adv = +document.getElementById("f_amount").value||0;
     nd.term = { rev_share:"Chưa đề xuất", advance: adv ? adv.toLocaleString("vi-VN") : "—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" };
@@ -625,6 +689,8 @@ function deleteCompany(id) {
   S.companies = S.companies.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.company === id) delete d.company; });
   S.games.forEach(g => { if (g.company === id) delete g.company; });
+  // Lead trỏ tới công ty đã xóa: gỡ gắn (company = "" = chủ động chưa gắn, migration không tự tạo lại) -> giao diện hiện "— (chưa gắn công ty)".
+  S.leads.forEach(l => { if (l.company === id) l.company = ""; });
   save(); closeDrawer(); render(); toast("Đã xóa công ty: " + c.name);
 }
 
@@ -681,12 +747,18 @@ function deleteGame(id) {
 }
 
 /* --- Lead --- */
-function editLead(id) {
-  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "publishing", source: "", status: "new", note: "", when: "Vừa xong" };
+function editLead(id, presetCompanyId) {
+  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "publishing", source: "", status: "new", note: "", when: "Vừa xong", company: "", person: "" };
   if (id && !l) return;
+  const presetComp = presetCompanyId ? comp(presetCompanyId) : null;
+  const curCompName = id ? leadCompanyName(l) === "— (chưa gắn công ty)" ? "" : leadCompanyName(l) : (presetComp && presetComp.id ? presetComp.name : (l.company ? leadCompanyName(l) : ""));
+  const presetLine = !id && presetComp && presetComp.id && presetComp.roles ? Object.keys(presetComp.roles)[0] : null;
+  const compOpts = S.companies.map(c => `<option value="${esc(c.name)}">`).join("");
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa lead" : "📥 Thêm lead"}</h3>
     ${field("Tên lead / tổ chức", txt("e_lname", l.name))}
-    ${field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), l.line))}
+    ${field("Công ty (gõ tên mới nếu chưa có — sẽ tự tạo công ty)", `<input id="e_lcompany" list="leadCompList" value="${esc(curCompName)}" placeholder="Tên công ty lead thuộc về"><datalist id="leadCompList">${compOpts}</datalist>`)}
+    ${field("Người đầu mối", txt("e_lperson", l.person || "", "VD: Anh Minh — Founder"))}
+    ${field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), presetLine || l.line))}
     ${field("Nguồn", txt("e_lsource", l.source, "VD: Form savameta.com / Giới thiệu / Facebook"))}
     ${l.status === "converted" ? field("Trạng thái", `<div style="padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#f1f5f9;font-weight:600">Đã chuyển đổi <span class="mut" style="font-weight:400">(trạng thái này chỉ do nút "Chuyển thành deal" đặt, không sửa tay)</span></div>`) : field("Trạng thái", sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"]], l.status))}
     ${field("Thời gian", txt("e_lwhen", l.when, "VD: Hôm nay"))}
@@ -698,7 +770,17 @@ function saveLead(id) {
   const name = v("e_lname"); if (!name) { toast("Tên lead không được để trống"); return; }
   const statusEl = document.getElementById("e_lstatus");
   const existing = id ? S.leads.find(x => x.id === id) : null;
-  const data = { name, line: document.getElementById("e_lline").value, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: v("e_lwhen") || "Vừa xong", note: v("e_lnote") };
+  const line = document.getElementById("e_lline").value;
+  // Công ty: tra theo TÊN — trùng thì dùng công ty đó, tên mới thì tự tạo (type + role theo mảng đang chọn).
+  const companyName = v("e_lcompany");
+  let companyId = "";
+  if (companyName) {
+    let c = S.companies.find(x => x.name === companyName);
+    if (!c) { c = { id: "c" + Date.now(), name: companyName, type: LINES[line].target, roles: { [line]: LINES[line].target }, contact: v("e_lperson") || "—", phone: "", last: "Vừa tạo" }; S.companies.push(c); }
+    else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
+    companyId = c.id;
+  }
+  const data = { name, company: companyId, person: v("e_lperson"), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: v("e_lwhen") || "Vừa xong", note: v("e_lnote") };
   let l;
   if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
   else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }
@@ -708,6 +790,8 @@ function deleteLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   if (!confirm(`Xóa hẳn lead "${l.name}"?\nKhông khôi phục được.`)) return;
   S.leads = S.leads.filter(x => x.id !== id);
+  // Quan hệ deal↔lead chỉ nằm ở deal.leads -> gỡ id lead khỏi mọi deal.
+  S.deals.forEach(d => { if (Array.isArray(d.leads)) d.leads = d.leads.filter(x => x !== id); });
   save(); closeDrawer(); render(); toast("Đã xóa lead: " + l.name);
 }
 

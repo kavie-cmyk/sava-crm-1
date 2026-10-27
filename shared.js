@@ -41,6 +41,11 @@ function seed() { return {
     {id:"c7", name:"Ngân hàng số Timo-like (mẫu)", type:"Doanh nghiệp", roles:{ai:"Khách hàng"}, contact:"Anh Đức — Head of CX", phone:"090x xxx xxx", last:"Hôm qua"},
     {id:"c8", name:"BĐS LandView (mẫu)", type:"Doanh nghiệp", roles:{metaverse:"Khách hàng"}, contact:"Anh Sơn — Marketing Dir.", phone:"093x xxx xxx", last:"3 ngày trước"},
     {id:"c9", name:"ĐH F-like (mẫu)", type:"Doanh nghiệp", roles:{metaverse:"Khách hàng", ai:"Khách hàng"}, contact:"Cô Mai — Trưởng phòng ĐT", phone:"091x xxx xxx", last:"Tuần trước"},
+    {id:"c10", name:"Studio Mooncat (mẫu)", type:"Game studio", roles:{publishing:"Game studio"}, contact:"Anh Minh — Founder", phone:"090x xxx xxx", last:"Hôm nay"},
+    {id:"c11", name:"Publisher SG (mẫu)", type:"Publisher", roles:{game_studio:"Publisher"}, contact:"Ms. Tan — BD Manager", phone:"+65 ...", last:"Hôm qua"},
+    {id:"c12", name:"Logistics Pro (mẫu)", type:"Doanh nghiệp", roles:{ai:"Khách hàng"}, contact:"Anh Hùng — Giám đốc vận hành", phone:"090x xxx xxx", last:"Hôm nay"},
+    {id:"c13", name:"Resort biển (mẫu)", type:"Doanh nghiệp", roles:{metaverse:"Khách hàng"}, contact:"Chị Lan — Giám đốc kinh doanh", phone:"090x xxx xxx", last:"2 ngày trước"},
+    {id:"c14", name:"Dev indie: Cá (mẫu)", type:"Indie dev", roles:{publishing:"Indie dev"}, contact:"Cá — Solo dev", phone:"091x xxx xxx", last:"3 ngày trước"},
   ],
   games: [
     {id:"g1", title:"Puzzle Cats Adventure", own:"ours", genre:"Puzzle / Match-3", platform:"Android, iOS", stage:"Soft launch ready", emoji:"🐱", desc:"Game puzzle của Sava, đang tìm publisher global.", bdNote:"Game của Sava — không qua MKT đánh giá đầu vào."},
@@ -75,11 +80,11 @@ function seed() { return {
     {id:"d12", line:"metaverse", title:"Gian hàng sự kiện ảo FreshMart", company:"c6", stage:"discovery", amount:900000000, cur:"VND", owner:"zac", due:"2026-11-14", idle:2, custom:{use_case:"Sự kiện ảo", platform_target:"Web"}},
   ],
   leads: [
-    {id:"l1", name:"Studio Mooncat (mẫu)", line:"publishing", source:"Tự gửi qua web", status:"new", note:"Có game idle farm muốn hợp tác phát hành", when:"Hôm nay"},
-    {id:"l2", name:"Publisher SG (mẫu)", line:"game_studio", source:"Giới thiệu", status:"contacted", note:"Quan tâm game puzzle, xin pitch deck", when:"Hôm qua"},
-    {id:"l3", name:"Logistics Pro (mẫu)", line:"ai", source:"Form savameta.com", status:"new", note:"Hỏi giải pháp AI đọc chứng từ", when:"Hôm nay"},
-    {id:"l4", name:"Resort biển (mẫu)", line:"metaverse", source:"Facebook", status:"qualified", note:"Muốn tour ảo 360/metaverse cho khách đặt phòng", when:"2 ngày trước"},
-    {id:"l5", name:"Dev indie: Cá (mẫu)", line:"publishing", source:"Cộng đồng dev", status:"contacted", note:"Game roguelike đang làm, cần publisher", when:"3 ngày trước"},
+    {id:"l1", name:"Studio Mooncat (mẫu)", company:"c10", person:"Anh Minh — Founder", line:"publishing", source:"Tự gửi qua web", status:"new", note:"Có game idle farm muốn hợp tác phát hành", when:"Hôm nay"},
+    {id:"l2", name:"Publisher SG (mẫu)", company:"c11", person:"Ms. Tan — BD Manager", line:"game_studio", source:"Giới thiệu", status:"contacted", note:"Quan tâm game puzzle, xin pitch deck", when:"Hôm qua"},
+    {id:"l3", name:"Logistics Pro (mẫu)", company:"c12", person:"Anh Hùng — Giám đốc vận hành", line:"ai", source:"Form savameta.com", status:"new", note:"Hỏi giải pháp AI đọc chứng từ", when:"Hôm nay"},
+    {id:"l4", name:"Resort biển (mẫu)", company:"c13", person:"Chị Lan — Giám đốc kinh doanh", line:"metaverse", source:"Facebook", status:"qualified", note:"Muốn tour ảo 360/metaverse cho khách đặt phòng", when:"2 ngày trước"},
+    {id:"l5", name:"Dev indie: Cá (mẫu)", company:"c14", person:"Cá — Solo dev", line:"publishing", source:"Cộng đồng dev", status:"contacted", note:"Game roguelike đang làm, cần publisher", when:"3 ngày trước"},
   ],
   tasks: [
     {id:"t1", title:"Gửi bản build Puzzle Cats v0.9.3 cho Hanbit", assignee:"linh", due:"Hôm nay", deal:"d1", done:false, overdue:false},
@@ -98,9 +103,49 @@ function seed() { return {
   ],
 };}
 
+/* Migration mô hình Lead–Company–Deal:
+   - deal.leads là nguồn sự thật DUY NHẤT cho quan hệ deal↔lead (mảng id lead).
+   - lead.company trỏ tới 1 công ty; lead.person là người đầu mối cụ thể.
+   Dữ liệu cũ không có các trường này -> bổ sung tại đây rồi lưu lại.
+   Chỉ migrate khi trường THỰC SỰ thiếu (undefined): lead.company === "" nghĩa là
+   đã chủ động gỡ công ty (vd xóa công ty) nên KHÔNG tự tạo lại công ty. */
+function migrateState(s) {
+  if (!s || typeof s !== "object") return seed();
+  if (!Array.isArray(s.companies)) s.companies = [];
+  if (!Array.isArray(s.deals)) s.deals = [];
+  if (!Array.isArray(s.leads)) s.leads = [];
+  (s.deals || []).forEach(d => { if (!Array.isArray(d.leads)) d.leads = []; });
+  let migSeq = 0;
+  const newCompanyId = () => {
+    let id;
+    do { migSeq++; id = "c" + Date.now() + "m" + migSeq; } while (s.companies.some(c => c.id === id));
+    return id;
+  };
+  (s.leads || []).forEach(l => {
+    if (l.person === undefined || l.person === null) l.person = "";
+    if (l.company === undefined || l.company === null) {
+      const found = s.companies.find(c => c.name === l.name);
+      if (found) { l.company = found.id; }
+      else {
+        const target = (LINES[l.line] && LINES[l.line].target) || "Đối tác";
+        const nc = { id: newCompanyId(), name: l.name || "Công ty của lead (mẫu)", type: target, roles: { [l.line]: target }, contact: l.person || "—", phone: "", last: "Vừa tạo" };
+        s.companies.push(nc);
+        l.company = nc.id;
+      }
+    }
+  });
+  return s;
+}
 function loadState() {
-  try { const raw = localStorage.getItem(STORE_KEY); if (raw) return JSON.parse(raw); } catch (e) {}
-  return seed();
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const parsed = migrateState(JSON.parse(raw));
+      storeState(parsed);
+      return parsed;
+    }
+  } catch (e) {}
+  return migrateState(seed());
 }
 function storeState(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {} }
 function money(n, cur) { if (n == null) return "—"; return cur === "USD" ? "$" + n.toLocaleString("en-US") : Math.round(n / 1e6).toLocaleString("vi-VN") + "tr ₫"; }
