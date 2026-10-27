@@ -80,7 +80,7 @@
     }
 
     const menuButton = document.getElementById('workspaceMenu');
-    function closeMenu() { document.body.classList.remove('side-open'); menuButton?.setAttribute('aria-expanded', 'false'); }
+    function closeMenu() { document.body.classList.remove('side-open'); menuButton?.setAttribute('aria-expanded', 'false'); update(); }
     menuButton?.addEventListener('click', () => {
       const open = document.body.classList.toggle('side-open');
       menuButton.setAttribute('aria-expanded', String(open));

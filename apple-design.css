@@ -198,7 +198,7 @@ table a { text-decoration: none; }
 .modal .box { padding: 28px; width: 500px; max-width: 100%; max-height: 90dvh; border-radius: 20px; border: 1px solid #ffffff; box-shadow: 0 25px 90px #10232b30; overscroll-behavior: contain; }
 .modal .box h3 { font-size: 1.13rem !important; font-weight: 650; letter-spacing: -.025em; }
 .modal label { font-size: .72rem; color: #64737f; margin: 15px 0 6px; }
-body.overlay-open { overflow: hidden; }
+body.overlay-open, body.side-open { overflow: hidden; }
 #toast { bottom: 25px; padding: 13px 20px; background: #22383feF; border: 1px solid #ffffff26; backdrop-filter: blur(20px); border-radius: 13px; box-shadow: 0 8px 28px #14273118; font-size: .77rem; max-width: calc(100vw - 32px); width: max-content; text-align: center; pointer-events: none; line-height: 1.5; }
 .mobile-nav, .side-scrim { display: none; }
 .empty-state { text-align: center; padding: 30px 20px; color: #84919c; font-size: .8rem; }
