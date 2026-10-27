@@ -30,6 +30,8 @@
   .toolbar input { padding:9px 12px; border:1px solid var(--line); border-radius:8px; width:250px; font-size:14px; }
   .btn { background: var(--acc); color:#fff; border:none; padding:9px 14px; border-radius:8px; cursor:pointer; font-size:13.5px; font-weight:600; }
   .btn.ghost { background:#fff; color:var(--txt); border:1px solid var(--line); }
+  .btn.danger { background:#dc2626; }
+  .btn.small { padding:5px 9px; font-size:12px; border-radius:7px; }
   /* KPI */
   .kpis { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:16px; }
   .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
@@ -91,9 +93,10 @@
   /* Modal + toast */
   .modal { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none; z-index:60; align-items:center; justify-content:center; }
   .modal.on { display:flex; }
-  .modal .box { background:#fff; border-radius:14px; padding:22px; width:440px; max-width:94vw; }
+  .modal .box { background:#fff; border-radius:14px; padding:22px; width:460px; max-width:94vw; max-height:88vh; overflow-y:auto; }
   .modal label { display:block; font-size:12.5px; color:var(--mut); margin:10px 0 4px; }
   .modal input, .modal select { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  .modal textarea { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:14px; font-family:inherit; min-height:64px; }
   #toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(80px); background:var(--navy); color:#fff; padding:11px 18px; border-radius:10px; font-size:13.5px; z-index:99; transition:.25s; }
   #toast.on { transform:translateX(-50%); }
   .task { display:flex; gap:10px; align-items:flex-start; padding:9px 0; border-bottom:1px solid #eef2f7; font-size:13.5px; }
@@ -152,6 +155,7 @@
     </div>
   </div>
 </div>
+<div class="modal" id="editModal"><div class="box" id="editBox"></div></div>
 <div id="toast"></div>
 <script src="shared.js"></script>
 <script>
@@ -223,7 +227,7 @@ function vDash() {
 }
 function taskRow(t) {
   const d = S.deals.find(x => x.id === t.deal);
-  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}>${t.title}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}'); return false">${d.title}</a> · `:''}${USERS[t.assignee]} · <span class="${t.overdue&&!t.done?'overdue':''}">${t.due}${t.overdue&&!t.done?' — QUÁ HẠN':''}</span></div></div></div>`;
+  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`style="cursor:pointer" title="Bấm để mở deal" onclick="openDeal('${d.id}')"`:''}>${t.title}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}'); return false">${d.title}</a> · `:''}${USERS[t.assignee]} · <span class="${t.overdue&&!t.done?'overdue':''}">${t.due}${t.overdue&&!t.done?' — QUÁ HẠN':''}</span></div></div><div style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" onclick="editTask('${t.id}')">✏️</button><button class="btn ghost small" title="Xóa việc" onclick="deleteTask('${t.id}')">🗑</button></div></div>`;
 }
 function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); }
 
@@ -259,7 +263,7 @@ function vCompanies() {
     const roleChips = Object.entries(c.roles).map(([k,r]) => `<span class="chip" style="background:${LINES[k].color}">${LINES[k].name}: ${r}</span>`).join("");
     return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${c.name}</b><div class="mut">${c.type} · 👆 bấm để xem chi tiết</div></td><td>${roleChips}</td><td>${c.contact}<div class="mut">${c.phone}</div></td><td><b>${open} deal mở</b><div class="mut">bấm dòng để mở deal</div></td><td>${c.last}</td></tr>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div class="panel"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có khách nào ở mảng này.</td></tr>'}</table>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có khách nào ở mảng này.</td></tr>'}</table>
   <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để mở hồ sơ công ty: xem toàn bộ deal của họ, bấm tiếp vào từng deal để xem term / hợp đồng / timeline. Một công ty chỉ có 1 hồ sơ duy nhất nhưng mang nhiều vai trò: VD FreshMart vừa là khách mảng AI vừa là khách mảng Metaverse.</div></div>`;
 }
 
@@ -274,7 +278,7 @@ function vGames() {
       <div style="font-size:13px">${g.desc}</div>${scores}
       <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>d.title).join("; ") || "—"}</div></div>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div class="cards">${cards}</div><div class="mut" style="margin-top:10px">💡 <b>Bấm vào thẻ game</b> để xem chi tiết + các deal liên quan (bấm tiếp vào deal để mở term/hợp đồng). Mảng Game Studio dùng game <b>của Sava</b> để đi chào publisher; mảng Publishing thẩm định game <b>của đối tác</b> bằng bảng điểm như trên.</div>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div><div class="cards">${cards}</div><div class="mut" style="margin-top:10px">💡 <b>Bấm vào thẻ game</b> để xem chi tiết + các deal liên quan (bấm tiếp vào deal để mở term/hợp đồng). Mảng Game Studio dùng game <b>của Sava</b> để đi chào publisher; mảng Publishing thẩm định game <b>của đối tác</b> bằng bảng điểm như trên.</div>`;
 }
 
 function vLeads() {
@@ -283,7 +287,7 @@ function vLeads() {
     return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${l.name}</b><div class="mut">${l.note}</div></td><td><span class="chip" style="background:${LINES[l.line].color}">${LINES[l.line].name}</span></td><td>${l.source}</td><td>${l.when}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div class="panel"><table><tr><th>Lead</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th></th></tr>${rows}</table>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div><div class="panel"><table><tr><th>Lead</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th></th></tr>${rows}</table>
   <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để xem chi tiết lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div></div>`;
 }
 function convertLead(id) {
@@ -299,7 +303,7 @@ function convertLead(id) {
 
 function vTasks() {
   const list = S.tasks.map(taskRow).join("");
-  document.getElementById("view").innerHTML = `<div class="panel"><h3>Việc của cả team (3 người)</h3>${list}<div class="mut" style="margin-top:8px">Bấm ô vuông để đánh dấu xong — ở bản thật, việc quá hạn sẽ hiện badge đỏ ở Tổng quan và gửi digest mỗi sáng.</div></div>`;
+  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (3 người)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}<div class="mut" style="margin-top:8px">Bấm ô vuông để đánh dấu xong — ở bản thật, việc quá hạn sẽ hiện badge đỏ ở Tổng quan và gửi digest mỗi sáng.</div></div>`;
 }
 
 /* Drawer chi tiết deal */
@@ -340,6 +344,7 @@ function openDeal(id) {
   document.getElementById("drawer").innerHTML = `<button class="x" onclick="closeDrawer()">✕</button>
     <span class="chip" style="background:${L.color}">${L.name}</span>
     <h2>${d.title}</h2><div class="mut"><a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${c.name} →</a> · ${c.type}${g?` · <a href="#" onclick="openGame('${g.id}'); return false" title="Mở game">🎮 ${g.title} →</a>`:""}</div>
+    <div style="display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap"><button class="btn" onclick="editDeal('${d.id}')">✏️ Sửa thông tin deal</button><button class="btn danger" onclick="deleteDeal('${d.id}')">🗑 Xóa deal</button></div>
     <div class="kv">
       ${valueRows}
       <div class="k">Người phụ trách</div><div>${USERS[d.owner]}</div>
@@ -352,7 +357,7 @@ function openDeal(id) {
     <select id="stageSel" onchange="moveStage('${d.id}', this.value)" style="margin-top:5px; width:100%">${stageOpts}</select>
     ${evalBox}
     <h3 style="margin:18px 0 4px">🕘 Timeline hoạt động</h3>${acts}
-    <div class="mut" style="margin-top:14px">Ở bản thật: thêm ghi chú/call/Zalo ngay tại đây, đính link Drive (pitch deck, báo giá, hợp đồng), và xem lịch sử ai đã sửa deal này.</div>`;
+    <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng sửa trực tiếp ở khối trên, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: ghi chú/call/Zalo, đính link Drive, lịch sử người sửa.</div>`;
   document.getElementById("drawer").classList.add("on");
   document.getElementById("scrim").classList.add("on");
 }
@@ -391,13 +396,14 @@ function openCompany(id) {
       <div class="k">Tổng deal</div><div><b>${deals.length}</b> (${open} đang mở, ${won} đã thắng)</div>
       <div class="k">Việc đang treo</div><div>${tasks.length} việc chưa xong</div>
     </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editCompany('${c.id}')">✏️ Sửa công ty</button><button class="btn danger" onclick="deleteCompany('${c.id}')">🗑 Xóa công ty</button></div>
     <button class="btn" onclick="closeDrawer(); openAddFor('${c.name.replace(/'/g,"")}')">+ Thêm deal cho công ty này</button>
     <h3 style="margin:18px 0 8px">📋 Các deal của công ty này (bấm để xem chi tiết deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}
     ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${g.emoji} ${g.title}</div><div class="c">${g.genre} · ${g.stage} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div></div>`).join("") : ""}
     ${tasks.length ? `<h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>` + tasks.map(taskRow).join("") : ""}
     ${acts.length ? `<h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>` + acts.map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`).join("") : ""}
-    <div class="mut" style="margin-top:14px">Ở bản thật: sửa thông tin công ty, thêm người liên hệ, ghi hoạt động mới và đính link Drive ngay trong hồ sơ này.</div>`);
+    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Bản thật sẽ thêm: nhiều người liên hệ, ghi hoạt động mới, đính link Drive.</div>`);
 }
 function openGame(id) {
   const g = game(id); if (!g) return;
@@ -408,6 +414,7 @@ function openGame(id) {
     <div style="font-size:36px">${g.emoji}</div>
     <h2>${g.title}</h2><div class="mut">${g.genre} · ${g.platform}</div>
     <div style="margin:8px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${g.stage}</span></div>
+    <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap"><button class="btn" onclick="editGame('${g.id}')">✏️ Sửa game</button><button class="btn danger" onclick="deleteGame('${g.id}')">🗑 Xóa game</button></div>
     <div style="font-size:13.5px">${g.desc}</div>
     <div class="kv">
       ${owner ? `<div class="k">Studio sở hữu</div><div><a href="#" onclick="openCompany('${owner.id}'); return false">${owner.name} →</a></div>` : `<div class="k">Chủ sở hữu</div><div>Sava Meta</div>`}
@@ -432,6 +439,7 @@ function openLead(id) {
       <div class="k">Đối tượng của mảng</div><div>${LINES[l.line].target}</div>
       <div class="k">Nội dung</div><div>${l.note}</div>
     </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn" onclick="editLead('${l.id}')">✏️ Sửa lead</button><button class="btn danger" onclick="deleteLead('${l.id}')">🗑 Xóa lead</button></div>
     ${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${LINES[l.line].name}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${LINES[l.line].name}.</div>`}
     <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>`);
 }
@@ -469,6 +477,232 @@ function saveDeal() {
   S.deals.push(nd);
   save(); closeAdd(); curLine = line; setView("board"); toast("Đã thêm deal vào pipeline " + LINES[line].name);
 }
+
+/* ===== CRUD: sửa / xóa mọi đối tượng ngay trong prototype ===== */
+function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
+function openEdit(html) { document.getElementById("editBox").innerHTML = html; document.getElementById("editModal").classList.add("on"); }
+function closeEdit() { document.getElementById("editModal").classList.remove("on"); }
+function field(label, inner) { return `<label>${label}</label>${inner}`; }
+function txt(id, val, ph) { return `<input id="${id}" value="${esc(val ?? "")}" placeholder="${ph || ""}">`; }
+function sel(id, opts, cur) { return `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${t}</option>`).join("")}</select>`; }
+function ownerSel(id, cur) { return sel(id, Object.entries(USERS), cur); }
+function formFoot(saveFn, arg) { return `<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button class="btn ghost" onclick="closeEdit()">Hủy</button><button class="btn" onclick="${saveFn}(${arg})">💾 Lưu</button></div>`; }
+
+/* --- Deal --- */
+let dealDraftLine = null;
+function editDeal(id) {
+  const d = S.deals.find(x => x.id === id); if (!d) return;
+  dealDraftLine = d.line;
+  const compOpts = S.companies.map(c => `<option value="${esc(c.name)}">`).join("");
+  openEdit(`<h3 style="font-size:16px">✏️ Sửa deal</h3>
+    ${field("Tên deal", txt("e_title", d.title))}
+    ${field("Công ty / đối tác (gõ tên mới nếu chưa có trong danh sách)", `<input id="e_company" list="compList" value="${esc(comp(d.company).name)}"><datalist id="compList">${compOpts}</datalist>`)}
+    ${field("Mảng", sel("e_line", Object.entries(LINES).map(([k, v]) => [k, v.name]), d.line))}
+    <div id="e_lineFields"></div>
+    ${field("Người phụ trách", ownerSel("e_owner", d.owner))}
+    ${field("Ngày dự kiến chốt", `<input id="e_due" type="date" value="${esc(d.due || "")}">`)}
+    ${formFoot("saveEditDeal", `'${d.id}'`)}`);
+  document.getElementById("e_line").addEventListener("change", e => { dealDraftLine = e.target.value; fillDealLineFields(d); });
+  fillDealLineFields(d);
+}
+function fillDealLineFields(d) {
+  const line = dealDraftLine, L = LINES[line];
+  const same = d && d.line === line;
+  let h = field("Stage", sel("e_stage", L.stages.map(s => [s[0], s[1]]), same ? d.stage : L.stages[0][0]));
+  if (GAME_LINES.includes(line)) {
+    const gs = S.games.filter(g => line === "game_studio" ? g.own === "ours" : g.own === "partner");
+    h += field("Game gắn với deal", sel("e_game", [["", "— Không gắn game —"], ...gs.map(g => [g.id, g.title])], same ? (d.game || "") : ""));
+    h += `<div class="mut" style="margin-top:8px">Term rev-share + link hợp đồng sửa riêng trong trang chi tiết deal (khối 🤝 Term bên dưới).</div>`;
+  } else {
+    h += field("Giá trị hợp đồng dự kiến", `<input id="e_amount" type="number" value="${same ? (d.amount ?? "") : ""}">`);
+    h += field("Tiền tệ", sel("e_cur", [["VND", "VND"], ["USD", "USD"]], same ? d.cur : "VND"));
+  }
+  h += L.fields.map(([k, lb]) => field(lb, txt("e_cf_" + k, same && d.custom ? d.custom[k] : ""))).join("");
+  document.getElementById("e_lineFields").innerHTML = h;
+}
+function saveEditDeal(id) {
+  const d = S.deals.find(x => x.id === id); if (!d) return;
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const title = v("e_title"); if (!title) { toast("Tên deal không được để trống"); return; }
+  const line = document.getElementById("e_line").value;
+  const cName = v("e_company") || "Đối tác mới (mẫu)";
+  let c = S.companies.find(x => x.name === cName);
+  if (!c) { c = { id: "c" + Date.now(), name: cName, type: LINES[line].target, roles: { [line]: LINES[line].target }, contact: "—", phone: "", last: "Vừa tạo" }; S.companies.push(c); }
+  d.title = title; d.company = c.id; d.line = line;
+  d.stage = document.getElementById("e_stage").value;
+  d.owner = document.getElementById("e_owner").value;
+  d.due = document.getElementById("e_due").value || d.due;
+  d.idle = 0;
+  d.custom = {}; LINES[line].fields.forEach(([k]) => { const el = document.getElementById("e_cf_" + k); if (el) d.custom[k] = el.value.trim(); });
+  if (GAME_LINES.includes(line)) {
+    const gv = document.getElementById("e_game").value; if (gv) d.game = gv; else delete d.game;
+    delete d.amount; delete d.cur;
+    if (!d.term) d.term = { rev_share: "Chưa đề xuất", advance: "—", territories: "", duration: "", exclusivity: "", marketing: "", payment: "" };
+    if (!d.contract) d.contract = { status: "Chưa có HĐ", no: "", signed: "", url: "" };
+  } else {
+    d.amount = +document.getElementById("e_amount").value || 0;
+    d.cur = document.getElementById("e_cur").value;
+    delete d.game;
+  }
+  save(); closeEdit(); render(); openDeal(id);
+  toast("Đã lưu deal: " + d.title);
+}
+function deleteDeal(id) {
+  const d = S.deals.find(x => x.id === id); if (!d) return;
+  if (!confirm(`Xóa hẳn deal "${d.title}"?\n\nHoạt động gắn với deal này cũng bị xóa; các việc gắn với deal sẽ bị gỡ liên kết (việc vẫn còn). Không khôi phục được.`)) return;
+  S.deals = S.deals.filter(x => x.id !== id);
+  S.activities = S.activities.filter(a => a.deal !== id);
+  S.tasks.forEach(t => { if (t.deal === id) delete t.deal; });
+  save(); closeDrawer(); render(); toast("Đã xóa deal: " + d.title);
+}
+
+/* --- Công ty --- */
+function editCompany(id) {
+  const c = id ? comp(id) : { name: "", type: "", contact: "", phone: "", roles: {} };
+  if (id && !c.id) return;
+  const rolesHtml = Object.entries(LINES).map(([k, L]) => `
+    <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_role_on_${k}" style="width:auto" ${c.roles && c.roles[k] ? "checked" : ""}> Có vai trò ở mảng ${L.name}</label>
+    <input id="e_role_${k}" value="${esc((c.roles && c.roles[k]) || L.target)}" placeholder="VD: ${L.target}">`).join("");
+  openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa công ty" : "🏢 Thêm công ty"}</h3>
+    ${field("Tên công ty", txt("e_cname", c.name))}
+    ${field("Loại hình", txt("e_ctype", c.type, "VD: Publisher / Game studio / Doanh nghiệp"))}
+    ${field("Đầu mối chính", txt("e_ccontact", c.contact, "VD: An — Founder"))}
+    ${field("Điện thoại", txt("e_cphone", c.phone))}
+    <div class="mut" style="margin-top:12px">Vai trò theo mảng — bật mảng nào thì công ty hiện trong mảng đó:</div>
+    ${rolesHtml}
+    ${formFoot("saveCompany", id ? `'${id}'` : "null")}`);
+}
+function saveCompany(id) {
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const name = v("e_cname"); if (!name) { toast("Tên công ty không được để trống"); return; }
+  const roles = {};
+  Object.keys(LINES).forEach(k => { if (document.getElementById("e_role_on_" + k).checked) roles[k] = v("e_role_" + k) || LINES[k].target; });
+  let c;
+  if (id) { c = comp(id); Object.assign(c, { name, type: v("e_ctype"), contact: v("e_ccontact"), phone: v("e_cphone"), roles, last: "Vừa sửa" }); }
+  else { c = { id: "c" + Date.now(), name, type: v("e_ctype") || "Đối tác", contact: v("e_ccontact") || "—", phone: v("e_cphone"), last: "Vừa tạo", roles }; S.companies.push(c); }
+  save(); closeEdit(); render(); openCompany(c.id); toast("Đã lưu công ty: " + name);
+}
+function deleteCompany(id) {
+  const c = comp(id); if (!c.id) return;
+  const n = S.deals.filter(d => d.company === id).length;
+  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ mất liên kết công ty.` : "") + `\nKhông khôi phục được.`)) return;
+  S.companies = S.companies.filter(x => x.id !== id);
+  S.games.forEach(g => { if (g.company === id) delete g.company; });
+  save(); closeDrawer(); render(); toast("Đã xóa công ty: " + c.name);
+}
+
+/* --- Game --- */
+const BD_SCORE_KEYS = ["Gameplay", "Đồ họa", "Monetization", "Tiềm năng TT", "Kỹ thuật"];
+function editGame(id) {
+  const g = id ? game(id) : { title: "", emoji: "🎮", own: "partner", genre: "", platform: "", stage: "", desc: "", bdNote: "", buildUrl: "", trailerUrl: "", company: "", scores: null, verdict: "" };
+  if (id && !g) return;
+  const compOpts = [["", "— Chưa chọn studio —"], ...S.companies.map(c => [c.id, c.name])];
+  const scoreHtml = BD_SCORE_KEYS.map(k => field(`Điểm ${k} (0–10, để trống = chưa chấm)`, `<input id="e_gs_${k}" type="number" min="0" max="10" step="0.5" value="${(g.scores && g.scores[k]) ?? ""}">`)).join("");
+  openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa game" : "🎮 Thêm game"}</h3>
+    ${field("Tên game", txt("e_gtitle", g.title))}
+    ${field("Emoji", txt("e_gemoji", g.emoji))}
+    ${field("Loại game", sel("e_gown", [["ours", "Game của Sava"], ["partner", "Game đối tác"]], g.own))}
+    ${field("Studio sở hữu (chỉ game đối tác)", sel("e_gcompany", compOpts, g.company || ""))}
+    ${field("Genre", txt("e_ggenre", g.genre, "VD: Puzzle / Match-3"))}
+    ${field("Nền tảng", txt("e_gplatform", g.platform, "VD: Android, iOS"))}
+    ${field("Giai đoạn", txt("e_gstage", g.stage, "VD: Beta / Soft launch ready"))}
+    ${field("Mô tả", `<textarea id="e_gdesc">${esc(g.desc || "")}</textarea>`)}
+    ${field("Ghi chú của BD (cho MKT đọc khi đánh giá)", `<textarea id="e_gnote">${esc(g.bdNote || "")}</textarea>`)}
+    ${field("Link build", txt("e_gbuild", g.buildUrl))}
+    ${field("Link trailer", txt("e_gtrailer", g.trailerUrl))}
+    <div class="mut" style="margin-top:12px">Chấm điểm thẩm định của BD (chỉ áp dụng cho game đối tác):</div>
+    ${scoreHtml}
+    ${field("Kết luận thẩm định của BD", txt("e_gverdict", g.verdict, "VD: Đang chấm / Hold / Nên nhận"))}
+    ${formFoot("saveGame", id ? `'${id}'` : "null")}`);
+}
+function saveGame(id) {
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const title = v("e_gtitle"); if (!title) { toast("Tên game không được để trống"); return; }
+  const own = document.getElementById("e_gown").value;
+  let scores = null;
+  const vals = BD_SCORE_KEYS.map(k => document.getElementById("e_gs_" + k).value);
+  if (vals.some(x => x !== "")) { scores = {}; BD_SCORE_KEYS.forEach((k, i) => scores[k] = Math.min(10, Math.max(0, +vals[i] || 0))); }
+  const data = { title, emoji: v("e_gemoji") || "🎮", own, genre: v("e_ggenre"), platform: v("e_gplatform"), stage: v("e_gstage"),
+    desc: v("e_gdesc"), bdNote: v("e_gnote"), buildUrl: v("e_gbuild"), trailerUrl: v("e_gtrailer") };
+  if (own === "partner") {
+    const cv = document.getElementById("e_gcompany").value;
+    if (cv) data.company = cv; else data.company = undefined;
+    data.scores = scores; data.verdict = v("e_gverdict") || "Đang chấm";
+  }
+  let g;
+  if (id) { g = game(id); Object.assign(g, data); if (own === "ours") { delete g.company; delete g.scores; } if (data.company === undefined) delete g.company; }
+  else { g = { id: "g" + Date.now(), mktEval: null, ...data }; if (own === "ours") { delete g.company; delete g.scores; } if (data.company === undefined) delete g.company; S.games.push(g); }
+  save(); closeEdit(); render(); openGame(g.id); toast("Đã lưu game: " + title);
+}
+function deleteGame(id) {
+  const g = game(id); if (!g) return;
+  const n = S.deals.filter(d => d.game === id).length;
+  if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\n${n} deal đang gắn game này sẽ bị gỡ liên kết game.` : "") + `\nKhông khôi phục được.`)) return;
+  S.games = S.games.filter(x => x.id !== id);
+  S.deals.forEach(d => { if (d.game === id) delete d.game; });
+  save(); closeDrawer(); render(); toast("Đã xóa game: " + g.title);
+}
+
+/* --- Lead --- */
+function editLead(id) {
+  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "publishing", source: "", status: "new", note: "", when: "Vừa xong" };
+  if (id && !l) return;
+  openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa lead" : "📥 Thêm lead"}</h3>
+    ${field("Tên lead / tổ chức", txt("e_lname", l.name))}
+    ${field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), l.line))}
+    ${field("Nguồn", txt("e_lsource", l.source, "VD: Form savameta.com / Giới thiệu / Facebook"))}
+    ${field("Trạng thái", sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"], ["converted", "Đã chuyển đổi"]], l.status))}
+    ${field("Thời gian", txt("e_lwhen", l.when, "VD: Hôm nay"))}
+    ${field("Ghi chú", `<textarea id="e_lnote">${esc(l.note || "")}</textarea>`)}
+    ${formFoot("saveLead", id ? `'${id}'` : "null")}`);
+}
+function saveLead(id) {
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const name = v("e_lname"); if (!name) { toast("Tên lead không được để trống"); return; }
+  const data = { name, line: document.getElementById("e_lline").value, source: v("e_lsource"), status: document.getElementById("e_lstatus").value, when: v("e_lwhen") || "Vừa xong", note: v("e_lnote") };
+  let l;
+  if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
+  else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }
+  save(); closeEdit(); render(); openLead(l.id); toast("Đã lưu lead: " + name);
+}
+function deleteLead(id) {
+  const l = S.leads.find(x => x.id === id); if (!l) return;
+  if (!confirm(`Xóa hẳn lead "${l.name}"?\nKhông khôi phục được.`)) return;
+  S.leads = S.leads.filter(x => x.id !== id);
+  save(); closeDrawer(); render(); toast("Đã xóa lead: " + l.name);
+}
+
+/* --- Việc (task) --- */
+function editTask(id) {
+  const t = id ? S.tasks.find(x => x.id === id) : { title: "", assignee: "zac", due: "", deal: "", done: false };
+  if (id && !t) return;
+  const dealOpts = [["", "— Không gắn deal —"], ...S.deals.map(d => [d.id, d.title])];
+  openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa việc" : "✅ Thêm việc"}</h3>
+    ${field("Nội dung việc", txt("e_ttitle", t.title))}
+    ${field("Người làm", ownerSel("e_tassignee", t.assignee))}
+    ${field("Hạn", txt("e_tdue", t.due, "VD: Hôm nay / 2026-11-01"))}
+    ${field("Gắn với deal", sel("e_tdeal", dealOpts, t.deal || ""))}
+    <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_tdone" style="width:auto" ${t.done ? "checked" : ""}> Đã xong</label>
+    ${formFoot("saveTask", id ? `'${id}'` : "null")}`);
+}
+function saveTask(id) {
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const title = v("e_ttitle"); if (!title) { toast("Nội dung việc không được để trống"); return; }
+  const done = document.getElementById("e_tdone").checked;
+  const data = { title, assignee: document.getElementById("e_tassignee").value, due: v("e_tdue") || "—", done, overdue: false };
+  const dv = document.getElementById("e_tdeal").value;
+  let t;
+  if (id) { t = S.tasks.find(x => x.id === id); data.overdue = t.overdue && !done; Object.assign(t, data); if (dv) t.deal = dv; else delete t.deal; }
+  else { t = { id: "t" + Date.now(), ...data }; if (dv) t.deal = dv; S.tasks.push(t); }
+  save(); closeEdit(); render(); toast("Đã lưu việc: " + title);
+}
+function deleteTask(id) {
+  const t = S.tasks.find(x => x.id === id); if (!t) return;
+  if (!confirm(`Xóa việc "${t.title}"?`)) return;
+  S.tasks = S.tasks.filter(x => x.id !== id);
+  save(); render(); toast("Đã xóa việc: " + t.title);
+}
+
 render();
 </script>
 </body>
