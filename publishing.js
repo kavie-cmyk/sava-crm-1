@@ -12,30 +12,93 @@
   const usd = v => typeof v === 'number' ? '$'+num(v,2) : '—';
   const stamp = v => v ? new Date(v).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}) : '';
   const uuid = () => crypto.randomUUID();
+  const REVIEW_STATUSES = ['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'];
+  function sanitizeRequest(r, i) {
+    if (!r || typeof r !== 'object') return null;
+    // Thiếu kind/entityId -> không xác định được hồ sơ: LOẠI khỏi danh sách (lựa chọn có chủ đích,
+    // request như vậy không mở/chấm được và từng làm sập render khi truy cập sâu).
+    if (!['company','game'].includes(r.kind) || !r.entityId) return null;
+    if (!r.id) r.id = 'REV-restored-' + i;
+    r.revisions = (Array.isArray(r.revisions) ? r.revisions : []).filter(h => h && typeof h === 'object');
+    r.current = r.current && typeof r.current === 'object' ? r.current : (r.revisions[r.revisions.length - 1] || {});
+    if (!REVIEW_STATUSES.includes(r.status)) {
+      const fromRev = [...r.revisions].reverse().map(h => h.status).find(st => REVIEW_STATUSES.includes(st));
+      r.status = fromRev || (REVIEW_STATUSES.includes(r.current?.status) ? r.current.status : 'Chờ đánh giá');
+    }
+    r.intake = r.intake && typeof r.intake === 'object' ? r.intake : {};
+    if (typeof r.revision !== 'number' || !Number.isFinite(r.revision)) r.revision = r.revisions.length;
+    return r;
+  }
   function read() {
     const raw = localStorage.getItem(KEY);
     if (!raw) return {version:1,requests:[],marketUpdates:[]};
     const x = JSON.parse(raw);
-    if (x.version !== 1 || !Array.isArray(x.requests) || !Array.isArray(x.marketUpdates)) throw Error('Dữ liệu Publishing không đúng định dạng. Hãy giữ bản sao trước khi sửa.');
-    return x;
+    if (x.version !== 1) throw Error('Dữ liệu Publishing không đúng định dạng. Hãy giữ bản sao trước khi sửa.');
+    const requests = (Array.isArray(x.requests) ? x.requests : []).map(sanitizeRequest).filter(Boolean);
+    const marketUpdates = (Array.isArray(x.marketUpdates) ? x.marketUpdates : [])
+      .filter(u => u && typeof u === 'object' && u.id)
+      .map(u => ({...u, audit: Array.isArray(u.audit) ? u.audit : []}));
+    return {...x, requests, marketUpdates};
   }
   function write(s) { localStorage.setItem(KEY,JSON.stringify(s)); }
+  function deleteRequest(id) {
+    const store = read(), r = store.requests.find(x => x.id === id); if (!r) return;
+    const name = label(entity(crm(), r.kind, r.entityId));
+    const n = (r.revisions || []).length;
+    if (!confirm(`Xóa yêu cầu đánh giá "${name}" (${r.kind === 'company' ? 'company' : 'game'})?\nSẽ xóa vĩnh viễn yêu cầu này cùng ${n} phiên bản đánh giá đã lưu. Hành động này KHÔNG khôi phục được.`)) return;
+    store.requests = store.requests.filter(x => x.id !== id);
+    write(store);
+    if ($('#editor').open) closeDialog();
+    render(); notify('Đã xóa yêu cầu đánh giá.');
+  }
+  function deleteMarketObs(id) {
+    const store = read(), u = store.marketUpdates.find(x => x.id === id); if (!u) return;
+    const isOriginal = DATA.records.some(x => x.id === id);
+    const msg = isOriginal
+      ? `Gỡ dữ liệu bổ sung của "${u.name || id}" và khôi phục bản gốc workbook?\nLịch sử cập nhật (${(u.audit || []).length} mục) của phần bổ sung sẽ mất. KHÔNG khôi phục được.`
+      : `Xóa quan sát thị trường "${u.name || id}"?\nQuan sát này sẽ bị xóa vĩnh viễn. KHÔNG khôi phục được.`;
+    if (!confirm(msg)) return;
+    store.marketUpdates = store.marketUpdates.filter(x => x.id !== id);
+    write(store);
+    if ($('#editor').open) closeDialog();
+    render(); notify(isOriginal ? 'Đã gỡ dữ liệu bổ sung, khôi phục bản gốc.' : 'Đã xóa quan sát thị trường.');
+  }
   const crm = () => loadState();
   const isStudio = c => Object.hasOwn(c.roles || {},'publishing') && !/publisher/i.test(c.type || '');
   const entity = (s,kind,id) => (kind === 'company' ? s.companies : s.games).find(x=>x.id===id);
   const label = x => x?.name || x?.title || 'Hồ sơ đã được gỡ';
   const eligibleGames = s => s.games.filter(g=>g.own === 'ours' || g.own === 'partner');
   function notify(text) { $('#toast').textContent=text; $('#toast').classList.add('on'); clearTimeout(notify.timer); notify.timer=setTimeout(()=>$('#toast').classList.remove('on'),3000); }
-  const badge = text => `<span class="badge ${/GREENLIGHT|^Ưu tiên$|^Đạt$|Hoàn tất/.test(text)?'positive':/NO-GO|Bị chặn/.test(text)?'blocked':'pending'}">${esc(text)}</span>`;
+  const badge = text => {
+    const t = String(text ?? '');
+    // Thứ tự quan trọng: âm tính trước ("Chưa đạt" chứa "Đạt"), rồi cảnh báo, rồi tích cực.
+    const cls = /Chưa đạt|NO-GO|Bị chặn|Từ chối/.test(t) ? 'blocked'
+      : /Test thêm|TEST MORE|Có điều kiện/.test(t) ? 'warning'
+      : /Greenlight|GREENLIGHT|Ưu tiên|Hoàn tất/.test(t) || /Đạt\s*$/.test(t) ? 'positive'
+      : 'pending';
+    return `<span class="badge ${cls}">${esc(text)}</span>`;
+  };
   const options = (values,current) => values.map(v=>`<option value="${esc(Array.isArray(v)?v[0]:v)}" ${String(current??'')===String(Array.isArray(v)?v[0]:v)?'selected':''}>${esc(Array.isArray(v)?v[1]:v)}</option>`).join('');
   const field = (name,text,value='',type='text',extra='') => `<label>${esc(text)}<input name="${esc(name)}" type="${type}" value="${esc(value)}" ${extra}></label>`;
   const area = (name,text,value='') => `<label class="full">${esc(text)}<textarea name="${esc(name)}">${esc(value)}</textarea></label>`;
   const select = (name,text,vals,value) => `<label>${esc(text)}<select name="${esc(name)}">${options(vals,value)}</select></label>`;
-  /* ---- Members (hợp đồng shared.js: S.members + memberName; fallback USERS khi state cũ) ---- */
+  /* ---- Members (hợp đồng shared.js: S.members + memberName/memberList; KHÔNG fallback USERS) ---- */
   function memberList() {
-    try { const s=crm(); if (Array.isArray(s?.members) && s.members.length) return s.members.filter(m=>m && m.active!==false).map(m=>({id:String(m.id??''),name:String(m.name||m.id||''),role:m.role||'Khác'})); } catch {}
-    try { if (typeof USERS !== 'undefined' && USERS) return Object.entries(USERS).map(([id,nm])=>{ const raw=String(nm); const role=/\(BD\)/.test(raw)?'BD':/\(MKT\)/.test(raw)?'MKT':id==='zac'?'Admin':'Khác'; return {id,name:raw,role}; }); } catch {}
-    return [];
+    // S7b: CHỈ lấy từ CRM state thật qua window.memberList(crmState) của shared.js, nguồn state
+    // là crm()/loadState() như cơ chế sẵn có của file — ĐÃ BỎ hẳn nhánh fallback hằng USERS cũ
+    // (không bịa thêm Linh/Tuấn "ma"). Chỉ gồm member đang active; khi CRM không còn member
+    // active nào (mọi member bị tắt active — mảng members vẫn được CRM giữ nguyên), trả rỗng.
+    try {
+      const s = crm();
+      const raw = (typeof window !== 'undefined' && typeof window.memberList === 'function') ? window.memberList(s) : (Array.isArray(s?.members) ? s.members : []);
+      return (raw || []).filter(m => m && m.active !== false).map(m => ({id:String(m.id ?? ''), name:String(m.name || m.id || ''), role:m.role || 'Khác'}));
+    } catch { return []; }
+  }
+  function effectiveMembers(roleFilter) {
+    const all = memberList();
+    if (!roleFilter) return all;
+    const filtered = all.filter(m => m.role === roleFilter);
+    return filtered.length ? filtered : all;
   }
   function memberOptionsHtml(roleFilter,current) {
     const all=memberList();
@@ -46,10 +109,17 @@
     if (cur && !list.some(m=>String(m.id)===cur)) html+=`<option value="${esc(cur)}" selected>${esc(cur)} (dữ liệu cũ)</option>`;
     return html;
   }
-  const memberField = (name,text,roleFilter,current='',opts={}) => `<label>${esc(text)}<select name="${esc(name)}" ${opts.required?'required':''}><option value="">— Chưa gán —</option>${memberOptionsHtml(roleFilter,current)}</select></label>`;
+  const memberField = (name,text,roleFilter,current='',opts={}) => {
+    // S7b: không còn member active (theo role lọc, có fallback toàn bộ như memberOptionsHtml)
+    // -> bỏ required để không chặn submit + hiện ghi chú cạnh field.
+    const noActive = effectiveMembers(roleFilter).length === 0;
+    const req = opts.required && !noActive;
+    return `<label>${esc(text)}<select name="${esc(name)}" ${req?'required':''}><option value="">— Chưa gán —</option>${memberOptionsHtml(roleFilter,current)}</select>${noActive?'<small class="mut member-empty-note">Chưa có thành viên đang hoạt động — hãy thêm/kích hoạt thành viên trong CRM.</small>':''}</label>`;
+  };
   function displayName(v) {
     const cur=String(v??'').trim(); if(!cur) return '';
-    try { const s=crm(); if (typeof memberName !== 'undefined' && typeof memberName === 'function') { const n=memberName(s,cur); if (n) return String(n); } } catch {}
+    // M6: ưu tiên window.memberName(crmState, id) của shared.js; không tra được thì fallback chính id.
+    try { const s=crm(); const fn=(typeof window!=='undefined'&&typeof window.memberName==='function')?window.memberName:(typeof memberName!=='undefined'&&typeof memberName==='function'?memberName:null); if (fn) { const n=fn(s,cur); if (n) return String(n); } } catch {}
     const m=memberList().find(x=>String(x.id)===cur); return m?m.name:cur;
   }
   /* ---- Intake (hồ sơ đầu vào BD thu thập) ---- */
@@ -83,19 +153,6 @@
     };
     return `<section class="section"><h3>Hồ sơ đầu vào (BD thu thập từ studio)</h3><dl class="mk-dl">${labels.map(([k,t])=>`<div class="mk-dl-row"><dt>${esc(t)}</dt><dd>${esc(fmt(k,intake[k]))}</dd></div>`).join('')}</dl></section>`;
   }
-  /* ---- Điểm thị trường tự động (chỉ tham khảo, không ghi vào revision) ---- */
-  function autoScoreHTML(r) {
-    if (r.kind!=='game') return '';
-    const mid=r.intake?.mechanicId;
-    if (!mid || !F.marketAuto) return `<section class="section mk-auto"><h3>Điểm thị trường tự động</h3><p class="mut">Chưa khớp mechanic — chưa tính được điểm tự động</p></section>`;
-    const all=observations(), rec=all.find(x=>x.id===mid);
-    if (!rec) return `<section class="section mk-auto"><h3>Điểm thị trường tự động</h3><p class="mut">Chưa khớp mechanic — chưa tính được điểm tự động</p></section>`;
-    const a=F.marketAuto(all,rec), inp=a.inputs||{};
-    const bar=(t,v)=>`<div class="mk-scorebar"><span>${esc(t)}</span><span class="mk-scorebar-track"><span class="mk-scorebar-fill" style="width:${v===null?0:Math.max(0,Math.min(100,v))}%"></span></span><b>${v===null?'—':num(v,1)}</b></div>`;
-    const band=inp.cpiBand?`${inp.cpiBand.key} · ${inp.cpiBand.low}–${inp.cpiBand.high}`:'—';
-    const compNames={scale:'Scale',growth:'Growth',monetization:'Monetization',ua:'UA'};
-    return `<section class="section mk-auto"><h3>Điểm thị trường tự động · ${esc(rec.name)}</h3><p class="mut">Chỉ tham khảo (${esc(F.marketVersion||'pubos-market-v1')}) — không ghi vào phiên bản đánh giá, không đổi khuyến nghị hiện tại. Monetization dựa trên RPD.</p><div class="summary-result"><div><small>Total /100</small><strong>${a.total===null?'—':num(a.total,1)}</strong></div><div><small>Độ đầy đủ dữ liệu</small><strong>${pct(a.completeness)}</strong></div><div><small>Mechanic</small><strong>${esc(rec.id)}</strong></div></div>${bar('Scale',a.scale)}${bar('Growth',a.growth)}${bar('Monetization (RPD)',a.monetization)}${bar('UA',a.ua)}<div class="table-scroll"><table><thead><tr><th>Đầu vào thô</th><th>Giá trị</th></tr></thead><tbody><tr><td>Downloads / ngày</td><td class="numeric">${num(inp.downloads)}</td></tr><tr><td>Revenue / ngày</td><td class="numeric">${usd(inp.revenue)}</td></tr><tr><td>DL growth 3M / 6M</td><td class="numeric">${pct(inp.dlGrowth3)} / ${pct(inp.dlGrowth6)}</td></tr><tr><td>Rev growth 3M / 6M</td><td class="numeric">${pct(inp.revGrowth3)} / ${pct(inp.revGrowth6)}</td></tr><tr><td>RPD</td><td class="numeric">${usd(inp.rpd)}</td></tr><tr><td>CPI median · band đã áp</td><td class="numeric">${usd(inp.cpiMedian)} · ${esc(band)}</td></tr></tbody></table></div>${a.missing?.length?`<p class="mut">Chưa có dữ liệu: ${a.missing.map(k=>esc(compNames[k]||k)).join(', ')}.</p>`:'<p class="mut">Đủ dữ liệu cả 4 cấu phần.</p>'}</section>`;
-  }
   /* ---- Chi tiết mechanic mở rộng (data v2 từ sheets-data.json) ---- */
   const noData = '<p class="mut">chưa có dữ liệu</p>';
   const kvTable = rows => { const vis = rows.filter(([, v]) => v !== '—'); return vis.length ? `<div class="table-scroll"><table><tbody>${vis.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="numeric">${v}</td></tr>`).join('')}</tbody></table></div>` : noData; };
@@ -126,15 +183,31 @@
   function v2PanelHTML(r, a) {
     if (r.kind !== 'game' || !F.gameV2) return '';
     const ctx = v2Context(r), saved = a.scoresV2 || null;
-    const draftM = {}; if (ctx) for (const [k] of F.market) { const s = ctx.suggest[k]; if (s) draftM[k] = {score: s.score, source: 'auto', rawInputs: s.rawInputs}; }
+    // S6: mechanic đã dùng cho điểm v2 đã lưu (fromMechanicId ghi khi lưu) vs mechanic hiện tại của intake.
+    const curMech = r.intake?.mechanicId || null;
+    const savedMech = saved ? (saved.fromMechanicId ?? saved.mechanicId ?? null) : null;
+    const mechChanged = !!(saved && savedMech && curMech && savedMech !== curMech);
+    const mechName = id => { const rec = DATA.records.find(x => x.id === id); return rec ? `${rec.name} (${rec.id})` : String(id || '—'); };
+    const draftM = {}; if (ctx && !mechChanged) for (const [k] of F.market) { const sg = ctx.suggest[k]; if (sg) draftM[k] = {score: sg.score, source: 'auto', rawInputs: sg.rawInputs}; }
     const shown = saved || {market: draftM, prototype: {}};
     const res = F.gameV2(shown);
-    const srcLabel = s => s === 'auto' ? 'Tự động' : s === 'override' ? 'Ghi đè gợi ý' : s === 'manual' ? 'Chấm tay' : '—';
-    const rowM = ([k, t, w]) => { const cur = shown.market?.[k], sug = ctx?.suggest?.[k]; const manual = V2_MANUAL.includes(k); return `<tr><td>${esc(t)}<div class="mut">${manual ? 'chấm tay — chưa có dữ liệu tự động' : 'trọng số ' + w + '%'}</div></td><td class="numeric">${w}%</td><td class="numeric">${cur ? num(cur.score, 1) : '—'}</td><td>${cur ? esc(srcLabel(cur.source)) : (sug ? 'gợi ý ' + num(sug.score, 1) + ' (chưa lưu)' : '—')}</td><td class="mk-raw">${esc(cur ? fmtRaw(cur.rawInputs) : sug ? fmtRaw(sug.rawInputs) : '—')}</td>${role === 'mkt' ? `<td><input name="v2m_${esc(k)}" type="number" min="1" max="5" step="0.5" value="${cur?.score ?? sug?.score ?? ''}" aria-label="Điểm v2 ${esc(t)}"></td>` : ''}</tr>`; };
+    const srcLabel = sv => sv === 'auto' ? 'Tự động' : sv === 'override' ? 'Ghi đè gợi ý' : sv === 'manual' ? 'Chấm tay' : '—';
+    const rowM = ([k, t, w]) => { const cur = shown.market?.[k], sug = mechChanged ? null : ctx?.suggest?.[k]; const manual = V2_MANUAL.includes(k); return `<tr><td>${esc(t)}<div class="mut">${manual ? 'chấm tay — chưa có dữ liệu tự động' : 'trọng số ' + w + '%'}</div></td><td class="numeric">${w}%</td><td class="numeric">${cur ? num(cur.score, 1) : '—'}</td><td>${cur ? esc(srcLabel(cur.source)) : (sug ? 'gợi ý ' + num(sug.score, 1) + ' (chưa lưu)' : '—')}</td><td class="mk-raw">${esc(cur ? fmtRaw(cur.rawInputs) : sug ? fmtRaw(sug.rawInputs) : '—')}</td>${role === 'mkt' ? `<td><input name="v2m_${esc(k)}" type="number" min="1" max="5" step="0.5" value="${cur?.score ?? (mechChanged ? '' : sug?.score) ?? ''}" aria-label="Điểm v2 ${esc(t)}"></td>` : ''}</tr>`; };
     const rowP = ([k, t, w]) => { const cur = shown.prototype?.[k]; return `<tr><td>${esc(t)}<div class="mut">chấm tay + ghi chú evidence ở bộ tiêu chí bên dưới</div></td><td class="numeric">${w}%</td><td class="numeric">${cur ? num(cur.score, 1) : '—'}</td><td>${cur ? 'Chấm tay' : '—'}</td><td class="mk-raw">—</td>${role === 'mkt' ? `<td><input name="v2p_${esc(k)}" type="number" min="1" max="5" step="0.5" value="${cur?.score ?? ''}" aria-label="Điểm Prototype v2 ${esc(t)}"></td>` : ''}</tr>`; };
     const compBar = (t, c) => `<div class="mk-scorebar"><span>${esc(t)}</span><span class="mk-scorebar-track"><span class="mk-scorebar-fill" style="width:${Math.round((c || 0) * 100)}%"></span></span><b>${pct(c)}</b></div>`;
-    return `<section class="section mk-v2"><h3>Market Score v2 · quartile (market-v2)</h3><p class="mut">${ctx ? `Gợi ý tự động theo quartile trong nhóm ${esc(ctx.rec.category)} của mechanic ${esc(ctx.rec.name)}; người chấm ghi đè được mọi gợi ý. Production Economics / SAVA Right-to-Win / Gamefeel Whitespace chấm tay — chưa có dữ liệu tự động.` : 'Chưa khớp mechanic — không có gợi ý tự động; vẫn chấm tay được cả 8 tiêu chí.'} ${saved ? 'Điểm dưới đây là bản v2 đã lưu trong phiên bản hiện tại.' : 'Chưa có điểm v2 đã lưu — bảng đang hiển thị gợi ý nháp; MKT nhập/lưu để chốt.'}</p><div class="summary-result"><div><small>Market /100 (chuẩn hoá)</small><strong>${res.market.score === null ? '—' : num(res.market.score, 1)}</strong></div><div><small>Prototype /100 (chuẩn hoá)</small><strong>${res.prototype.score === null ? '—' : num(res.prototype.score, 1)}</strong></div><div><small>Final /100</small><strong>${res.final === null ? '—' : num(res.final, 1)}</strong></div></div>${compBar('Completeness Market', res.market.completeness)}${compBar('Completeness Prototype', res.prototype.completeness)}<p class="mut">${res.marketInsufficient ? 'Market: Chưa đủ dữ liệu để kết luận (completeness &lt; 80%) — điểm chỉ là tạm tính. ' : ''}${res.final === null ? 'Final: chưa tính được Final (thiếu Market hoặc Prototype).' : res.decision ? `Quyết định v2: <b>${esc(res.decision)}</b> (Final ≥80 Greenlight · 65–79.9 Test thêm · &lt;65 Chưa đạt).` : esc(res.decisionBlockedReason || '')}</p><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Market</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc (rawInputs)</th>${role === 'mkt' ? '<th>Chấm / ghi đè</th>' : ''}</tr></thead><tbody>${F.market.map(rowM).join('')}</tbody></table></div><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Prototype</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc</th>${role === 'mkt' ? '<th>Chấm tay</th>' : ''}</tr></thead><tbody>${F.prototype.map(rowP).join('')}</tbody></table></div><p class="mut">Khung cũ (bên dưới) vẫn giữ nguyên để tương thích phiên bản đã lưu; điểm v2 lưu riêng trong scoresV2 của mỗi phiên bản, không ghi đè khung cũ. marketAuto 4 cấu phần ở trên chỉ là tham khảo phụ.</p></section>`;
+    // S11: completeness < 80% -> hiển thị "— (chưa đủ dữ liệu · X%)" thay cho con số.
+    const pctTxt = c => Math.round((c || 0) * 100) + '%';
+    const marketDisp = res.market.completeness < 0.8 ? `— (chưa đủ dữ liệu · ${pctTxt(res.market.completeness)})` : (res.market.score === null ? '—' : num(res.market.score, 1));
+    const protoDisp = res.prototype.completeness < 0.8 ? `— (chưa đủ dữ liệu · ${pctTxt(res.prototype.completeness)})` : (res.prototype.score === null ? '—' : num(res.prototype.score, 1));
+    // Final bị chặn vì completeness: X = completeness THẤP HƠN trong hai khối (cổ chai quyết định).
+    const finalBlockedByCompleteness = res.final !== null && res.decision === null && /completeness/i.test(res.decisionBlockedReason || '');
+    const finalDisp = finalBlockedByCompleteness ? `— (chưa đủ dữ liệu · ${pctTxt(Math.min(res.market.completeness, res.prototype.completeness))})` : (res.final === null ? '—' : num(res.final, 1));
+    // M5: phân biệt mốc dữ liệu đã lưu vs gợi ý live.
+    const stampNote = saved ? `Điểm đã lưu · ${esc(stamp(a.at) || 'không rõ thời gian')}` : 'Gợi ý live theo dữ liệu thị trường hiện tại — chưa lưu';
+    const mechWarn = mechChanged ? `<p class="mk-alert" role="alert">Mechanic đã đổi từ ${esc(mechName(savedMech))} sang ${esc(mechName(curMech))} — điểm Market v2 đã lưu thuộc mechanic cũ, cần chấm lại. Bảng dưới chỉ hiển thị điểm đã lưu (không trộn gợi ý của mechanic mới); khi MKT lưu phiên mới, rawInputs cũ sẽ bị loại và tính lại theo mechanic hiện tại.</p>` : '';
+    return `<section class="section mk-v2"><h3>Market Score v2 · quartile (market-v2) — khung quyết định chính thức</h3><p class="mut">${ctx ? `Gợi ý tự động theo quartile trong nhóm ${esc(ctx.rec.category)} của mechanic ${esc(ctx.rec.name)}; người chấm ghi đè được mọi gợi ý. Production Economics / SAVA Right-to-Win / Gamefeel Whitespace chấm tay — chưa có dữ liệu tự động.` : 'Chưa khớp mechanic — không có gợi ý tự động; vẫn chấm tay được cả 8 tiêu chí.'} ${esc(stampNote)}.</p>${mechWarn}<div class="summary-result"><div><small>Market /100 (chuẩn hoá)</small><strong>${marketDisp}</strong></div><div><small>Prototype /100 (chuẩn hoá)</small><strong>${protoDisp}</strong></div><div><small>Final /100</small><strong>${finalDisp}</strong></div></div>${compBar('Completeness Market', res.market.completeness)}${compBar('Completeness Prototype', res.prototype.completeness)}<p class="mut">${res.marketInsufficient ? 'Market: Chưa đủ dữ liệu để kết luận (completeness &lt; 80%) — điểm chỉ là tạm tính. ' : ''}${res.final === null ? 'Final: chưa tính được Final (thiếu Market hoặc Prototype).' : res.decision ? `Quyết định v2: <b>${esc(res.decision)}</b> (Final ≥80 Greenlight · 65–79.9 Test thêm · &lt;65 Chưa đạt).` : esc(res.decisionBlockedReason || '')}</p><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Market</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc (rawInputs)</th>${role === 'mkt' ? '<th>Chấm / ghi đè</th>' : ''}</tr></thead><tbody>${F.market.map(rowM).join('')}</tbody></table></div><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Prototype</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc</th>${role === 'mkt' ? '<th>Chấm tay</th>' : ''}</tr></thead><tbody>${F.prototype.map(rowP).join('')}</tbody></table></div><p class="mut">Khung cũ (bên dưới) vẫn giữ nguyên để tương thích phiên bản đã lưu; điểm v2 lưu riêng trong scoresV2 của mỗi phiên bản, không ghi đè khung cũ. Quyết định chốt theo Market Score v2 này; điểm marketAuto 4 cấu phần chỉ còn ở tab Thị trường dưới dạng tham khảo.</p></section>`;
   }
+
   /* ---- Giao diện thị trường trực quan (việc E) ---- */
   const heatClass = v => v===null||v===undefined?'mk-h0':v>=80?'mk-h4':v>=65?'mk-h3':v>=50?'mk-h2':'mk-h1';
   function marketVisualsHTML(filteredRows) {
@@ -157,7 +230,7 @@
     const grows=all.filter(r=>typeof r.history?.revGrowth3==='number').map(r=>({r,v:r.history.revGrowth3,dl:r.history?.dlGrowth3})).sort((a,b)=>b.v-a.v);
     const maxAbs=Math.max(...grows.map(g=>Math.abs(g.v)),0.0001);
     const growthHTML=grows.length?`<div class="mk-grows">${grows.map(g=>`<div class="mk-grow-row" title="DL growth 3M: ${pct(g.dl)}"><span class="mk-grow-name">${esc(g.r.name)}</span><span class="mk-grow-track"><span class="mk-grow-fill ${g.v>=0?'pos':'neg'}" style="width:${(Math.abs(g.v)/maxAbs*100).toFixed(1)}%"></span></span><b>${g.v>=0?'+':''}${pct(g.v)}</b><span class="mk-grow-sub">DL 3M ${pct(g.dl)}</span></div>`).join('')}</div>`:'<p class="mut">Chưa có dữ liệu Rev growth 3M.</p>';
-    return `<section class="panel mk-panel"><h3>Thị trường trực quan · điểm tự động</h3>${kpis}<h3 class="mk-subhead">Top sức hấp dẫn thị trường</h3>${topHTML}</section><section class="panel mk-panel"><h3>Bản đồ Growth × Monetization</h3>${scatter}</section><section class="panel mk-panel"><h3>Matrix nhiệt điểm thị trường</h3>${matrix}</section><section class="panel mk-panel"><h3>Tăng trưởng doanh thu 3M</h3>${growthHTML}</section>`;
+    return `<section class="panel mk-panel"><h3>Thị trường trực quan · điểm tự động</h3><p class="mut mk-legacy-note">Điểm tham khảo theo phương pháp cũ (4 cấu phần) — không dùng để chốt quyết định; quyết định theo Market Score v2 trong hồ sơ đánh giá.</p>${kpis}<h3 class="mk-subhead">Top sức hấp dẫn thị trường</h3>${topHTML}</section><section class="panel mk-panel"><h3>Bản đồ Growth × Monetization</h3>${scatter}</section><section class="panel mk-panel"><h3>Matrix nhiệt điểm thị trường</h3>${matrix}</section><section class="panel mk-panel"><h3>Tăng trưởng doanh thu 3M</h3>${growthHTML}</section>`;
   }
   function showDialog(html) {
     focusBefore=document.activeElement;
@@ -196,7 +269,7 @@
     const r=observations().find(x=>x.id===id);if(!r)return;
     const original=DATA.records.find(x=>x.id===id);
     const h=r.history||{},c=r.cpi||{};
-    showDialog(head(r.name)+`<div class="dialog-body"><div class="chips">${badge(r.category)}<span class="badge">${esc(r.date)} · ${esc(r.geo)}</span></div><p class="sub">${esc(r.platform)}</p><div class="summary-result"><div><small>Downloads / ngày</small><strong>${num(r.downloads)}</strong></div><div><small>Revenue / ngày</small><strong>${usd(r.revenue)}</strong></div><div><small>Top 3 revenue concentration</small><strong>${pct(r.top3)}</strong></div></div><section class="section"><h3>Benchmark UA</h3><p class="mut">${esc(r.cpiScope||'Chưa có CPI cùng phạm vi trong file.')}</p><div class="chips"><span class="badge">P25 ${usd(c.p25)}</span><span class="badge">Median ${usd(c.median)}</span><span class="badge">P75 ${usd(c.p75)}</span><span class="badge">Valid titles ${num(c.valid)} / ${num(c.eligible)}</span></div><p class="mut">CPI title = paid spend / paid installs. Median/P25/P75 giữa các title, không tính bằng total downloads.</p></section><section class="section"><h3>Lịch sử cohort quan sát</h3><p class="mut">${esc(r.historyPeriod||'Chưa nhập lịch sử cùng cohort.')}</p><div class="table-scroll"><table><thead><tr><th>Chỉ số</th><th>30D</th><th>90D</th><th>12M theo nguồn</th></tr></thead><tbody><tr><td>Downloads</td><td>${num(h.dl30)}</td><td>${num(h.dl90)}</td><td>${num(h.dl12)}</td></tr><tr><td>Revenue USD</td><td>${usd(h.rev30)}</td><td>${usd(h.rev90)}</td><td>${usd(h.rev12)}</td></tr></tbody></table></div><p class="mut">DL growth 3M: ${pct(h.dlGrowth3)} · Rev growth 3M: ${pct(h.revGrowth3)} · Rev growth 6M: ${pct(h.revGrowth6)}</p><p class="mut">RPD cùng cohort: ${usd(h.rpd)} · Không phải LTV.</p>${r.historyNote?`<details><summary class="mut">Ghi chú cohort / giới hạn nguồn</summary><p class="source-text">${esc(r.historyNote)}</p></details>`:''}</section>${detailExtrasHTML(r)}<section class="section"><h3>Chất lượng và nguồn</h3><p class="text-break">${esc(r.note)}</p><p class="mut">Evidence: ${esc(r.evidenceType)} · Confidence: ${num(r.confidence)}/5</p><p class="source-text">${esc(DATA.source)} · ${(r.provenance||[]).map(esc).join(' · ')}</p>${safeLink(r.url)}${original&&!r.original?`<details><summary>Bản gốc ${esc(original.date)}</summary><p>DL/ngày ${num(original.downloads)} · Revenue/ngày ${usd(original.revenue)}</p></details>`:''}${r.audit?.length?`<details><summary>Lịch sử cập nhật (${r.audit.length})</summary>${r.audit.map(a=>`<p class="source-text">${esc(stamp(a.at))} · ${esc(displayName(a.by))} · ${esc(a.date)} · ${esc(a.note)} · DL/ngày ${num(a.downloads)} · Rev/ngày ${usd(a.revenue)} · ${esc(a.url)}</p>`).join('')}</details>`:''}</section></div><div class="dialog-foot"><button class="btn primary" data-market-edit="${esc(id)}">Bổ sung dữ liệu mới</button></div>`);
+    showDialog(head(r.name)+`<div class="dialog-body"><div class="chips">${badge(r.category)}<span class="badge">${esc(r.date)} · ${esc(r.geo)}</span></div><p class="sub">${esc(r.platform)}</p><div class="summary-result"><div><small>Downloads / ngày</small><strong>${num(r.downloads)}</strong></div><div><small>Revenue / ngày</small><strong>${usd(r.revenue)}</strong></div><div><small>Top 3 revenue concentration</small><strong>${pct(r.top3)}</strong></div></div><section class="section"><h3>Benchmark UA</h3><p class="mut">${esc(r.cpiScope||'Chưa có CPI cùng phạm vi trong file.')}</p><div class="chips"><span class="badge">P25 ${usd(c.p25)}</span><span class="badge">Median ${usd(c.median)}</span><span class="badge">P75 ${usd(c.p75)}</span><span class="badge">Valid titles ${num(c.valid)} / ${num(c.eligible)}</span></div><p class="mut">CPI title = paid spend / paid installs. Median/P25/P75 giữa các title, không tính bằng total downloads.</p></section><section class="section"><h3>Lịch sử cohort quan sát</h3><p class="mut">${esc(r.historyPeriod||'Chưa nhập lịch sử cùng cohort.')}</p><div class="table-scroll"><table><thead><tr><th>Chỉ số</th><th>30D</th><th>90D</th><th>12M theo nguồn</th></tr></thead><tbody><tr><td>Downloads</td><td>${num(h.dl30)}</td><td>${num(h.dl90)}</td><td>${num(h.dl12)}</td></tr><tr><td>Revenue USD</td><td>${usd(h.rev30)}</td><td>${usd(h.rev90)}</td><td>${usd(h.rev12)}</td></tr></tbody></table></div><p class="mut">DL growth 3M: ${pct(h.dlGrowth3)} · Rev growth 3M: ${pct(h.revGrowth3)} · Rev growth 6M: ${pct(h.revGrowth6)}</p><p class="mut">RPD cùng cohort: ${usd(h.rpd)} · Không phải LTV.</p>${r.historyNote?`<details><summary class="mut">Ghi chú cohort / giới hạn nguồn</summary><p class="source-text">${esc(r.historyNote)}</p></details>`:''}</section>${detailExtrasHTML(r)}<section class="section"><h3>Chất lượng và nguồn</h3><p class="text-break">${esc(r.note)}</p><p class="mut">Evidence: ${esc(r.evidenceType)} · Confidence: ${num(r.confidence)}/5</p><p class="source-text">${esc(DATA.source)} · ${(r.provenance||[]).map(esc).join(' · ')}</p>${safeLink(r.url)}${original&&!r.original?`<details><summary>Bản gốc ${esc(original.date)}</summary><p>DL/ngày ${num(original.downloads)} · Revenue/ngày ${usd(original.revenue)}</p></details>`:''}${r.audit?.length?`<details><summary>Lịch sử cập nhật (${r.audit.length})</summary>${r.audit.map(a=>`<p class="source-text">${esc(stamp(a.at))} · ${esc(displayName(a.by))} · ${esc(a.date)} · ${esc(a.note)} · DL/ngày ${num(a.downloads)} · Rev/ngày ${usd(a.revenue)} · ${esc(a.url)}</p>`).join('')}</details>`:''}</section></div><div class="dialog-foot">${r.original?'':`<button class="btn danger" data-delete-market="${esc(id)}">${DATA.records.some(x=>x.id===id)?'Gỡ dữ liệu bổ sung (về bản gốc)':'Xóa quan sát'}</button>`}<button class="btn primary" data-market-edit="${esc(id)}">Bổ sung dữ liệu mới</button></div>`);
   }
   function safeLink(url) {try{const u=new URL(url);if(!['https:','http:'].includes(u.protocol))return '';return `<a href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">Mở nguồn ↗</a>`;}catch{return '';}}
   function marketForm(id) {
@@ -213,7 +286,7 @@
     const downloads=optional('downloads'),revenue=optional('revenue');
     if(downloads===null&&revenue===null)throw Error('Nhập ít nhất downloads hoặc revenue; phần chưa có giữ trống.');
     const prev=active.id?observations().find(x=>x.id===active.id):null;
-    const next={id:active.id||'OBS-'+uuid(),name:val('name'),category:val('category'),date:val('date'),geo:val('geo'),platform:val('platform'),downloads,revenue,url:url.href,by:val('by'),confidence:Number(val('confidence')),evidenceType:val('evidenceType'),note:val('note'),history:{},cpi:{},top1:null,top3:null,top5:null,newcomer:null,historyNote:'',historyPeriod:'',cpiScope:'',provenance:['Quan sát do '+val('by')+' cập nhật'],at:new Date().toISOString(),audit:[...(prev?.audit||[]),...(prev?[{date:prev.date,downloads:prev.downloads,revenue:prev.revenue,url:prev.url,note:prev.note,by:prev.by||'Workbook',at:prev.at||null}]:[])]};
+    const next={id:active.id||'OBS-'+uuid(),name:val('name'),category:val('category'),date:val('date'),geo:val('geo'),platform:val('platform'),downloads,revenue,url:url.href,by:val('by'),confidence:Number(val('confidence')),evidenceType:val('evidenceType'),note:val('note'),history:{},cpi:{},top1:null,top3:null,top5:null,newcomer:null,historyNote:'',historyPeriod:'',cpiScope:'',provenance:['Quan sát do '+displayName(val('by'))+' cập nhật'],at:new Date().toISOString(),audit:[...(prev?.audit||[]),...(prev?[{date:prev.date,downloads:prev.downloads,revenue:prev.revenue,url:prev.url,note:prev.note,by:prev.by||'Workbook',at:prev.at||null}]:[])]};
     const i=s.marketUpdates.findIndex(x=>x.id===next.id);if(i<0)s.marketUpdates.push(next);else s.marketUpdates[i]=next;
     write(s);closeDialog();render();notify('Đã lưu quan sát thị trường.');
   }
@@ -223,7 +296,7 @@
     $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc tiến độ">${options([['all','Tất cả tiến độ'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select></div><div class="card-grid">${rows.map(r=>{
       const en=entity(s,r.kind,r.entityId),v=r.current||{},res=r.kind==='company'?F.company(v):F.game(v);
       const value=r.kind==='company'?res.total:res.final;
-      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / NĂNG LỰC SẢN XUẤT':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(res.recommendation)}<span><b>${num(value,1)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button></div></article>`;
+      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / NĂNG LỰC SẢN XUẤT':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(res.recommendation)}<span><b>${num(value,1)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
     }).join('')||`<div class="panel empty full"><h3>${data.requests.length?'Không có hồ sơ khớp bộ lọc':'Chưa có yêu cầu đánh giá'}</h3><p class="mut">${role==='bd'?'Chọn company hoặc game đã có trong CRM để giao MKT đánh giá.':'BD gửi yêu cầu company hoặc game từ CRM; hàng chờ sẽ xuất hiện tại đây.'}</p></div>`}</div>`;
   }
   function requestForm(kind='company',id='') {
@@ -252,12 +325,12 @@
     const isCompany=r.kind==='company',result=isCompany?F.company(a):F.game(a);
     const professionalKeys=isCompany?[['track','Track Record',10/90*100],['team','Năng lực Team',15/90*100],...F.production.map(v=>[...v,0]),['data','Data & Tech',10/90*100],['collaboration','Hợp tác',15/90*100],['strategy','Strategic Fit',15/90*100],['pipeline','Tiềm năng Long-term',10/90*100]]:[...F.market,...F.prototype];
     const resultHTML=isCompany?`<div class="summary-result"><div><small>Partner Fit /100</small><strong>${num(result.total,1)}</strong></div><div><small>Production Composite /5</small><strong>${num(result.composite,1)}</strong></div><div><small>Evidence coverage</small><strong>${pct(result.coverage)}</strong></div></div><p class="mut">Hard Gate: ${esc(result.hardGate)} · Minimum Evidence: ${result.minimum?'ĐẠT':'THIẾU'} · Confidence: ${esc(result.confidence)}</p>`:`<div class="summary-result"><div><small>Market /100</small><strong>${num(result.market,1)}</strong></div><div><small>Prototype /100</small><strong>${num(result.prototype,1)}</strong></div><div><small>Final /100</small><strong>${num(result.final,1)}</strong></div></div><p class="mut">Data completeness: ${pct(result.completeness)} · Hard Gate: ${esc(result.gate)} · Final = 40% Market + 60% Prototype</p>`;
-    showDialog(head(label(en))+`<form id="reviewForm"><div class="dialog-body"><div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(result.recommendation)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p><p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${intakeDisplayHTML(r)}${autoScoreHTML(r)}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét MKT / bằng chứng cần bổ sung':'BD bổ sung thông tin',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
+    showDialog(head(label(en))+`<form id="reviewForm"><div class="dialog-body"><div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(result.recommendation)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p><p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${intakeDisplayHTML(r)}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&!a.scoresV2&&r.revisions.length?' Phiên bản hiện tại là đánh giá cũ (legacy) — chưa có Market Score v2.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét MKT / bằng chứng cần bổ sung':'BD bổ sung thông tin',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
       <section class="section"><h3>${isCompany?'Năng lực sản xuất & Partner Fit':'Market Score · 8 tiêu chí'}</h3><p class="mut">${isCompany?'7 pillar chuẩn hóa tổng trọng số 90 → 100. Production = trung bình 4 nhóm; thiếu 1 nhóm → NE. Deal Fit tách riêng.':'Điểm 1–5 theo bộ candidate so sánh: 1 rất bất lợi, 3 trung tính, 5 rất thuận lợi. Trọng số Market và Prototype tính riêng.'}</p>${professionalKeys.map(([k,t,w],i)=>`${!isCompany&&i===F.market.length?'<h3 class="section">Prototype Score · 6 tiêu chí</h3>':''}${criterion(k,t,w,e[k],role==='mkt')}`).join('')}</section>
       ${isCompany?`<section class="section"><h3>Evidence hỗ trợ</h3>${criterion('history','Publisher History',0,e.history,role==='mkt')}${criterion('legalEvidence','Legal / IP',0,e.legalEvidence,role==='bd')}</section><section class="section"><h3>Deal Fit · phần BD</h3><p class="mut">Không cộng vào Partner Fit. Deal evidence vẫn là điều kiện của Minimum Evidence Gate trong playbook.</p>${criterion('deal','Mức độ phù hợp Deal',0,e.deal,role==='bd')}</section>`:role==='mkt'?`<section class="section"><div class="fields">${field('quality','Evidence Quality 1–5',a.quality??'','number','min="1" max="5" step="1"')}</div></section>`:`<p class="mut">Evidence Quality: ${num(a.quality)}/5</p>`}
       <section class="section"><h3>${isCompany?'6 Hard Gate · xác minh BD':'Hard Gate · xác minh BD'}</h3><p class="mut">Gate độc lập điểm số. PASS phải có căn cứ; chưa xác minh giữ Pending.</p>${isCompany?F.gates.map(([k,t])=>{const g=a.gates?.[k]||{};return role==='bd'?`<details class="criterion"><summary><span>${esc(t)}</span><b>${esc(g.value||'PENDING')}</b></summary><div class="fields">${select('g_'+k,'Trạng thái',[['PENDING','Chờ xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],g.value||'PENDING')}${field('gu_'+k,'Nguồn / ngày',g.source||'')}${area('gn_'+k,'Bằng chứng xác minh',g.note||'')}</div></details>`:`<div class="weight-row"><span>${esc(t)}</span><b>${esc(g.value||'PENDING')}</b></div>`;}).join(''):role==='bd'?`<div class="fields">${select('gate','Hard Gate',[['PENDING','Chờ xác minh'],['PASS','PASS'],['FAIL','FAIL']],a.gate||'PENDING')}${field('gateSource','Nguồn / ngày xác minh',a.gateSource||'')}${area('gateNote','Bằng chứng / blocker / điều kiện PASS',a.gateNote||'')}</div>`:`<p class="mut">${esc(a.gate||'PENDING')} · ${esc(a.gateNote||'Chờ BD xác minh.')}</p>`}</section>
       <section class="section"><h3>Điều kiện và bước tiếp theo</h3>${role==='mkt'?`<div class="fields">${area('strengths','Điểm mạnh có bằng chứng',a.strengths||'')}${area('risks','Rủi ro chuyên môn',a.risks||'')}${area('conditions','Điều kiện / bằng chứng cần bổ sung',a.conditions||'')}${area('next','Hành động kế tiếp',a.next||'')}</div>`:`<p class="text-break">${esc(a.strengths||'')}</p><p class="text-break">${esc(a.risks||'')}</p><p class="text-break">${esc(a.conditions||'')}</p><p class="text-break">${esc(a.next||'')}</p><div class="fields">${field('build','Build BD bổ sung',r.build||'')}${field('source','Link BD bổ sung',r.source||'','url')}${memberField('assignee','MKT phụ trách','MKT',r.assignee||'')}${field('due','Hạn đánh giá',r.due||'','date')}</div>${intakeFieldsHTML(r.kind,r.intake||{})}`}</section>
-      <section class="section"><h3>Lịch sử đánh giá · ${r.revisions.length} phiên bản</h3>${r.revisions.slice().reverse().map((h,i)=>{const res=isCompany?F.company(h):F.game(h);return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(h.at))} · ${esc(h.reviewer)} (${esc(h.role.toUpperCase())}) · ${esc(h.status)}</summary><p>${esc(res.recommendation)} · ${num(isCompany?res.total:res.final,1)}/100 · build ${esc(h.build||'')}</p>${!isCompany&&h.scoresV2?(()=>{const v=F.gameV2(h.scoresV2);return `<p class="source-text">Market v2: ${num(v.market.score,1)}/100 · Prototype v2: ${num(v.prototype.score,1)}/100 · Final v2: ${num(v.final,1)}/100${v.decision?' · '+esc(v.decision):''}</p>`;})():''}<p class="text-break">${esc(h.comment||h.bdComment||'')}</p><p class="text-break">${esc(h.conditions||'')}</p>${Object.entries(h.entries||{}).map(([k,v])=>`<p class="source-text"><b>${esc(evidenceLabels[k]||k)}</b> ${num(F.score(v),1)}/5 · ${esc(v.status)} · ${esc(v.note)} · ${esc(v.source)}</p>`).join('')}<p class="source-text">Gate: ${esc(isCompany?JSON.stringify(h.gates||{}):(h.gate||'PENDING')+' · '+(h.gateNote||'')+' · '+(h.gateSource||''))}</p></details>`;}).join('')||'<p class="mut">Chưa có phiên bản đánh giá.</p>'}</section><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><span class="mut">Lưu thêm phiên bản · giữ lịch sử cũ</span>${role==='bd'?'<button type="button" class="btn" data-action="requeue">Gửi MKT đánh giá lại</button>':''}<button class="btn primary">${role==='mkt'?'Lưu đánh giá cho BD':'Lưu bổ sung BD'}</button></div></form>`);
+      <section class="section"><h3>Lịch sử đánh giá · ${r.revisions.length} phiên bản</h3>${r.revisions.slice().reverse().map((h,i)=>{const res=isCompany?F.company(h):F.game(h);return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(h.at))} · ${esc(displayName(h.reviewer))} (${esc(h.role.toUpperCase())}) · ${esc(h.status)}</summary><p>${esc(res.recommendation)} · ${num(isCompany?res.total:res.final,1)}/100 · build ${esc(h.build||'')}${!isCompany&&!h.scoresV2?' · đánh giá cũ (legacy)':''}</p>${!isCompany&&h.scoresV2?(()=>{const v=F.gameV2(h.scoresV2);return `<p class="source-text">Market v2: ${num(v.market.score,1)}/100 · Prototype v2: ${num(v.prototype.score,1)}/100 · Final v2: ${num(v.final,1)}/100${v.decision?' · '+esc(v.decision):''}</p>`;})():''}<p class="text-break">${esc(h.comment||h.bdComment||'')}</p><p class="text-break">${esc(h.conditions||'')}</p>${Object.entries(h.entries||{}).map(([k,v])=>`<p class="source-text"><b>${esc(evidenceLabels[k]||k)}</b> ${num(F.score(v),1)}/5 · ${esc(v.status)} · ${esc(v.note)} · ${esc(v.source)}</p>`).join('')}<p class="source-text">Gate: ${esc(isCompany?JSON.stringify(h.gates||{}):(h.gate||'PENDING')+' · '+(h.gateNote||'')+' · '+(h.gateSource||''))}</p></details>`;}).join('')||'<p class="mut">Chưa có phiên bản đánh giá.</p>'}</section><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><span class="mut">Lưu thêm phiên bản · giữ lịch sử cũ</span><button type="button" class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button>${role==='bd'?'<button type="button" class="btn" data-action="requeue">Gửi MKT đánh giá lại</button>':''}<button class="btn primary">${role==='mkt'?'Lưu đánh giá cho BD':'Lưu bổ sung BD'}</button></div></form>`);
   }
   function entryFrom(d,k) {
     const raw=String(d.get('s_'+k)??'').trim(),status=String(d.get('t_'+k)||'Thiếu'),note=String(d.get('n_'+k)||'').trim(),source=String(d.get('u_'+k)||'').trim();
@@ -276,20 +349,26 @@
       const keys=r.kind==='company'?['track','team',...F.production.map(([k])=>k),'data','collaboration','strategy','pipeline','history']:[...F.market,...F.prototype].map(([k])=>k);
       keys.forEach(k=>a.entries[k]=entryFrom(d,k));
       if(r.kind==='game'&&d.get('v2m_size')!==null) {
-        const ctx=v2Context(r), savedV2=(r.current||{}).scoresV2||{}, v2={version:'market-v2',market:{},prototype:{}};
+        const ctx=v2Context(r), savedV2=(r.current||{}).scoresV2||{};
+        const curMech=r.intake?.mechanicId||null, savedMech=savedV2.fromMechanicId??savedV2.mechanicId??null;
+        const mechChanged=!!(savedMech&&curMech&&savedMech!==curMech);
+        const v2={version:'market-v2',fromMechanicId:curMech,market:{},prototype:{}};
         for(const [k] of F.market) {
           const raw=String(d.get('v2m_'+k)??'').trim(); if(raw==='') continue;
           const score=Number(raw); if(!F.validV2(score)) throw Error('Điểm v2 '+k+' phải từ 1–5, bước 0.5.');
           const sug=ctx?.suggest?.[k], prev=savedV2.market?.[k];
-          const source=prev&&prev.score===score?prev.source:sug?(score===sug.score?'auto':'override'):'manual';
-          v2.market[k]={score,source,rawInputs:prev&&prev.score===score?(prev.rawInputs??null):(sug?sug.rawInputs:null)};
+          // S6: mechanic đã đổi -> KHÔNG mang rawInputs/source của mechanic cũ sang phiên mới;
+          // rawInputs chỉ lấy từ gợi ý của mechanic hiện tại (hoặc null nếu không có gợi ý).
+          const keepPrev=!mechChanged&&prev&&prev.score===score;
+          const source=keepPrev?prev.source:sug?(score===sug.score?'auto':'override'):'manual';
+          v2.market[k]={score,source,rawInputs:keepPrev?(prev.rawInputs??null):(sug?sug.rawInputs:null)};
         }
         for(const [k] of F.prototype) {
           const raw=String(d.get('v2p_'+k)??'').trim(); if(raw==='') continue;
           const score=Number(raw); if(!F.validV2(score)) throw Error('Điểm Prototype v2 '+k+' phải từ 1–5, bước 0.5.');
           v2.prototype[k]={score,source:'manual',rawInputs:null};
         }
-        a.scoresV2=v2;
+        a.scoresV2=v2; delete a.legacy;
       }
       a.status=val('status');a.build=val('build');a.comment=val('comment');
       for(const k of ['strengths','risks','conditions','next'])a[k]=val(k);
@@ -297,8 +376,18 @@
       if(a.status==='Chờ bổ sung'&&!a.conditions&&!a.comment)throw Error('Ghi rõ bằng chứng đang cần bổ sung.');
       if(a.status==='Hoàn tất') {
         if(!a.comment)throw Error('Ghi nhận xét chuyên môn trước khi hoàn tất.');
-        if(r.kind==='company'&&F.company(a).total===null)throw Error('Chưa đủ 7 pillar chuyên môn; giữ Đang đánh giá hoặc Chờ bổ sung.');
-        if(r.kind==='game'&&(F.game(a).completeness<.8||F.game(a).final===null))throw Error('Cần tối thiểu 80% dữ liệu và đủ hai nhóm điểm trước khi hoàn tất.');
+        if(r.kind==='company'&&F.company(a).total===null)throw Error('Chưa đủ điểm Partner Fit (cần đủ 7 pillar theo khung Partner hợp nhất) để Hoàn tất; giữ Đang đánh giá hoặc Chờ bổ sung.');
+        if(r.kind==='game') {
+          const hasV2=a.scoresV2!==null&&a.scoresV2!==undefined;
+          if(hasV2) {
+            // v2 là khung quyết định CHÍNH THỨC: chỉ Hoàn tất khi gameV2 đã ra nhãn quyết định.
+            if(!F.gameV2||F.gameV2(a.scoresV2).decision===null)throw Error('Market Score v2 chưa ra được quyết định (cần có Final và completeness Market + Prototype đều ≥ 80%); chưa thể Hoàn tất — giữ Đang đánh giá hoặc Chờ bổ sung.');
+          } else {
+            // Legacy thuần (revision sẽ lưu hoàn toàn không có scoresV2): giữ điều kiện cũ, gắn nhãn legacy.
+            if(F.game(a).completeness<.8||F.game(a).final===null)throw Error('Cần tối thiểu 80% dữ liệu và đủ hai nhóm điểm trước khi hoàn tất.');
+            a.legacy=true;
+          }
+        }
       }
     } else {
       a.bdComment=val('comment');r.build=val('build');r.source=val('source');r.assignee=val('assignee');r.due=val('due');
@@ -324,7 +413,7 @@
   }
   function renderFramework() {
     const weights = rows => rows.map(([k,t,w])=>`<div class="weight-row"><span>${esc(t)}</span><b>${w}%</b></div>`).join('');
-    $('#screen').innerHTML=`<div class="rule-grid"><section class="panel"><p class="eyebrow">GAME · 10_SCORECARD</p><h3>Market Score · 40% Final</h3>${weights(F.market)}<div class="formula">Market = Σ(điểm 1–5 × trọng số) / 5</div><h3 class="section">Prototype Score · 60% Final</h3>${weights(F.prototype)}<div class="formula">Final = Market × 0.4 + Prototype × 0.6</div><p class="mut">Data completeness = số input hợp lệ / 15 (8 Market + 6 Prototype + Evidence Quality). Ngưỡng 80%. Thiếu điểm giữ trống, không tự điền 3.</p><div class="chips">${badge('≥80 GREENLIGHT')}${badge('65–<80 TEST MORE')}${badge('<65 NO-GO')}</div><p class="mut">Hard Gate FAIL → NO-GO; Pending → HOLD; thiếu dữ liệu → HOLD. Điểm từng tiêu chí do MKT nhập theo bằng chứng; tổng điểm tự tính, không suy điểm từ doanh thu đơn lẻ.</p></section><section class="panel"><p class="eyebrow">COMPANY · 04_SCORECARD</p><h3>Partner Fit · không gồm Deal Fit</h3>${weights(F.partner)}<div class="formula">Partner Fit = Σ(điểm × trọng số) / 5 / 90 × 100</div><p class="mut">Tổng trọng số nguồn là 90 sau khi bỏ Deal Fit. Production Composite = AVG(Capacity, Cadence, Milestone, LiveOps), làm tròn 1 chữ số; thiếu một nhóm → NE. Chỉ tính Partner Fit khi đủ 7 pillar.</p><div class="chips">${badge('≥85 Ưu tiên')}${badge('75–<85 Đạt')}${badge('65–<75 Có điều kiện')}${badge('<65 Cần xem xét')}</div><h3 class="section">Hard Gate và Minimum Evidence</h3>${F.gates.map(([,t])=>`<div class="weight-row">${esc(t)}</div>`).join('')}<p class="mut">Một FAIL → Bị chặn. Đủ 6 PASS mới ĐẠT. Minimum Evidence cần Hard Gate ĐẠT + Team + 4 Production + Data + Collaboration + Deal evidence. Production coverage dùng ≥3/4 nhóm nhưng Production score cần đủ 4/4.</p><p class="mut">Coverage 8 nhóm giữ đúng file, gồm Deal evidence. Confidence dựa trên coverage và mức xác minh 13 nhóm evidence. Deal Fit chỉ BD nhập 1–5, không cộng vào Partner Fit.</p></section></div><section class="panel"><h3>Nguồn và cách xử lý khác biệt trong file</h3><p class="sub">SAVA_Mobile_Game_Decision.xlsx: 10_SCORECARD!B4:B11, E4:E9, I4:I8 và các sheet thị trường. Publishing_Partner_Selection_Playbook.xlsx: 02_Hard_Gate, 03_Evidence, 04_Scorecard!D7:K7, L9:N9.</p><p class="sub">Sheet 05_Decision còn mô tả cũ gồm Deal 10%; bản này dùng công thức Partner Fit mới tại 04_Scorecard, loại Deal Fit và chuẩn hóa 90 → 100. Workbook game cho phép công thức tạm khi thiếu input; hệ thống giữ HOLD khi thiếu một nhóm điểm. Các kiểm tra bắt buộc ghi nguồn/bằng chứng là điều kiện bổ sung khi nhập liệu, không thay trọng số.</p><p class="sub">Khung Partner Fit này dành cho studio/indie. Publisher không dùng bộ năng lực sản xuất này. Không nhập Partner Master, deal, decision hay điểm đánh giá mẫu của các file. Đánh giá cũ /10 trong CRM giữ làm lịch sử; không tự quy đổi sang thang /5.</p></section>`;
+    $('#screen').innerHTML=`<div class="rule-grid"><section class="panel"><p class="eyebrow">GAME · 10_SCORECARD</p><h3>Market Score · 40% Final</h3>${weights(F.market)}<div class="formula">Market = Σ(điểm 1–5 × trọng số) / 5</div><h3 class="section">Prototype Score · 60% Final</h3>${weights(F.prototype)}<div class="formula">Final = Market × 0.4 + Prototype × 0.6</div><p class="mut">Data completeness = số input hợp lệ / 15 (8 Market + 6 Prototype + Evidence Quality). Ngưỡng 80%. Thiếu điểm giữ trống, không tự điền 3.</p><div class="chips">${badge('≥80 GREENLIGHT')}${badge('65–<80 TEST MORE')}${badge('<65 NO-GO')}</div><p class="mut">Hard Gate FAIL → NO-GO; Pending → HOLD; thiếu dữ liệu → HOLD. Điểm từng tiêu chí do MKT nhập theo bằng chứng; tổng điểm tự tính, không suy điểm từ doanh thu đơn lẻ.</p></section><section class="panel"><p class="eyebrow">COMPANY · 04_SCORECARD</p><h3>Partner Fit · không gồm Deal Fit</h3>${weights(F.partner)}<div class="formula">Partner Fit = ROUND((Track×10 + Team×15 + Production×15 + Data×10 + Hợp tác×15 + Strategic×15 + Long-term×10) / 5 / 90 × 100, 1)</div><p class="mut">Tổng trọng số nguồn là 90 sau khi bỏ Deal Fit. Điểm pillar lấy từ entries đã lưu; điểm Production = trung bình 4 ô con Capacity/Cadence/Milestone/LiveOps (đủ 4 mới tính, không làm tròn trung gian); thiếu một ô con → Production = NE. Chỉ tính Partner Fit khi đủ 7 pillar, làm tròn 1 chữ số ở bước cuối.</p><div class="chips">${badge('≥85 Ưu tiên')}${badge('75–<85 Đạt')}${badge('65–<75 Có điều kiện')}${badge('<65 Cần xem xét')}</div><h3 class="section">Hard Gate và Minimum Evidence</h3>${F.gates.map(([,t])=>`<div class="weight-row">${esc(t)}</div>`).join('')}<p class="mut">Hard Gate 6 cổng: có 1 cổng “Không đạt” → KHÔNG ĐẠT; đủ 6 cổng “Đạt” → ĐẠT; còn lại → CHỜ XÁC MINH. Kết luận: KHÔNG ĐẠT → Bị chặn; CHỜ XÁC MINH → Chờ xác minh; Minimum Evidence Gate chưa ĐẠT → Thiếu Evidence; còn lại lấy theo phân loại Partner Fit.</p><p class="mut">Evidence coverage tính trên 11 mục (7 pillar + 4 ô con Production: Capacity/Cadence/Milestone/LiveOps), chỉ mục “Đã xác minh” mới tính. Confidence: coverage ≥90% Cao, 60–89% Trung bình, &lt;60% Thấp. Minimum Evidence Gate = ĐẠT khi coverage ≥80% (quy tắc CRM áp theo ngưỡng 80% của khung game; file 2 không cho số cụ thể). Deal Fit chấm riêng 1–5, không cộng vào Partner Fit. Module Publishing và giao diện BD dùng chung một implementation PartnerEval (shared.js), không còn hai bộ quy tắc.</p></section></div><section class="panel"><h3>Nguồn và cách xử lý khác biệt trong file</h3><p class="sub">SAVA_Mobile_Game_Decision.xlsx: 10_SCORECARD!B4:B11, E4:E9, I4:I8 và các sheet thị trường. Publishing_Partner_Selection_Playbook.xlsx: 02_Hard_Gate, 03_Evidence, 04_Scorecard!D7:K7, L9:N9.</p><p class="sub">Sheet 05_Decision còn mô tả cũ gồm Deal 10%; bản này dùng công thức Partner Fit mới tại 04_Scorecard, loại Deal Fit và chuẩn hóa 90 → 100. Workbook game cho phép công thức tạm khi thiếu input; hệ thống giữ HOLD khi thiếu một nhóm điểm. Các kiểm tra bắt buộc ghi nguồn/bằng chứng là điều kiện bổ sung khi nhập liệu, không thay trọng số.</p><p class="sub">Khung Partner Fit này dành cho studio/indie. Publisher không dùng bộ năng lực sản xuất này. Không nhập Partner Master, deal, decision hay điểm đánh giá mẫu của các file. Đánh giá cũ /10 trong CRM giữ làm lịch sử; không tự quy đổi sang thang /5.</p></section>`;
   }
   document.addEventListener('click',e=>{
     const b=e.target.closest('button');
@@ -333,6 +422,8 @@
       if(b.hasAttribute('data-close')){closeDialog();return;}
       if(b.dataset.tab){tab=b.dataset.tab;query='';const url=new URL(location.href);url.searchParams.set('tab',tab);url.searchParams.delete('kind');url.searchParams.delete('id');history.replaceState(null,'',url);render();return;}
       if(b.dataset.market){marketDetail(b.dataset.market);return;}
+      if(b.dataset.deleteRequest){deleteRequest(b.dataset.deleteRequest);return;}
+      if(b.dataset.deleteMarket){deleteMarketObs(b.dataset.deleteMarket);return;}
       if(b.dataset.marketEdit){const id=b.dataset.marketEdit;closeDialog();marketForm(id);return;}
       if(b.dataset.review){openReview(b.dataset.review);return;}
       if(b.dataset.action==='market-new')marketForm();

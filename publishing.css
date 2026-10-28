@@ -18,3 +18,7 @@ dialog{border:1px solid var(--line);border-radius:17px;width:min(1040px,calc(100
 .mk-v2-table td.mk-raw{font-size:11px;color:var(--mut);min-width:180px;overflow-wrap:anywhere}
 .mk-v2-table input{width:76px;min-height:38px}
 .mk-v2 .summary-result{margin:12px 0}
+/* ---- QA fixes: badge warning, cảnh báo mechanic, ghi chú member rỗng ---- */
+.badge.warning{color:#8a4d00;background:#fde9bd;border:1px solid #e8b93e}
+.mk-alert{padding:12px 14px;border:1px solid #e8b93e;background:#fff7e0;border-radius:9px;font-size:13px;color:#6b4a00}
+.member-empty-note{display:block;font-size:11px;line-height:1.5}
