@@ -103,6 +103,13 @@
   .task { display:flex; gap:10px; align-items:flex-start; padding:9px 0; border-bottom:1px solid #eef2f7; font-size:13.5px; }
   .task input { margin-top:2px; width:16px; height:16px; }
   .task.done .tt { text-decoration: line-through; color:var(--mut); }
+  /* Partner Eval (drawer công ty, mảng Publishing) */
+  .pe-row { display:grid; grid-template-columns: 1fr 170px; gap:6px 10px; align-items:start; margin-bottom:8px; }
+  .pe-row .lb { font-size:13px; font-weight:600; }
+  .pe-row select { width:100%; }
+  .pe-sub { margin-left:18px; }
+  .pe-rev select { width:100%; }
+  @media (max-width: 640px) { .pe-row { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .kpis{grid-template-columns:repeat(2,1fr)} .grid2{grid-template-columns:1fr} .side{width:64px} .side .logo,.side .sub,.nav button span,.side .foot{display:none} .main{margin-left:64px} }
 </style>
 <meta name="theme-color" content="#f5f6f8">
@@ -192,6 +199,7 @@
   </div>
 </div>
 <div class="modal" id="editModal"><div class="box" id="editBox"></div></div>
+<div class="modal" id="partnerPager"><div class="box" id="partnerPagerBox" style="width:680px;position:relative"></div></div>
 <div id="toast"></div>
 <script src="apple-ui.js"></script>
 <script src="shared.js"></script>
@@ -370,7 +378,7 @@ function vCompanies() {
   const rows = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query))).map(c => {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     const roleChips = Object.entries(c.roles).map(([k,r]) => `<span class="chip" style="background:${LINES[k].color}">${LINES[k].name}: ${r}</span>`).join("");
-    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${c.name}</b><div class="mut">${c.type}</div></td><td>${roleChips}</td><td>${c.contact}<div class="mut">${c.phone}</div></td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${c.last}</td></tr>`;
+    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${c.name}</b><div class="mut">${c.type}</div>${curLine === "publishing" ? partnerEvalBadge(c) : ""}</td><td>${roleChips}</td><td>${c.contact}<div class="mut">${c.phone}</div></td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${c.last}</td></tr>`;
   }).join("");
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có khách nào ở mảng này.</td></tr>'}</table>
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
@@ -593,6 +601,277 @@ function dealMini(d) {
     <div class="a">${isGame(d) ? "🤝 " + (d.term?.rev_share || "Chưa có term") : money(d.amount, d.cur)}</div>
     <div class="meta"><span>👤 ${memberName(S, d.owner)}</span><span>📅 ${d.due}</span></div></div>`;
 }
+/* === PARTNER EVAL LOGIC START === */
+/* Khung điểm PARTNER (file 2 — Publishing Partner Selection), lưu trên c.partnerEval.
+   - Hard Gate 6 cổng: nhãn lấy CHÍNH XÁC từ F2_02_Hard_Gate_head của tools/sheets-data.json.
+   - Partner Fit theo công thức gốc F2_04_formulas_row9 (cột L/M/N):
+     ROUND((Track×10 + Team×15 + Production×15 + Data×10 + Hợp tác×15 + Strategic×15 + Long-term×10)/5/90×100, 1);
+     phân loại >=85 Ưu tiên, >=75 Đạt, >=65 Có điều kiện, còn lại Cần xem xét;
+     kết luận: Hard Gate KHÔNG ĐẠT -> Bị chặn; CHỜ XÁC MINH -> Chờ xác minh;
+     Minimum Evidence Gate chưa ĐẠT -> Thiếu Evidence; còn lại = phân loại.
+     Deal Fit chấm riêng 1–5, KHÔNG vào tổng.
+   - Logic này cài RIÊNG cho partnerEval ở đây, KHÔNG dùng PublishingScore.company()
+     trong publishing-score.js: hàm cũ có quy tắc evidence khắt khe hơn (đòi note+source,
+     coverage trên 8 nhóm, minimum gate gắn cả hard gate, production composite bắt đủ 4 ô con)
+     nên không khớp spec khung Partner của drawer công ty. */
+const PE_GATES = [
+  ["legal", "Pháp lý / Hợp đồng"],
+  ["ip", "Quyền sở hữu IP / source code"],
+  ["conflict", "Xung đột Publisher"],
+  ["transparency", "Minh bạch Data"],
+  ["control", "Tính liên tục của team"],
+  ["integrity", "Uy tín / Compliance"],
+];
+const PE_PILLARS = [
+  ["track", "Track Record", 10],
+  ["team", "Năng lực Team", 15],
+  ["production", "Production & Execution", 15],
+  ["data", "Data & Tech", 10],
+  ["collaboration", "Hợp tác", 15],
+  ["strategy", "Strategic Fit", 15],
+  ["pipeline", "Tiềm năng Long-term", 10],
+];
+const PE_PROD_SUBS = [
+  ["capacity", "Capacity"],
+  ["cadence", "Cadence"],
+  ["milestone", "Milestone"],
+  ["liveops", "LiveOps"],
+];
+const PE_GATE_STATUSES = ["Đạt", "Không đạt", "Chưa xác minh"];
+const PE_EVIDENCE_STATUSES = ["Đã xác minh", "Thiếu", "Chưa rõ"];
+const PE_EVIDENCE_TOTAL = 11; /* 7 pillar + 4 ô con Production */
+function peRound1(n) { return Math.round((n + Number.EPSILON) * 10) / 10; }
+function peScoreOrNull(v) {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+}
+function peEmptyEval() {
+  const ev = { hardGate: {}, evidence: { productionSubs: {} }, scores: {}, dealFit: null, notesWeak: "", nextAction: "", reviewDate: "", reviewer: "", updatedAt: "" };
+  PE_GATES.forEach(([k]) => { ev.hardGate[k] = { status: "Chưa xác minh", note: "" }; });
+  PE_PILLARS.forEach(([k]) => { ev.evidence[k] = { note: "", status: "Chưa rõ" }; ev.scores[k] = null; });
+  PE_PROD_SUBS.forEach(([k]) => { ev.evidence.productionSubs[k] = { note: "", status: "Chưa rõ" }; });
+  return ev;
+}
+function peNormalize(raw) {
+  const out = peEmptyEval();
+  if (!raw || typeof raw !== "object") return out;
+  PE_GATES.forEach(([k]) => {
+    const g = raw.hardGate && raw.hardGate[k];
+    if (g && typeof g === "object") {
+      if (PE_GATE_STATUSES.includes(g.status)) out.hardGate[k].status = g.status;
+      out.hardGate[k].note = String(g.note || "");
+    }
+  });
+  const evIn = raw.evidence && typeof raw.evidence === "object" ? raw.evidence : {};
+  PE_PILLARS.forEach(([k]) => {
+    const e = evIn[k];
+    if (e && typeof e === "object") {
+      if (PE_EVIDENCE_STATUSES.includes(e.status)) out.evidence[k].status = e.status;
+      out.evidence[k].note = String(e.note || "");
+    }
+  });
+  const subsIn = evIn.productionSubs && typeof evIn.productionSubs === "object" ? evIn.productionSubs : {};
+  PE_PROD_SUBS.forEach(([k]) => {
+    const e = subsIn[k];
+    if (e && typeof e === "object") {
+      if (PE_EVIDENCE_STATUSES.includes(e.status)) out.evidence.productionSubs[k].status = e.status;
+      out.evidence.productionSubs[k].note = String(e.note || "");
+    }
+  });
+  PE_PILLARS.forEach(([k]) => { out.scores[k] = peScoreOrNull(raw.scores ? raw.scores[k] : null); });
+  out.dealFit = peScoreOrNull(raw.dealFit);
+  out.notesWeak = String(raw.notesWeak || "");
+  out.nextAction = String(raw.nextAction || "");
+  out.reviewDate = String(raw.reviewDate || "");
+  out.reviewer = String(raw.reviewer || "");
+  out.updatedAt = String(raw.updatedAt || "");
+  return out;
+}
+function peHardGate(hardGate) {
+  const hs = PE_GATES.map(([k]) => (hardGate && hardGate[k] && hardGate[k].status) || "Chưa xác minh");
+  if (hs.includes("Không đạt")) return "KHÔNG ĐẠT";
+  if (hs.every(s => s === "Đạt")) return "ĐẠT";
+  return "CHỜ XÁC MINH";
+}
+function peCoverage(evidence) {
+  let verified = 0;
+  PE_PILLARS.forEach(([k]) => { if (evidence && evidence[k] && evidence[k].status === "Đã xác minh") verified++; });
+  PE_PROD_SUBS.forEach(([k]) => { if (evidence && evidence.productionSubs && evidence.productionSubs[k] && evidence.productionSubs[k].status === "Đã xác minh") verified++; });
+  return { verified, total: PE_EVIDENCE_TOTAL, pct: peRound1(verified / PE_EVIDENCE_TOTAL * 100) };
+}
+function peConfidence(pct) { return pct >= 90 ? "Cao" : pct >= 60 ? "Trung bình" : "Thấp"; }
+function peEvidenceGate(pct) { return pct >= 80 ? "ĐẠT" : "CHƯA ĐẠT"; }
+function pePartnerFit(scores) {
+  const vals = PE_PILLARS.map(([k]) => peScoreOrNull(scores ? scores[k] : null));
+  if (vals.some(v => v === null)) return null;
+  return peRound1(PE_PILLARS.reduce((sum, [, , w], i) => sum + vals[i] * w, 0) / 5 / 90 * 100);
+}
+function peClassify(fit) {
+  if (fit === null || fit === undefined) return null;
+  return fit >= 85 ? "Ưu tiên" : fit >= 75 ? "Đạt" : fit >= 65 ? "Có điều kiện" : "Cần xem xét";
+}
+function peCompute(raw) {
+  const ev = peNormalize(raw);
+  const hardGate = peHardGate(ev.hardGate);
+  const cov = peCoverage(ev.evidence);
+  const confidence = peConfidence(cov.pct);
+  const evidenceGate = peEvidenceGate(cov.pct);
+  const partnerFit = pePartnerFit(ev.scores);
+  const classification = peClassify(partnerFit);
+  let conclusion;
+  if (hardGate === "KHÔNG ĐẠT") conclusion = "Bị chặn";
+  else if (hardGate === "CHỜ XÁC MINH") conclusion = "Chờ xác minh";
+  else if (evidenceGate !== "ĐẠT") conclusion = "Thiếu Evidence";
+  else conclusion = classification || "Chưa đủ điểm";
+  let strongest = null, weakest = null;
+  PE_PILLARS.forEach(([k, label]) => {
+    const s = ev.scores[k];
+    if (s === null) return;
+    if (!strongest || s > strongest.score) strongest = { key: k, label, score: s };
+    if (!weakest || s < weakest.score) weakest = { key: k, label, score: s };
+  });
+  return { hardGate, coverage: cov, confidence, evidenceGate, partnerFit, classification, conclusion, strongest, weakest, dealFit: ev.dealFit };
+}
+/* === PARTNER EVAL LOGIC END === */
+/* === PARTNER EVAL UI START === */
+function peSummaryHTML(r) {
+  const gateColor = r.hardGate === "ĐẠT" ? "#22c55e" : r.hardGate === "KHÔNG ĐẠT" ? "#dc2626" : "#f59e0b";
+  const fitTxt = r.partnerFit === null ? "chưa đủ điểm" : r.partnerFit.toFixed(1) + " / 100";
+  return `<span class="pill" style="background:${gateColor}">Hard Gate: ${r.hardGate}</span>
+    <span class="pill gray">Evidence: ${r.coverage.pct}% (${r.coverage.verified}/${r.coverage.total}) · Tin cậy: ${r.confidence} · Evidence Gate: ${r.evidenceGate}</span>
+    <span class="pill" style="background:#0ea5e9">Partner Fit: ${fitTxt}</span>
+    ${r.classification ? `<span class="pill gray">Phân loại: ${r.classification}</span>` : ""}
+    <span class="pill" style="background:#0f172a">Kết luận: ${r.conclusion}</span>`;
+}
+function partnerEvalBadge(c) {
+  if (!c || !c.partnerEval) return "";
+  const r = peCompute(c.partnerEval);
+  const fitTxt = r.partnerFit === null ? "Partner Fit: chưa đủ điểm" : "Partner Fit " + r.partnerFit.toFixed(1);
+  return `<div style="margin-top:5px"><span class="pill" style="background:#0ea5e9">${fitTxt} · ${r.conclusion}</span></div>`;
+}
+function partnerEvalSection(c) {
+  if (!c || !c.roles || !c.roles.publishing) return "";
+  const has = !!c.partnerEval;
+  const ev = peNormalize(c.partnerEval);
+  const r = peCompute(c.partnerEval);
+  const gateOpts = cur => PE_GATE_STATUSES.map(s => `<option ${s === cur ? "selected" : ""}>${s}</option>`).join("");
+  const evOpts = cur => PE_EVIDENCE_STATUSES.map(s => `<option ${s === cur ? "selected" : ""}>${s}</option>`).join("");
+  const scoreOpts = cur => [`<option value="" ${cur === null ? "selected" : ""}>— Chưa chấm —</option>`]
+    .concat([1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map(n => `<option value="${n}" ${cur === n ? "selected" : ""}>${n}</option>`)).join("");
+  const gateRows = PE_GATES.map(([k, label]) => `<div class="pe-row"><div><div class="lb">${label}</div><input id="pe_gate_${k}_n" value="${esc(ev.hardGate[k].note)}" placeholder="Ghi chú / bằng chứng của cổng này" style="width:100%;margin-top:4px"></div><select id="pe_gate_${k}_s" onchange="peLiveUpdate()">${gateOpts(ev.hardGate[k].status)}</select></div>`).join("");
+  const evRow = (idKey, label, item, sub) => `<div class="pe-row ${sub ? "pe-sub" : ""}"><div><div class="lb">${label}</div><input id="pe_ev_${idKey}_n" value="${esc(item.note)}" placeholder="Ghi chú bằng chứng" style="width:100%;margin-top:4px"></div><select id="pe_ev_${idKey}_s" onchange="peLiveUpdate()">${evOpts(item.status)}</select></div>`;
+  const evRows = PE_PILLARS.map(([k, label]) => evRow(k, label, ev.evidence[k], false)).join("") +
+    `<div class="mut" style="margin:6px 0 4px 18px">Production — 4 ô con (vẫn tính trong 11 mục evidence):</div>` +
+    PE_PROD_SUBS.map(([k, label]) => evRow("sub_" + k, label, ev.evidence.productionSubs[k], true)).join("");
+  const scoreRows = PE_PILLARS.map(([k, label, w]) => `<div class="pe-row"><div class="lb">${label} <span class="mut">(trọng số ${w})</span></div><select id="pe_sc_${k}" onchange="peLiveUpdate()">${scoreOpts(ev.scores[k])}</select></div>`).join("");
+  return `<section style="border:1px solid var(--line);border-radius:12px;padding:14px;margin:16px 0">
+    <h3 style="margin:0 0 6px">🧭 Đánh giá Partner (khung Publishing Partner)</h3>
+    ${has ? `<div class="mut" style="margin-bottom:8px">Cập nhật lần cuối: ${esc(ev.updatedAt ? new Date(ev.updatedAt).toLocaleString("vi-VN") : "—")}${ev.reviewer ? " · Reviewer: " + esc(memberName(S, ev.reviewer)) : ""}</div>` : `<div class="mut" style="margin-bottom:8px">Chưa đánh giá partner — điền các mục dưới đây rồi bấm “Lưu đánh giá Partner”.</div>`}
+    <div id="pe_live" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${peSummaryHTML(r)}</div>
+    <div class="mut">Tổng hợp tự tính, cập nhật ngay khi chọn: Hard Gate có ≥1 cổng “Không đạt” → KHÔNG ĐẠT; đủ 6 cổng “Đạt” → ĐẠT; còn lại → CHỜ XÁC MINH.</div>
+    <h4 style="margin:14px 0 8px">1) Hard Gate — 6 cổng</h4>
+    ${gateRows}
+    <h4 style="margin:14px 0 8px">2) Evidence — bằng chứng theo pillar</h4>
+    ${evRows}
+    <div class="mut" style="margin-top:6px">Coverage = số mục “Đã xác minh” / 11 mục (7 pillar + 4 ô con Production). Độ tin cậy (tự suy, ghi rõ quy tắc): ≥90% → Cao; 60–89% → Trung bình; &lt;60% → Thấp. Minimum Evidence Gate = ĐẠT khi coverage ≥ 80% — đây là quy tắc CRM áp dụng theo ngưỡng 80% của khung điểm game; khung Partner (file 2) không cho con số cụ thể.</div>
+    <h4 style="margin:14px 0 8px">3) Điểm Partner Fit — 1–5 (bước 0,5)</h4>
+    ${scoreRows}
+    <div class="pe-row"><div class="lb">Mức độ phù hợp Deal (Deal Fit) <span class="mut">— chấm riêng, KHÔNG vào tổng Partner Fit</span></div><select id="pe_dealfit" onchange="peLiveUpdate()">${scoreOpts(ev.dealFit)}</select></div>
+    <div class="mut">Partner Fit = ROUND((Track×10 + Team×15 + Production×15 + Data×10 + Hợp tác×15 + Strategic×15 + Long-term×10) / 5 / 90 × 100, 1). Chỉ tính khi đủ cả 7 điểm; thiếu thì hiện “chưa đủ điểm”. Phân loại: ≥85 Ưu tiên · ≥75 Đạt · ≥65 Có điều kiện · còn lại Cần xem xét. Kết luận cuối: Hard Gate KHÔNG ĐẠT → Bị chặn; CHỜ XÁC MINH → Chờ xác minh; Evidence Gate chưa ĐẠT → Thiếu Evidence; còn lại theo phân loại.</div>
+    <label class="mut" style="display:block;margin-top:12px">Điểm cần lưu ý (điểm yếu / rủi ro)</label>
+    <textarea id="pe_weak" placeholder="VD: Team mỏng, phụ thuộc vào 2 dev chính...">${esc(ev.notesWeak)}</textarea>
+    <label class="mut" style="display:block;margin-top:10px">Hành động tiếp theo</label>
+    <textarea id="pe_next" placeholder="VD: Theo dõi capacity trong project hiện tại...">${esc(ev.nextAction)}</textarea>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <div><label class="mut">Ngày review</label><br><input id="pe_date" type="date" value="${esc(ev.reviewDate)}" style="width:100%;margin-top:4px"></div>
+      <div><label class="mut">Reviewer</label><div class="pe-rev" style="margin-top:4px">${ownerSel("pe_reviewer", ev.reviewer || "")}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn" onclick="savePartnerEval('${c.id}')">💾 Lưu đánh giá Partner</button>
+      <button class="btn ghost" onclick="openPartnerPager('${c.id}')">📄 One-pager quyết định</button>
+    </div>
+  </section>`;
+}
+function peReadForm() {
+  const ev = peEmptyEval();
+  const val = id => { const el = document.getElementById(id); return el ? el.value : ""; };
+  PE_GATES.forEach(([k]) => { ev.hardGate[k] = { status: val("pe_gate_" + k + "_s") || "Chưa xác minh", note: val("pe_gate_" + k + "_n").trim() }; });
+  PE_PILLARS.forEach(([k]) => { ev.evidence[k] = { status: val("pe_ev_" + k + "_s") || "Chưa rõ", note: val("pe_ev_" + k + "_n").trim() }; ev.scores[k] = peScoreOrNull(val("pe_sc_" + k)); });
+  PE_PROD_SUBS.forEach(([k]) => { ev.evidence.productionSubs[k] = { status: val("pe_ev_sub_" + k + "_s") || "Chưa rõ", note: val("pe_ev_sub_" + k + "_n").trim() }; });
+  ev.dealFit = peScoreOrNull(val("pe_dealfit"));
+  ev.notesWeak = val("pe_weak").trim();
+  ev.nextAction = val("pe_next").trim();
+  ev.reviewDate = val("pe_date");
+  ev.reviewer = val("pe_reviewer");
+  return ev;
+}
+function peLiveUpdate() {
+  const box = document.getElementById("pe_live"); if (!box) return;
+  box.innerHTML = peSummaryHTML(peCompute(peReadForm()));
+}
+function savePartnerEval(id) {
+  const c = comp(id); if (!c || !c.id) return;
+  const ev = peReadForm();
+  ev.updatedAt = new Date().toISOString();
+  c.partnerEval = ev;
+  save(); render(); openCompany(id);
+  toast("Đã lưu đánh giá Partner cho: " + c.name);
+}
+function partnerPagerHTML(c) {
+  const ev = peNormalize(c.partnerEval);
+  const r = peCompute(c.partnerEval);
+  const deals = S.deals.filter(d => d.company === c.id);
+  const gamesOwned = S.games.filter(g => g.company === c.id);
+  const roleChips = Object.entries(c.roles || {}).map(([k, role]) => `<span class="chip" style="background:${LINES[k].color}">${LINES[k].name}: ${role}</span>`).join("");
+  const bars = PE_PILLARS.map(([k, label, w]) => {
+    const s = ev.scores[k];
+    const interp = s === null ? "NE — chưa chấm" : s >= 4 ? "Tốt" : s >= 3 ? "Đạt" : s >= 2 ? "Yếu" : "Rất yếu";
+    return `<div class="score"><div class="lb" style="width:190px">${label} · ${w}%</div><div class="bar"><i style="width:${s === null ? 0 : s / 5 * 100}%;background:#0ea5e9"></i></div><b>${s === null ? "—" : s + " / 5"}</b><span class="mut">${interp}</span></div>`;
+  }).join("");
+  return `<button class="x" onclick="closePartnerPager()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--mut)">✕</button>
+    <h3 style="font-size:17px;margin-bottom:2px">📄 One-pager quyết định — Partner</h3>
+    <div class="mut">Theo mẫu 05. Quyết định &amp; Risk của khung Partner. Điểm /100 không gồm Hard Gate; kết luận cuối mới áp cả 2 gate.</div>
+    <h3 style="margin:16px 0 6px">A. Tổng quan công ty</h3>
+    <div class="kv">
+      <div class="k">Công ty</div><div><b>${esc(c.name)}</b> · ${esc(c.type || "")}</div>
+      <div class="k">Đầu mối</div><div>${esc(c.contact || "—")}${c.phone ? " · " + esc(c.phone) : ""}</div>
+      <div class="k">Vai trò theo mảng</div><div>${roleChips || "—"}</div>
+      <div class="k">Deal / game</div><div>${deals.length} deal · ${gamesOwned.length} game sở hữu</div>
+    </div>
+    ${c.partnerEval ? "" : `<div class="mut" style="margin-bottom:8px">⚠️ Công ty này chưa có đánh giá Partner đã lưu — các số dưới đây đang ở trạng thái mặc định/chưa chấm.</div>`}
+    <h3 style="margin:14px 0 6px">B. Hai cổng (Gate)</h3>
+    <div class="kv">
+      <div class="k">Hard Gate</div><div><b>${r.hardGate}</b></div>
+      <div class="k">Evidence Coverage</div><div><b>${r.coverage.pct}%</b> (${r.coverage.verified}/${r.coverage.total} mục đã xác minh)</div>
+      <div class="k">Evidence Confidence</div><div>${r.confidence}</div>
+      <div class="k">Minimum Evidence Gate</div><div><b>${r.evidenceGate}</b></div>
+    </div>
+    <div style="text-align:center;background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:14px;margin:12px 0">
+      <div class="mut">Partner Fit</div>
+      <div style="font-size:34px;font-weight:800">${r.partnerFit === null ? "—" : r.partnerFit.toFixed(1)}</div>
+      <div>${r.partnerFit === null ? "Chưa đủ điểm (thiếu 1 trong 7 pillar)" : "Phân loại: <b>" + r.classification + "</b>"} · Deal Fit (riêng, không vào tổng): <b>${r.dealFit === null ? "—" : r.dealFit + " / 5"}</b></div>
+      <div style="margin-top:8px"><span class="pill" style="background:#0f172a">Kết luận cuối: ${r.conclusion}</span></div>
+    </div>
+    <h3 style="margin:14px 0 6px">C. Điểm theo pillar (kèm trọng số)</h3>
+    ${bars}
+    <h3 style="margin:14px 0 6px">D. Tóm tắt quyết định</h3>
+    <div class="kv">
+      <div class="k">Điểm mạnh</div><div>${r.strongest ? `<b>${r.strongest.label}</b> — ${r.strongest.score} / 5 (pillar cao nhất)` : "— (chưa chấm điểm)"}</div>
+      <div class="k">Điểm cần lưu ý</div><div>${r.weakest ? `<b>${r.weakest.label}</b> — ${r.weakest.score} / 5 (pillar thấp nhất)` : "— (chưa chấm điểm)"}${ev.notesWeak ? `<div style="margin-top:4px">${esc(ev.notesWeak)}</div>` : ""}</div>
+      <div class="k">Kết luận cuối</div><div><b>${r.conclusion}</b></div>
+      <div class="k">Hành động tiếp theo</div><div>${esc(ev.nextAction || "—")}</div>
+      <div class="k">Reviewer</div><div>${esc(memberName(S, ev.reviewer))}</div>
+      <div class="k">Ngày review</div><div>${esc(ev.reviewDate || "—")}</div>
+    </div>`;
+}
+function openPartnerPager(id) {
+  const c = comp(id); if (!c || !c.id) return;
+  document.getElementById("partnerPagerBox").innerHTML = partnerPagerHTML(c);
+  document.getElementById("partnerPager").classList.add("on");
+}
+function closePartnerPager() { document.getElementById("partnerPager").classList.remove("on"); }
+/* === PARTNER EVAL UI END === */
 function openCompany(id) {
   const c = comp(id); if (!c || !c.id) return;
   drawerCtx = { type: "company", id };
@@ -616,6 +895,7 @@ function openCompany(id) {
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editCompany('${c.id}')">✏️ Sửa công ty</button><button class="btn danger" onclick="deleteCompany('${c.id}')">🗑 Xóa công ty</button></div>
     <button class="btn" onclick="closeDrawer(); openAddFor('${c.id}')">+ Thêm deal cho công ty này</button>
     ${c.roles?.publishing && window.PublishingBridge ? PublishingBridge.summary("company",c.id) : ""}
+    ${partnerEvalSection(c)}
     <h3 style="margin:18px 0 8px">📥 Leads của công ty này (bấm để xem chi tiết lead)</h3>
     ${leadsForCompany(c.id).map(leadMini).join("") || '<div class="mut">Chưa có lead nào thuộc công ty này.</div>'}
     <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>

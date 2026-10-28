@@ -95,3 +95,43 @@ test('DATA THẬT: MECH-001 Sort / Flow -> ua 100, total có điểm, completene
   // target dạng record object cho cùng kết quả
   assert.deepEqual(F.marketAuto(records, rec), a);
 });
+
+/* ---- Data v2 + gợi ý quartile (bổ sung 2026-10-28) ---- */
+function loadData() {
+  const code = fs.readFileSync(path.join(__dirname, '..', 'publishing-data.js'), 'utf8');
+  const sandbox = {window:{}};
+  vm.runInNewContext(code, sandbox);
+  return sandbox.window.PublishingData.records;
+}
+test('DATA v2: entry/UA/store/titles gắn đúng nguồn, ô trống giữ null', () => {
+  const records = loadData();
+  assert.equal(records.length, 23);
+  const m1 = records.find(r => r.id === 'MECH-001');
+  assert.ok(Math.abs(m1.entry.top3RevConc - 0.6623551992) < 1e-9);
+  assert.equal(m1.entry.entrantsTop200, null); // ô trống trong tab 03 -> null
+  assert.equal(m1.uaBenchmark.cpiMedian, m1.cpi.median);
+  assert.equal(m1.uaBenchmark.roasD7, null); // tab 05 không có ROAS -> null
+  assert.equal(m1.verifiedByStore.length, 2);
+  assert.equal(m1.verifiedByStore.find(s => s.store === 'Google Play').downloadsDay, 47944);
+  assert.ok(m1.topTitles.some(t => t.game === 'Pixel Flow!'));
+  assert.equal(m1.verifiedDaily.downloadsDay, m1.downloads);
+  const logic = records.find(r => r.id === 'MECH-005');
+  assert.equal(logic.eligible.titlesWithCoverage, 12);
+  const sim = records.find(r => r.id === 'SIM-6');
+  assert.equal(sim.entry, null); // Simulation không có ở tab 03
+  assert.equal(sim.simRange.uniqueTitles, 106);
+  assert.equal(sim.verifiedByStore.length, 2);
+  assert.equal(records.find(r => r.id === 'MECH-008').uaBenchmark.cpiMedian, null);
+});
+test('v2 suggest: Puzzle có CPI có gợi ý UA; mechanic không CPI -> UA null', () => {
+  const records = loadData();
+  const s1 = F.marketSuggest(records, 'MECH-001'); // Sort / Flow, CPI 5.71
+  assert.equal(s1.size.score, 5);
+  assert.equal(s1.ua.rawInputs.cpiMedian, records.find(r => r.id === 'MECH-001').cpi.median);
+  assert.ok(F.validV2(s1.ua.score));
+  assert.equal(s1.economics, null); assert.equal(s1.rtw, null); assert.equal(s1.whitespace, null);
+  assert.ok(s1.size.rawInputs.downloads > 0 && s1.size.rawInputs.downloadsWindow === 'dl12');
+  const s8 = F.marketSuggest(records, 'MECH-008'); // Match-3, không CPI
+  assert.equal(s8.ua, null);
+  assert.notEqual(s8.monetization, null);
+});

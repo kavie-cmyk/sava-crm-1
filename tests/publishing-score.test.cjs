@@ -42,3 +42,38 @@ test('source Partner Fit classifications and evidence confidence',()=>{
  assert.equal(F.company(fullCompany(4)).confidence,'Cao');
  const a=fullCompany(4);Object.values(a.entries).forEach(x=>x.status='Đã trao đổi');assert.equal(F.company(a).confidence,'Thấp');
 });
+
+/* ---- Market Score v2 (bổ sung 2026-10-28, spec chuẩn cuối của user) ---- */
+test('v2 quartile boundaries: 75/60/40/25', () => {
+  assert.equal(F.quartileScore5(75), 5); assert.equal(F.quartileScore5(74.9), 4);
+  assert.equal(F.quartileScore5(60), 4); assert.equal(F.quartileScore5(59.9), 3);
+  assert.equal(F.quartileScore5(40), 3); assert.equal(F.quartileScore5(39.9), 2);
+  assert.equal(F.quartileScore5(25), 2); assert.equal(F.quartileScore5(24.9), 1);
+  assert.equal(F.quartileScore5(null), null);
+  assert.equal(F.validV2(3.5), true); assert.equal(F.validV2(3.25), false); assert.equal(F.validV2(0.5), false);
+});
+test('v2 normalized Market/Prototype/Final hand-computed fixture', () => {
+  const entry = (score, source='manual') => ({score, source, rawInputs:null});
+  const a = {market:{size:entry(5),growth:entry(4),entry:entry(3),monetization:entry(5),ua:entry(2)},
+             prototype:Object.fromEntries(F.prototype.map(([k])=>[k,entry(4)]))};
+  const r = F.gameV2(a);
+  // Market: Σsw=265, Σw=71 -> 265/(5*71)*100 = 74.6; completeness 71%
+  assert.equal(r.market.score, 74.6); assert.equal(r.market.completeness, 0.71);
+  assert.equal(r.marketInsufficient, true);
+  assert.equal(r.prototype.score, 80); assert.equal(r.prototype.completeness, 1);
+  // Final = 0.4*74.6 + 0.6*80 = 77.8, nhưng completeness Market <80% -> chưa áp nhãn
+  assert.equal(r.final, 77.8); assert.equal(r.decision, null);
+  assert.match(r.decisionBlockedReason, /80%/);
+});
+test('v2 decision labels and missing Prototype', () => {
+  const entry = s => ({score:s, source:'manual', rawInputs:null});
+  const full = s => Object.fromEntries(F.market.map(([k])=>[k,entry(s)]));
+  const fullP = s => Object.fromEntries(F.prototype.map(([k])=>[k,entry(s)]));
+  assert.equal(F.gameV2({market:full(5),prototype:fullP(5)}).decision, 'Greenlight');
+  const mid = F.gameV2({market:full(4),prototype:fullP(3)}); // 80*.4+60*.6=68
+  assert.equal(mid.final, 68); assert.equal(mid.decision, 'Test thêm');
+  assert.equal(F.gameV2({market:full(3),prototype:fullP(3)}).decision, 'Chưa đạt');
+  const noProto = F.gameV2({market:full(5),prototype:{}});
+  assert.equal(noProto.final, null); assert.equal(noProto.decision, null);
+  assert.match(noProto.decisionBlockedReason, /chưa tính được Final/);
+});
