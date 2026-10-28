@@ -35,3 +35,5 @@ dialog{border:1px solid var(--line);border-radius:17px;width:min(1040px,calc(100
 .mk-nav-row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid #edf0f2;font-size:13px}
 .mk-nav-row:last-child{border-bottom:0}
 .mk-company-nav .btn{flex-shrink:0}
+/* ---- D6: chuỗi dài không khoảng trắng không tràn tiêu đề thẻ/dialog ---- */
+.review-card h3,.dialog-head h2{overflow-wrap:anywhere;word-break:break-word}
