@@ -64,6 +64,26 @@
     return st.companies.find(c => c && c.id === id) || null;
   }
   const fmt1 = n => (n === null || n === undefined || !Number.isFinite(Number(n))) ? '—' : Number(n).toLocaleString('en-US', {maximumFractionDigits: 1});
+  /* ===== B4: hiển thị điểm legacy (khung workbook cũ) — bản sao cục bộ của
+     fmtLegacyFinal/legacyThresholdNote trong index.html (bridge không import
+     được helper từ index.html nên chép đúng logic + câu chữ ở đây): luôn
+     hiện ĐÚNG 1 chữ số thập phân (65.0 / 80.0) và khi số đã làm tròn chạm
+     ngưỡng 65/80 nhưng điểm thô CHƯA qua ngưỡng thì kèm ghi chú rõ điểm
+     thô, để không ai hiểu nhầm là đã đạt ngưỡng. Chỉ là quy tắc HIỂN THỊ:
+     final thô lấy nguyên từ PublishingScore.game(), không làm tròn trung
+     gian, không đổi phép tính legacy / recommendation. ===== */
+  function fmtLegacyFinal(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || !Number.isFinite(n)) return '—';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+  function legacyThresholdNote(v) {
+    const n = Number(v);
+    if (v === null || v === undefined || !Number.isFinite(n)) return '';
+    const disp = Math.round(n * 10) / 10;
+    for (const th of [65, 80]) { if (n < th && disp >= th) return ` (điểm thô ${String(n)} — chưa qua ngưỡng ${th}, kết luận tính theo điểm thô)`; }
+    return '';
+  }
 
   /* ===== Partner: tóm tắt canonical (một nguồn số duy nhất cho mọi bề mặt BD) =====
      Trả về:
@@ -225,7 +245,7 @@
         }
       } else if (gs.legacy) {
         const res = gs.legacy;
-        result = `<p style="margin:7px 0">${esc(res.recommendation)} · <b>${res.final == null ? 'NE' : fmt1(res.final)}/100</b> · Khung workbook (cũ) · ${revCount} phiên bản</p>`;
+        result = `<p style="margin:7px 0">${esc(res.recommendation)} · <b>${res.final == null ? 'NE' : fmtLegacyFinal(res.final)}/100</b>${legacyThresholdNote(res.final)} · Khung workbook (cũ) · ${revCount} phiên bản</p>`;
       }
     }
     return `<section style="background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:15px;margin:16px 0"><h3 style="margin:0 0 7px">Đánh giá game · Market Score v2</h3><p style="font-size:13px;margin:0">${esc(status)}</p>${result}<a class="btn" style="text-decoration:none;margin-top:9px" href="publishing.html?tab=reviews&amp;kind=game&amp;id=${encodeURIComponent(id)}">${gs.exists ? 'Xem kết quả / bổ sung BD' : 'Gửi MKT đánh giá'} →</a></section>`;

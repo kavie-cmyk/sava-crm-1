@@ -520,6 +520,45 @@ test('B3/B6: bridge gameSummary — v2 không hợp lệ / rỗng thì rơi về
   assert.ok(gs.v2); assert.equal(bridge.hasValidGameV2(gs.current), true);
 });
 
+test('B4 (bridge): summary() nhánh legacy hiện final đúng 1 chữ số thập phân + ghi chú điểm thô khi số làm tròn chạm ngưỡng 65/80 mà điểm thô chưa qua', () => {
+  /* B4 chỉ là quy tắc HIỂN THỊ của bridge, nên stub đúng 1 điểm chạm
+     PublishingScore.game() để final thô là CHÍNH XÁC 64.96 / 79.975 như
+     fixture QA đã tái hiện (phép tính legacy thật do publishing-score.test.cjs
+     kiểm riêng và không đổi ở đây). Bridge thật đọc stub qua window tại
+     thời điểm gọi summary() — đúng điểm chạm runtime của nó. */
+  const bridgeSrc = fs.readFileSync(path.join(__dirname, '..', 'publishing-bridge.js'), 'utf8');
+  assert.ok(bridgeSrc.includes('fmtLegacyFinal(res.final)') && bridgeSrc.includes('legacyThresholdNote(res.final)'),
+    'nhánh legacy của summary() phải dùng fmtLegacyFinal + legacyThresholdNote (bản sao cục bộ của index.html)');
+  assert.ok(!bridgeSrc.includes('fmt1(res.final)'), 'nhánh legacy của summary() không được còn fmt1(res.final) (hiện số nguyên làm tròn)');
+  const { ctx, store, bridge } = bridgeCtxFor({ companies: [], games: [{ id: 'gb4', title: 'Game B4', own: 'partner' }] });
+  const setLegacy = (final, recommendation) => {
+    ctx.window.PublishingScore = { game: () => ({ market: null, prototype: null, final, completeness: 14 / 15, gate: 'PASS', recommendation }) };
+    store.set('sava_publishing_v1', JSON.stringify({ version: 1, marketUpdates: [], requests: [{ id: 'GR-B4', kind: 'game', entityId: 'gb4', status: 'Đang đánh giá', current: { entries: {} }, revisions: [{ entries: {} }], revision: 1, intake: {} }] }));
+  };
+  /* 64.96 thô -> NO-GO (chưa qua 65) nhưng bản cũ qua fmt1 hiện "65/100" */
+  setLegacy(64.96, 'NO-GO');
+  let html = bridge.summary('game', 'gb4');
+  assert.ok(html.includes('NO-GO'), 'summary phải giữ nguyên recommendation NO-GO: ' + html);
+  assert.ok(html.includes('65.0/100'), 'final 64.96 phải hiện "65.0/100" (đúng 1 chữ số thập phân): ' + html);
+  assert.ok(html.includes('(điểm thô 64.96 — chưa qua ngưỡng 65, kết luận tính theo điểm thô)'),
+    'phải kèm ghi chú điểm thô 64.96 chưa qua ngưỡng 65: ' + html);
+  /* 79.975 thô -> TEST MORE (chưa qua 80) nhưng bản cũ hiện "80/100" */
+  setLegacy(79.975, 'TEST MORE');
+  html = bridge.summary('game', 'gb4');
+  assert.ok(html.includes('TEST MORE'), 'summary phải giữ nguyên recommendation TEST MORE: ' + html);
+  assert.ok(html.includes('80.0/100'), 'final 79.975 phải hiện "80.0/100" (đúng 1 chữ số thập phân): ' + html);
+  assert.ok(html.includes('(điểm thô 79.975 — chưa qua ngưỡng 80, kết luận tính theo điểm thô)'),
+    'phải kèm ghi chú điểm thô 79.975 chưa qua ngưỡng 80: ' + html);
+  /* Đối chứng: điểm thô đã qua ngưỡng / không chạm ngưỡng khi làm tròn ->
+     vẫn 1 chữ số thập phân nhưng KHÔNG ghi chú điểm thô */
+  setLegacy(80, 'GREENLIGHT');
+  html = bridge.summary('game', 'gb4');
+  assert.ok(html.includes('80.0/100') && !html.includes('điểm thô'), 'final 80 đã qua ngưỡng: hiện 80.0, không ghi chú: ' + html);
+  setLegacy(70.2, 'TEST MORE');
+  html = bridge.summary('game', 'gb4');
+  assert.ok(html.includes('70.2/100') && !html.includes('điểm thô'), 'final 70.2 không chạm ngưỡng khi làm tròn: hiện 70.2, không ghi chú: ' + html);
+});
+
 test('hợp nhất taxonomy: bridge migration giữ nguyên nấc giữa (không còn ép Chưa rõ -> Đã trao đổi)', () => {
   const store = new Map();
   const localStorageStub = {
