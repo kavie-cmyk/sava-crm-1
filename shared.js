@@ -31,7 +31,6 @@ const MKT_CRITERIA = [
 ];
 
 function seed() { return {
-  pubosWithdrawals: [],
   companies: [
     {id:"c1", name:"Hanbit Publishing (mẫu)", type:"Publisher", roles:{game_studio:"Publisher"}, contact:"Ms. Yoon — Acquisitions", phone:"+82 ...", last:"Hôm qua"},
     {id:"c2", name:"PlayNest Global (mẫu)", type:"Publisher", roles:{game_studio:"Publisher"}, contact:"Mr. Park — BD", phone:"+82 ...", last:"3 ngày trước"},
@@ -112,7 +111,6 @@ function seed() { return {
    đã chủ động gỡ công ty (vd xóa công ty) nên KHÔNG tự tạo lại công ty. */
 function migrateState(s) {
   if (!s || typeof s !== "object") return seed();
-  if (!Array.isArray(s.pubosWithdrawals)) s.pubosWithdrawals = [];
   if (!Array.isArray(s.companies)) s.companies = [];
   if (!Array.isArray(s.deals)) s.deals = [];
   if (!Array.isArray(s.leads)) s.leads = [];

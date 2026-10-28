@@ -122,10 +122,8 @@
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="tasks" class=""><i data-icon="check"></i><span>Công việc</span></button></nav>
   <a href="publishing.html" class="role-link" style="margin:12px 15px;display:block;padding:10px">Game & Publishing · Thị trường →</a>
-  <div id="pubosBox"><div><b>Publishing OS</b>Chưa kết nối</div></div>
   <div class="foot">
     <a href="mkt.html"><i data-icon="game"></i>Company & Game · Marketing<i data-icon="arrow"></i></a>
-    <a href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing" target="_blank" rel="noopener"><i data-icon="external"></i>SAVA Publishing OS</a>
     <div class="foot-label">Môi trường dùng thử · 3 người</div>
     <button onclick="resetDemo()"><i data-icon="reset"></i> Đặt lại dữ liệu mẫu</button>
   </div>
@@ -138,7 +136,7 @@
   </header>
   <details class="prototype-note">
     <summary><span class="status-dot" aria-hidden="true"></span><b>Bản dùng thử</b><span class="note-secondary">Dữ liệu CRM mẫu · Lưu trên trình duyệt</span><span class="note-more">Thông tin dữ liệu<i data-icon="chevron"></i></span></summary>
-    <p>Dữ liệu CRM là dữ liệu mẫu, không phải khách hàng thật, và được lưu trong trình duyệt. Giao diện BD và Marketing dùng chung dữ liệu trên cùng trình duyệt. Marketing xem/cập nhật thị trường, đánh giá năng lực studio và từng game trong phân hệ Game & Publishing. Kết quả đánh giá mới chưa đồng bộ máy chủ. Kết nối Publishing OS cho phép gửi dữ liệu game và deal sang hệ thống thật; thao tác đồng bộ hiện có vẫn hoạt động.</p>
+    <p>Dữ liệu CRM là dữ liệu mẫu, không phải khách hàng thật, và được lưu trong trình duyệt. Giao diện BD và Marketing dùng chung dữ liệu trên cùng trình duyệt. Marketing xem/cập nhật thị trường, đánh giá năng lực studio và từng game trong phân hệ Game & Publishing. Kết quả đánh giá mới chưa đồng bộ máy chủ.</p>
   </details>
   <div class="toolbar">
     <div class="page-heading"><h1 id="viewTitle">Tổng quan</h1><p class="page-description" id="viewDescription">Theo dõi cơ hội, đối tác và công việc của team.</p></div>
@@ -193,8 +191,6 @@
 <script src="shared.js"></script>
 <script src="publishing-score.js"></script>
 <script src="publishing-bridge.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="pubos.js"></script>
 <script>
 let S = loadState();
 let curLine = "all", curView = "dash", query = "";
@@ -331,7 +327,6 @@ function vBoard() {
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
     const cards = ds.map(d => `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t">${d.title}</div><div class="c">${comp(d.company).name}${d.game?" · 🎮 "+game(d.game).title:""}</div>
-      ${d.line==="publishing" ? (d.pubos&&d.pubos.sourcingId ? '<div class="c" style="color:#16a34a">✅ Đã đồng bộ Publishing OS</div>' : d.pubosPending ? '<div class="c" style="color:#d97706">⏳ Chờ đồng bộ Publishing OS</div>' : '') : ''}
       <div class="a">${isGame(d) ? "🤝 " + (d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
       <div class="meta"><span>👤 ${USERS[d.owner]}</span><span>📅 ${d.due}</span><span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`).join("");
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
@@ -399,7 +394,7 @@ function convertLead(id) {
   if (GAME_LINES.includes(l.line)) { nd.term = { rev_share:"Chưa đề xuất", advance:"—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" }; nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" }; }
   else { nd.amount = 0; nd.cur = "VND"; }
   S.deals.push(nd);
-  save(); pubosAfterDealSaved(nd);
+  save();
   toast("Đã chuyển lead " + l.name + " thành deal ở stage đầu của mảng " + LINES[l.line].name); setView("board"); if (curLine==="all") curLine = l.line; render();
 }
 
@@ -455,11 +450,6 @@ function openDeal(id) {
     <span class="chip" style="background:${L.color}">${L.name}</span>
     <h2>${d.title}</h2><div class="mut">${c.id ? `<a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${c.name} →</a>` : `${c.name}`} · ${c.type}${g?` · <a href="#" onclick="openGame('${g.id}'); return false" title="Mở game">🎮 ${g.title} →</a>`:""}</div>
     <div style="display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap"><button class="btn" onclick="editDeal('${d.id}')">✏️ Sửa thông tin deal</button><button class="btn danger" onclick="deleteDeal('${d.id}')">🗑 Xóa deal</button></div>
-    ${d.line === "publishing" ? `<div style="margin-top:10px;font-size:13px">${d.pubos && d.pubos.sourcingId
-      ? `✅ <b>Đã đồng bộ Publishing OS</b> · Sourcing của deal này: <b>${d.pubos.sourcingId}</b>${d.pubosDirty ? ' · <span style="color:#d97706;font-weight:600">⏳ có thay đổi chờ đồng bộ</span>' : ''}<div id="pubosDealResult" style="margin-top:8px"></div>`
-      : d.pubosPending
-        ? `⏳ <b>Chờ đồng bộ Publishing OS</b> — deal sẽ tự đẩy sang khi CRM kết nối Publishing OS bằng tài khoản Editor/Admin.`
-        : `Chưa đồng bộ Publishing OS${d.game ? "" : " — gắn game cho deal này (nút ✏️ Sửa) để đủ điều kiện đồng bộ"}.`}</div>` : ""}
     <div class="kv">
       ${valueRows}
       <div class="k">Người phụ trách</div><div>${USERS[d.owner]}</div>
@@ -487,8 +477,6 @@ function openDeal(id) {
     <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng sửa trực tiếp ở khối trên, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>`;
   document.getElementById("drawer").classList.add("on");
   document.getElementById("scrim").classList.add("on");
-  /* Drawer deal: ưu tiên kết quả của sourcing RIÊNG deal này (game có thể có nhiều deal). */
-  if (d.line === "publishing" && d.pubos && d.pubos.sourcingId && window.PubOS && PubOS.isConnected()) { try { PubOS.loadDealResultIntoDrawer(d, g); } catch (e) {} }
 }
 function moveStage(id, stage) { const d = S.deals.find(x=>x.id===id); d.stage = stage; d.idle = 0; save(); openDeal(id); render(); toast("Đã chuyển stage: " + stageOf(d.line, stage)[1]); }
 function saveTermContract(id) {
@@ -558,126 +546,10 @@ function openGame(id) {
     ${scores ? `<h3 style="margin:14px 0 6px">📊 Thẩm định cũ · thang /10</h3>${scores}` : ""}
     ${window.PublishingBridge ? PublishingBridge.summary("game",g.id) : ""}
     ${g.own==='partner' ? (g.mktEval ? `<h3 style="margin:16px 0 6px">📣 Đánh giá cũ của MKT · thang /10 <span class="mut" style="font-weight:400">(${USERS[g.mktEval.by]} · ${g.mktEval.at})</span></h3>` + MKT_CRITERIA.map(([k,lb]) => `<div class="score"><div class="lb">${lb.split(" (")[0]}</div><div class="bar"><i style="width:${(g.mktEval.scores[k]||0)*10}%; background:#8b5cf6"></i></div><b>${g.mktEval.scores[k]}/10</b></div>`).join("") + `<div style="font-size:13px; margin-top:8px">Kết luận MKT: <b>${g.mktEval.verdict}</b></div><div style="font-size:13px; margin-top:4px">💬 ${g.mktEval.comment}</div>` : "") : ""}
-    ${g.own==='partner' ? `<div id="pubosSection"></div>` : ""}
     <h3 style="margin:16px 0 8px">📋 Deal liên quan (bấm để mở deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
     <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>`);
-  if (window.PubOS && g.own === "partner") { try { PubOS.renderGameSection(g); } catch (e) {} }
 }
-/* --- Cầu nối Publishing OS: index.html chỉ gọi, toàn bộ logic Supabase ở pubos.js --- */
-async function pubosPushGame(id) {
-  const g = game(id); if (!g) return;
-  const msg = document.getElementById("pubosMsg");
-  if (!window.PubOS) { if (msg) msg.textContent = "⚠️ Không tải được pubos.js — kiểm tra mạng rồi tải lại trang."; return; }
-  if (msg) msg.textContent = "⏳ Đang đẩy sang Publishing OS...";
-  try {
-    const studio = g.company ? comp(g.company).name : "";
-    await PubOS.pushGame(g, studio);
-    save(); render(); openGame(id);
-    toast("Đã đẩy \"" + g.title + "\" sang Publishing OS");
-  } catch (e) {
-    const m2 = document.getElementById("pubosMsg");
-    if (m2) m2.textContent = "⚠️ Đẩy thất bại: " + (e && e.message ? e.message : String(e)) + " — dữ liệu CRM không bị ảnh hưởng.";
-    toast("Đẩy sang Publishing OS thất bại — xem chi tiết trong drawer");
-  }
-}
-async function pubosFetchResult(id) {
-  const g = game(id); if (!g || !window.PubOS) return;
-  const target = document.getElementById("pubosResult");
-  if (target) target.innerHTML = '<div class="mut">⏳ Đang lấy kết quả từ Publishing OS...</div>';
-  await PubOS.loadResultIntoDrawer(g);
-}
-/* --- Điều phối đồng bộ CRM <-> Publishing OS theo DEAL ---
-   Deal là đơn vị kích hoạt: deal Publishing có company + game mới đồng bộ.
-   Tạo công ty/game đơn lẻ KHÔNG tự đẩy. Không bao giờ chặn người dùng:
-   chưa kết nối / Viewer / lỗi mạng -> cờ pubosPending (chưa đẩy) hoặc
-   pubosDirty (đã liên kết nhưng sửa chưa đẩy) + đồng bộ bù khi kết nối lại. */
-function pubosCanSync() { return !!window.PubOS && PubOS.isConnected() && PubOS.canEdit(); }
-function pubosDealEligible(d) { return !!d && d.line === "publishing" && !!d.company && !!d.game && !(d.pubos && d.pubos.sourcingId); }
-async function pubosAfterDealSaved(d) {
-  if (!d || d.line !== "publishing" || !d.company || !d.game) return;
-  const linked = !!(d.pubos && d.pubos.sourcingId);
-  if (!pubosCanSync()) {
-    if (!linked && !d.pubosPending) { d.pubosPending = true; save(); }
-    else if (linked && !d.pubosDirty) { d.pubosDirty = true; save(); }
-    return;
-  }
-  const g = game(d.game);
-  if (!g) { if (!linked) { d.pubosPending = true; save(); } return; }
-  try {
-    if (!linked) {
-      const m = await PubOS.pushDeal(g, comp(d.company).name);
-      d.pubos = { sourcingId: m.sourcingId, pushedAt: m.pushedAt, pushedBy: m.pushedBy };
-      delete d.pubosPending; delete d.pubosDirty;
-      save(); render(); refreshDrawer();
-      toast("Đã đồng bộ deal sang Publishing OS: " + d.title);
-    } else {
-      await PubOS.syncDealSourcing(d, g, comp(d.company).name);
-      if (d.pubosDirty) { delete d.pubosDirty; save(); render(); refreshDrawer(); }
-    }
-  } catch (e) {
-    if (!linked) d.pubosPending = true; else d.pubosDirty = true;
-    save(); render();
-  }
-}
-async function pubosSyncCompanyNow(c) {
-  const linkedGame = S.games.find(g => g.company === c.id && g.pubos && g.pubos.partnerId);
-  const linkedDeal = S.deals.find(d => d.company === c.id && d.pubos && d.pubos.sourcingId);
-  await PubOS.syncPartner(c, linkedGame ? linkedGame.pubos.partnerId : null, linkedDeal ? linkedDeal.pubos.sourcingId : null);
-  if (c.pubosDirty) { delete c.pubosDirty; save(); }
-}
-function pubosAfterCompanySaved(c) {
-  if (!c || !window.PubOS) return;
-  const linked = S.games.some(g => g.company === c.id && g.pubos && g.pubos.gameId) || S.deals.some(d => d.company === c.id && d.pubos && d.pubos.sourcingId);
-  if (!linked) return; /* công ty chưa liên kết PubOS -> không đẩy gì cả */
-  if (!pubosCanSync()) { if (!c.pubosDirty) { c.pubosDirty = true; save(); } return; }
-  pubosSyncCompanyNow(c).catch(() => { c.pubosDirty = true; save(); });
-}
-function pubosAfterGameSaved(g) {
-  if (!g || g.own !== "partner" || !(g.pubos && g.pubos.gameId) || !window.PubOS) return;
-  if (!pubosCanSync()) { if (!g.pubosDirty) { g.pubosDirty = true; save(); } return; }
-  const studio = g.company ? comp(g.company).name : "";
-  PubOS.syncGame(g, studio).then(() => { if (g.pubosDirty) { delete g.pubosDirty; save(); render(); refreshDrawer(); } })
-    .catch(() => { g.pubosDirty = true; save(); });
-}
-let pubosSweeping = false;
-async function pubosSweep() {
-  if (pubosSweeping || !pubosCanSync()) return;
-  pubosSweeping = true;
-  let withdrawBlocked = [];
-  try {
-    for (const c of S.companies.filter(x => x.pubosDirty)) { try { await pubosSyncCompanyNow(c); } catch (e) {} }
-    for (const g of S.games.filter(x => x.pubosDirty && x.pubos && x.pubos.gameId)) {
-      try { await PubOS.syncGame(g, g.company ? comp(g.company).name : ""); delete g.pubosDirty; } catch (e) {}
-    }
-    /* Chỉ đẩy bù deal ĐÃ gắn cờ chờ (tạo/sửa lúc chưa kết nối) — không tự đẩy
-       deal cũ/dữ liệu mẫu chưa từng được đánh dấu chờ đồng bộ. */
-    for (const d of S.deals.filter(x => x.line === "publishing" && (x.pubosPending || x.pubosDirty))) { await pubosAfterDealSaved(d); }
-    /* Hàng chờ thu hồi sourcing (deal đã xóa lúc chưa kết nối / lỗi mạng):
-       kiểm LẠI điều kiện tại thời điểm sweep — đủ thì thu hồi + gỡ khỏi hàng;
-       MKT đã xử lý rồi thì gỡ khỏi hàng + báo 1 lần, TUYỆT ĐỐI không ghi gì;
-       notfound / lỗi mạng thì giữ lại trong hàng chờ, không báo ồn.
-       pubosCanSync() đã chặn ở đầu hàm nên Viewer không chạm vào hàng chờ. */
-    if (Array.isArray(S.pubosWithdrawals) && S.pubosWithdrawals.length && window.PubOS && typeof PubOS.withdrawSourcing === "function") {
-      const remaining = [];
-      for (const w of [...S.pubosWithdrawals]) {
-        let r = null;
-        try { r = await PubOS.withdrawSourcing(w.sourcingId); } catch (e) { r = null; }
-        if (r && r.ok) { /* đã thu hồi — gỡ khỏi hàng chờ */ }
-        else if (r && (r.reason === "stage" || r.reason === "screening" || r.reason === "status")) { withdrawBlocked.push(w.sourcingId); }
-        else { remaining.push(w); }
-      }
-      S.pubosWithdrawals = remaining;
-    }
-    save(); render(); refreshDrawer();
-    if (withdrawBlocked.length) {
-      toast(withdrawBlocked.length === 1
-        ? "Lead " + withdrawBlocked[0] + " không còn thu hồi được vì MKT đã xử lý"
-        : "Lead " + withdrawBlocked.join(", ") + " không còn thu hồi được vì MKT đã xử lý");
-    }
-  } finally { pubosSweeping = false; }
-}
-window.onPubOSConnected = function () { pubosSweep(); };
 function openLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   drawerCtx = { type: "lead", id };
@@ -754,8 +626,8 @@ function fillDealGames() {
   if ([...selG.options].some(o => o.value === prev)) selG.value = prev;
   document.getElementById("f_gameReq").textContent = line === "publishing" ? "(bắt buộc — deal Publishing phải gắn 1 game của công ty này)" : "";
   document.getElementById("f_gameHint").textContent = line === "publishing"
-    ? (c ? (gs.length ? "Game đối tác của " + c.name + " — deal tạo xong sẽ tự đồng bộ sang Publishing OS." : "Công ty này chưa có game đối tác nào — chọn “＋ Tạo game mới…” để tạo nhanh tại đây.") : "Gõ đúng tên công ty đã có để thấy game của họ, hoặc chọn “＋ Tạo game mới…” (game mới sẽ gắn với công ty vừa gõ).")
-    : "Game của Sava đem đi chào publisher (không đồng bộ Publishing OS).";
+    ? (c ? (gs.length ? "Game đối tác của " + c.name + " — chọn 1 game để gắn với deal này." : "Công ty này chưa có game đối tác nào — chọn “＋ Tạo game mới…” để tạo nhanh tại đây.") : "Gõ đúng tên công ty đã có để thấy game của họ, hoặc chọn “＋ Tạo game mới…” (game mới sẽ gắn với công ty vừa gõ).")
+    : "Game của Sava đem đi chào publisher.";
   onDealFormGameChange();
 }
 function onDealFormGameChange() {
@@ -798,7 +670,6 @@ function saveDeal() {
   } else { nd.amount = +document.getElementById("f_amount").value||0; nd.cur = document.getElementById("f_cur").value; }
   S.deals.push(nd);
   save(); closeAdd(); curLine = line; setView("board"); toast("Đã thêm deal vào pipeline " + LINES[line].name);
-  pubosAfterDealSaved(nd);
 }
 
 /* ===== CRUD: sửa / xóa mọi đối tượng ngay trong prototype ===== */
@@ -870,7 +741,6 @@ function saveEditDeal(id) {
   }
   save(); closeEdit(); render(); openDeal(id);
   toast("Đã lưu deal: " + d.title);
-  pubosAfterDealSaved(d);
 }
 function performDeleteDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
@@ -879,66 +749,8 @@ function performDeleteDeal(id) {
   S.tasks.forEach(t => { if (t.deal === id) delete t.deal; });
   save(); closeDrawer(); render(); toast("Đã xóa deal: " + d.title);
 }
-function queuePubosWithdrawal(sourcingId, dealTitle) {
-  if (!Array.isArray(S.pubosWithdrawals)) S.pubosWithdrawals = [];
-  if (!S.pubosWithdrawals.some(w => w.sourcingId === sourcingId)) {
-    S.pubosWithdrawals.push({ sourcingId, dealTitle, at: new Date().toISOString() });
-  }
-  save();
-}
-function showDeleteDealResult(html) {
-  openEdit(`<h3 style="font-size:16px">🗑 Kết quả xóa deal</h3><div style="font-size:14px;line-height:1.6;margin-top:8px">${html}</div><div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button class="btn" onclick="closeEdit()">Đã hiểu</button></div>`);
-}
-function deleteDealOnlyCRM(id) {
-  closeEdit();
-  performDeleteDeal(id);
-}
-async function deleteDealWithWithdraw(id) {
-  const d = S.deals.find(x => x.id === id); if (!d) return;
-  const sourcingId = d.pubos && d.pubos.sourcingId;
-  const dealTitle = d.title;
-  closeEdit();
-  if (!sourcingId) { performDeleteDeal(id); return; }
-  if (!pubosCanSync()) {
-    /* Chưa kết nối / Viewer / không có PubOS: xếp hàng chờ thu hồi khi kết nối lại bằng Editor/Admin */
-    queuePubosWithdrawal(sourcingId, dealTitle);
-    performDeleteDeal(id);
-    showDeleteDealResult(`Đã xóa deal trong CRM. Chưa thu hồi được lead <b>${esc(sourcingId)}</b> bên Publishing OS lúc này (chưa kết nối hoặc tài khoản chỉ là Viewer) — đã xếp vào hàng chờ, CRM sẽ tự thử thu hồi khi kết nối lại bằng tài khoản Editor/Admin.`);
-    return;
-  }
-  let r = null;
-  try { r = await PubOS.withdrawSourcing(sourcingId); } catch (e) { r = { ok: false, reason: "error" }; }
-  if (r && r.ok) {
-    performDeleteDeal(id);
-    showDeleteDealResult(`Đã xóa deal + đã thu hồi <b>${esc(sourcingId)}</b> bên Publishing OS (đánh dấu Loại).`);
-  } else if (r && (r.reason === "stage" || r.reason === "screening" || r.reason === "status")) {
-    performDeleteDeal(id);
-    showDeleteDealResult(`Đã xóa deal trong CRM. Lead <b>${esc(sourcingId)}</b> KHÔNG bị thu hồi vì MKT đã xử lý (stage hiện tại: <b>${esc(r.stage || "—")}</b>) — nhắn MKT nếu cần dừng.`);
-  } else {
-    /* notfound / lỗi mạng: không mất dấu — xếp hàng chờ, sweep sẽ thử lại */
-    queuePubosWithdrawal(sourcingId, dealTitle);
-    performDeleteDeal(id);
-    showDeleteDealResult(`Đã xóa deal trong CRM. Chưa thu hồi được lead <b>${esc(sourcingId)}</b> bên Publishing OS lúc này${r && r.reason === "notfound" ? " (không tìm thấy bản ghi bên đó)" : " (lỗi kết nối)"} — đã xếp vào hàng chờ, CRM sẽ tự thử thu hồi khi kết nối lại.`);
-  }
-}
 function deleteDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
-  if (d.line === "publishing" && d.pubos && d.pubos.sourcingId) {
-    const sourcingId = d.pubos.sourcingId;
-    openEdit(`<h3 style="font-size:16px">🗑 Xóa deal "${esc(d.title)}"?</h3>
-      <div style="font-size:14px;line-height:1.6;margin-top:8px">
-        <p>⚠️ <b>Cảnh báo:</b> Xóa deal trong CRM <b>không xóa được</b> bản ghi bên Publishing OS. Bản ghi bên Publishing OS sẽ không tự xóa — chỉ admin bên đó mới xóa được.</p>
-        <p style="margin-top:8px">Lead bên Publishing OS của deal này: <b>${esc(sourcingId)}</b></p>
-        <p style="margin-top:8px">Bạn có thể chọn <b>thu hồi</b> lead đó — nhưng CRM chỉ tự thu hồi (đánh dấu Loại) khi MKT <b>chưa xử lý</b> lead. Nếu MKT đã xử lý rồi, CRM sẽ không đụng vào bản ghi và sẽ báo để bạn nhắn MKT.</p>
-        <p class="mut" style="margin-top:8px">Hoạt động gắn với deal này cũng bị xóa; các việc gắn với deal sẽ bị gỡ liên kết (việc vẫn còn). Không khôi phục được.</p>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
-        <button class="btn ghost" onclick="closeEdit()">Hủy bỏ</button>
-        <button class="btn ghost" onclick="deleteDealOnlyCRM('${d.id}')">Chỉ xóa deal trong CRM, giữ nguyên bên kia</button>
-        <button class="btn danger" onclick="deleteDealWithWithdraw('${d.id}')">Xóa deal + Thu hồi lead bên Publishing OS</button>
-      </div>`);
-    return;
-  }
   if (!confirm(`Xóa hẳn deal "${d.title}"?\n\nHoạt động gắn với deal này cũng bị xóa; các việc gắn với deal sẽ bị gỡ liên kết (việc vẫn còn). Không khôi phục được.`)) return;
   performDeleteDeal(id);
 }
@@ -968,13 +780,11 @@ function saveCompany(id) {
   if (id) { c = comp(id); Object.assign(c, { name, type: v("e_ctype"), contact: v("e_ccontact"), phone: v("e_cphone"), roles, last: "Vừa sửa" }); }
   else { c = { id: "c" + Date.now(), name, type: v("e_ctype") || "Đối tác", contact: v("e_ccontact") || "—", phone: v("e_cphone"), last: "Vừa tạo", roles }; S.companies.push(c); }
   save(); closeEdit(); render(); openCompany(c.id); toast("Đã lưu công ty: " + name);
-  pubosAfterCompanySaved(c);
 }
 function deleteCompany(id) {
   const c = comp(id); if (!c.id) return;
   const n = S.deals.filter(d => d.company === id).length;
-  const linkedPubOS = S.games.some(g => g.company === id && g.pubos) || S.deals.some(d => d.company === id && d.pubos && d.pubos.sourcingId);
-  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + (linkedPubOS ? `\n\nBản ghi bên Publishing OS sẽ không tự xóa — chỉ admin bên đó mới xóa được.` : "") + `\nKhông khôi phục được.`)) return;
+  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + `\nKhông khôi phục được.`)) return;
   S.companies = S.companies.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.company === id) delete d.company; });
   S.games.forEach(g => { if (g.company === id) delete g.company; });
@@ -1025,12 +835,11 @@ function saveGame(id) {
   if (id) { g = game(id); Object.assign(g, data); if (own === "ours") { delete g.company; delete g.scores; delete g.mktEval; delete g.verdict; } if (data.company === undefined) delete g.company; }
   else { g = { id: "g" + Date.now(), mktEval: null, ...data }; if (own === "ours") { delete g.company; delete g.scores; delete g.mktEval; delete g.verdict; } if (data.company === undefined) delete g.company; S.games.push(g); }
   save(); closeEdit(); render(); openGame(g.id); toast("Đã lưu game: " + title);
-  pubosAfterGameSaved(g);
 }
 function deleteGame(id) {
   const g = game(id); if (!g) return;
   const n = S.deals.filter(d => d.game === id).length;
-  if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\n${n} deal đang gắn game này sẽ bị gỡ liên kết game.` : "") + (g.pubos ? `\n\nBản ghi bên Publishing OS sẽ không tự xóa — chỉ admin bên đó mới xóa được.` : "") + `\nKhông khôi phục được.`)) return;
+  if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\n${n} deal đang gắn game này sẽ bị gỡ liên kết game.` : "") + `\nKhông khôi phục được.`)) return;
   S.games = S.games.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.game === id) delete d.game; });
   save(); closeDrawer(); render(); toast("Đã xóa game: " + g.title);
