@@ -4,7 +4,7 @@
   const role = document.body.dataset.role === 'mkt' ? 'mkt' : 'bd';
   const params = new URLSearchParams(location.search);
   let tab = ['market','reviews','framework'].includes(params.get('tab')) ? params.get('tab') : 'market';
-  let query = '', category = 'Puzzle', reviewFilter = 'all', active = null, focusBefore = null;
+  let query = '', category = 'Puzzle', reviewFilter = 'all', reviewKindFilter = 'all', active = null, focusBefore = null;
   const $ = s => document.querySelector(s);
   const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const num = (v,d=0) => typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString('en-US',{maximumFractionDigits:d}) : '—';
@@ -13,14 +13,28 @@
   const stamp = v => v ? new Date(v).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}) : '';
   const uuid = () => crypto.randomUUID();
   const REVIEW_STATUSES = ['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'];
+  /* N7: chuẩn hoá 1 revision — role luôn là chuỗi (mặc định ''), entries luôn là
+     object và từng entry là object (entry hỏng thì bỏ), scoresV2 chỉ giữ khi là object. */
+  function normalizeRevision(h) {
+    if (!h || typeof h !== 'object' || Array.isArray(h)) return h;
+    if (typeof h.role !== 'string') h.role = '';
+    if (!h.entries || typeof h.entries !== 'object' || Array.isArray(h.entries)) h.entries = {};
+    else {
+      const clean = {};
+      for (const [k, v] of Object.entries(h.entries)) if (v && typeof v === 'object' && !Array.isArray(v)) clean[k] = v;
+      h.entries = clean;
+    }
+    if (h.scoresV2 !== undefined && h.scoresV2 !== null && (typeof h.scoresV2 !== 'object' || Array.isArray(h.scoresV2))) delete h.scoresV2;
+    return h;
+  }
   function sanitizeRequest(r, i) {
     if (!r || typeof r !== 'object') return null;
     // Thiếu kind/entityId -> không xác định được hồ sơ: LOẠI khỏi danh sách (lựa chọn có chủ đích,
     // request như vậy không mở/chấm được và từng làm sập render khi truy cập sâu).
     if (!['company','game'].includes(r.kind) || !r.entityId) return null;
     if (!r.id) r.id = 'REV-restored-' + i;
-    r.revisions = (Array.isArray(r.revisions) ? r.revisions : []).filter(h => h && typeof h === 'object');
-    r.current = r.current && typeof r.current === 'object' ? r.current : (r.revisions[r.revisions.length - 1] || {});
+    r.revisions = (Array.isArray(r.revisions) ? r.revisions : []).filter(h => h && typeof h === 'object' && !Array.isArray(h)).map(normalizeRevision);
+    r.current = r.current && typeof r.current === 'object' && !Array.isArray(r.current) ? normalizeRevision(r.current) : (r.revisions[r.revisions.length - 1] || {});
     if (!REVIEW_STATUSES.includes(r.status)) {
       const fromRev = [...r.revisions].reverse().map(h => h.status).find(st => REVIEW_STATUSES.includes(st));
       r.status = fromRev || (REVIEW_STATUSES.includes(r.current?.status) ? r.current.status : 'Chờ đánh giá');
@@ -82,6 +96,73 @@
   const field = (name,text,value='',type='text',extra='') => `<label>${esc(text)}<input name="${esc(name)}" type="${type}" value="${esc(value)}" ${extra}></label>`;
   const area = (name,text,value='') => `<label class="full">${esc(text)}<textarea name="${esc(name)}">${esc(value)}</textarea></label>`;
   const select = (name,text,vals,value) => `<label>${esc(text)}<select name="${esc(name)}">${options(vals,value)}</select></label>`;
+  /* ---- A: kết quả hiệu lực thống nhất cho game + nhãn gate company (B4) ---- */
+  const GATE_LABELS = {PASS:'Đạt',FAIL:'Không đạt',PENDING:'Chưa xác minh'};
+  const gateLabel = v => GATE_LABELS[String(v ?? 'PENDING').toUpperCase()] || 'Chưa xác minh';
+  function effectiveGameResult(r) {
+    const a = (r && r.current && typeof r.current === 'object' && !Array.isArray(r.current)) ? r.current : {};
+    let legacyRes;
+    try { legacyRes = F.game(a); } catch { legacyRes = {market:null,prototype:null,final:null,completeness:0,gate:'PENDING',recommendation:'HOLD — Missing data'}; }
+    const v2raw = a.scoresV2;
+    const hasV2Obj = !!(v2raw && typeof v2raw === 'object' && !Array.isArray(v2raw));
+    let v2Count = 0, v2Res = null;
+    if (hasV2Obj && typeof F.gameV2 === 'function') {
+      const cnt = src => Object.values(src && typeof src === 'object' ? src : {}).filter(x => x && typeof x === 'object' && typeof x.score === 'number' && Number.isFinite(x.score)).length;
+      v2Count = cnt(v2raw.market) + cnt(v2raw.prototype);
+      if (!v2Count && v2raw.entries) v2Count = cnt(v2raw.entries);
+      if (v2Count > 0) { try { v2Res = F.gameV2(v2raw); } catch { v2Res = null; } }
+    }
+    if (hasV2Obj && v2Count > 0 && v2Res) {
+      const curMech = r?.intake?.mechanicId || null;
+      const savedMech = v2raw.fromMechanicId ?? v2raw.mechanicId ?? null;
+      const minComp = Math.min(v2Res.market?.completeness ?? 0, v2Res.prototype?.completeness ?? 0);
+      if (savedMech && curMech && savedMech !== curMech) {
+        return {type:'stale', stale:true, legacy:false, v2:v2Res, legacyResult:legacyRes, final:null, decision:null, recommendation:'Điểm v2 thuộc mechanic cũ — chờ chấm lại', completeness:minComp, minCompleteness:minComp, label:'Final v2 (game)'};
+      }
+      const rec = v2Res.decision ? v2Res.decision : `Chưa đủ dữ liệu · ${Math.round(minComp * 100)}%`;
+      return {type:'v2', stale:false, legacy:false, v2:v2Res, legacyResult:legacyRes, final:v2Res.final, decision:v2Res.decision, recommendation:rec, completeness:minComp, minCompleteness:minComp, label:'Final v2 (game)'};
+    }
+    return {type:'legacy', stale:false, legacy:true, v2:null, legacyResult:legacyRes, final:legacyRes.final, decision:null, recommendation:legacyRes.recommendation, completeness:legacyRes.completeness, minCompleteness:legacyRes.completeness, label:'Final · Khung workbook (cũ)'};
+  }
+  if (typeof window !== 'undefined') window.PublishingEffective = {effectiveGameResult, gateLabel};
+  /* ---- E: dropdown hoá — helper select có (dữ liệu cũ) + checkbox-group ---- */
+  const GENRE_LIST = ['Puzzle','Simulation','Merge','Idle','Roguelike','Racing','Word','Casual','Strategy','Khác'];
+  const GAMEFEEL_LIST = ['Snappy / Crisp','Juicy / Explosive','Tactile / Physics-heavy','Calm / ASMR','Cozy / Zen','Fast / Arcade','Strategic / Deliberate','Satisfying / Cleanup-Order'];
+  const PLATFORM_LIST = ['Android','iOS','PC','Web'];
+  const GEO_LIST = ['US','Global','Vietnam','Japan','Korea','SEA','Other'];
+  const COUNTRY_LIST = ['Việt Nam','Hàn Quốc','Singapore','Nhật Bản','Mỹ','Trung Quốc','Khác'];
+  const SIM_SUBGENRES = ['Animal Simulator','Breeding','Citybuilder','Dating Sim','Farming','Fashion & Dress Up','Fishing Simulator','Home Design','Idol Training','Job Simulator','Life Sim','Sandbox','Satisfaction','Simulation: Other','Time Management','Tycoon/Management','Vehicle Simulator','Virtual Pet'];
+  const CONFIDENCE_LIST = ['1','2','3','4','5'];
+  function parseMulti(v) {
+    if (Array.isArray(v)) return v.map(x => String(x).trim()).filter(Boolean);
+    if (v === null || v === undefined) return [];
+    return String(v).split(/[,;+]/).map(s => s.trim()).filter(Boolean);
+  }
+  /* Select: giá trị đã lưu ngoài danh sách -> thêm option "(dữ liệu cũ) <giá trị>" đang chọn. */
+  const selectLegacy = (name,text,vals,current,extra='') => {
+    const cur = String(current ?? '');
+    const plain = vals.map(v => Array.isArray(v) ? v[0] : v);
+    const legacyOpt = cur && !plain.some(v => String(v) === cur) ? `<option value="${esc(cur)}" selected>(dữ liệu cũ) ${esc(cur)}</option>` : '';
+    return `<label>${esc(text)}<select name="${esc(name)}" ${extra}><option value="" ${cur === '' ? 'selected' : ''}>— Chưa chọn —</option>${options(vals,cur)}${legacyOpt}</select></label>`;
+  };
+  /* Checkbox-group: lưu join ", "; token lạ vẫn hiện dạng checkbox đã tick nhãn gốc + (dữ liệu cũ).
+     Hidden __has_<name> báo form có field này ngay cả khi không tick ô nào. */
+  function checkboxGroup(name,text,vals,current) {
+    const tokens = parseMulti(current);
+    const known = new Set(vals.map(String));
+    const extras = tokens.filter(t => !known.has(t));
+    const boxes = [...vals, ...extras].map(v => {
+      const isExtra = !known.has(String(v));
+      return `<label class="mk-check"><input type="checkbox" name="${esc(name)}" value="${esc(v)}" ${tokens.includes(String(v)) ? 'checked' : ''}> ${esc(v)}${isExtra ? ' (dữ liệu cũ)' : ''}</label>`;
+    }).join('');
+    return `<fieldset class="mk-check-group"><legend>${esc(text)}</legend><input type="hidden" name="__has_${esc(name)}" value="1"><div class="mk-checks">${boxes}</div></fieldset>`;
+  }
+  const isNumericText = v => { const s = String(v ?? '').trim(); return s !== '' && /^-?\d+(\.\d+)?$/.test(s); };
+  function numericLegacyField(name,text,value,extra='') {
+    const cur = String(value ?? '').trim();
+    if (cur === '' || isNumericText(cur)) return field(name,text,cur,'number',extra);
+    return `<label>${esc(text)}<input name="${esc(name)}" type="number" value="" ${extra} placeholder="Nhập số để thay"><input type="hidden" name="${esc(name)}Legacy" value="${esc(cur)}"><small class="mut">(dữ liệu cũ) ${esc(cur)} — giữ nguyên nếu để trống</small></label>`;
+  }
   /* ---- Members (hợp đồng shared.js: S.members + memberName/memberList; KHÔNG fallback USERS) ---- */
   function memberList() {
     // S7b: CHỈ lấy từ CRM state thật qua window.memberList(crmState) của shared.js, nguồn state
@@ -131,16 +212,62 @@
     const extra=current && !DATA.records.some(r=>r.id===current) ? `<option value="${esc(current)}" selected>${esc(current)} (dữ liệu cũ)</option>` : '';
     return `<label>Mechanic khớp dữ liệu thị trường<select name="mechanicId"><option value="">— Chưa khớp mechanic trong dữ liệu —</option>${groups}${extra}</select></label>`;
   }
+  function subGenreOptionsFor(genre) {
+    if (genre === 'Puzzle') return [...new Set(DATA.records.filter(r => r.category === 'Puzzle').map(r => r.name))];
+    if (genre === 'Simulation') return SIM_SUBGENRES.slice();
+    return null;
+  }
+  function subGenreFieldHTML(genre,current='') {
+    const list = subGenreOptionsFor(genre);
+    if (!list) return field('subGenre','Sub-genre',current || '');
+    return selectLegacy('subGenre','Sub-genre',list,current || '');
+  }
+  function metricRevenueFieldHTML(v) {
+    const cur = String(v.metricRevenue ?? '').trim();
+    const curSel = v.metricRevenueCur || 'USD';
+    const rev = (cur === '' || isNumericText(cur))
+      ? field('metricRevenue','Revenue đã có (studio báo)',cur,'number','step="any" min="0"')
+      : `<label>Revenue đã có (studio báo)<input name="metricRevenue" type="number" step="any" min="0" value="" placeholder="Nhập số để thay"><input type="hidden" name="metricRevenueLegacy" value="${esc(cur)}"><small class="mut">(dữ liệu cũ) ${esc(cur)} — giữ nguyên nếu để trống, chỉ thay khi nhập số</small></label>`;
+    return rev + selectLegacy('metricRevenueCur','Tiền tệ Revenue',['USD','VND'],curSel);
+  }
   function intakeFieldsHTML(kind,intake={}) {
     const v=intake||{};
-    if (kind==='game') return `<div class="mk-intake-edit"><h3>Hồ sơ đầu vào — thông tin game &amp; studio</h3><p class="mut">BD thu thập từ studio; mọi trường đều không bắt buộc, nhưng mechanic khớp dữ liệu là khóa để tính điểm thị trường tự động.</p><div class="fields">${mechanicField(v.mechanicId||'')}${field('genre','Genre',v.genre||'')}${field('subGenre','Sub-genre',v.subGenre||'')}${select('artStyle','Art style',['','2D','3D','Pixel','Anime','Hand-drawn','Low-poly','Realistic','Khác'],v.artStyle||'')}${area('coreLoop','Core loop',v.coreLoop||'')}${field('gameFeel','Game feel / archetype',v.gameFeel||'')}${select('platforms','Nền tảng',['','Android','iOS','Android + iOS','PC','Nhiều nền tảng'],v.platforms||'')}${select('devStage','Giai đoạn phát triển',['','Concept','Prototype','Alpha','Beta','Soft launch','Live'],v.devStage||'')}${select('monetizationModel','Mô hình monetization',['','Hybrid IAP','Hybrid IAA','IAP thuần','IAA thuần','Premium','Chưa rõ'],v.monetizationModel||'')}${field('targetGeo','Thị trường mục tiêu',v.targetGeo||'','text','placeholder="VD: US, SEA, Global"')}${field('metricDownloads','Downloads đã có (studio báo)',v.metricDownloads||'')}${field('metricRetention','Retention (studio báo)',v.metricRetention||'','text','placeholder="VD: D1 40% · D7 18%"')}${field('metricCpi','CPI test thực tế (USD)',v.metricCpi??'','number','step="0.01" min="0"')}${field('metricRevenue','Revenue đã có (studio báo)',v.metricRevenue||'')}${field('storeUrl','Link store',v.storeUrl||'','url')}${field('videoUrl','Link video / trailer',v.videoUrl||'','url')}${area('expectations','Kỳ vọng publishing (rev share mong muốn, thị trường muốn đánh, hỗ trợ cần từ SAVA…)',v.expectations||'')}</div></div>`;
-    return `<div class="mk-intake-edit"><h3>Hồ sơ đầu vào — thông tin studio</h3><div class="fields">${field('teamSize','Quy mô team',v.teamSize||'')}${field('country','Quốc gia',v.country||'')}${field('mainGenres','Genre chính',v.mainGenres||'')}${field('mainPlatforms','Nền tảng chính',v.mainPlatforms||'')}${area('trackRecord','Track record — game đã phát hành / kết quả',v.trackRecord||'')}${field('website','Website studio',v.website||'','url')}</div></div>`;
+    if (kind==='game') return `<div class="mk-intake-edit"><h3>Hồ sơ đầu vào — thông tin game &amp; studio</h3><p class="mut">BD thu thập từ studio; mọi trường đều không bắt buộc, nhưng mechanic khớp dữ liệu là khóa để tính điểm thị trường tự động.</p><div class="fields">${mechanicField(v.mechanicId||'')}${selectLegacy('genre','Genre',GENRE_LIST,v.genre||'')}<span data-subgenre-wrap style="display:contents">${subGenreFieldHTML(v.genre||'',v.subGenre||'')}</span>${selectLegacy('artStyle','Art style',['2D','3D','Pixel','Anime','Hand-drawn','Low-poly','Realistic','Khác'],v.artStyle||'')}${area('coreLoop','Core loop',v.coreLoop||'')}${selectLegacy('gameFeel','Game feel / archetype',GAMEFEEL_LIST,v.gameFeel||'')}${checkboxGroup('platforms','Nền tảng',PLATFORM_LIST,v.platforms||'')}${selectLegacy('devStage','Giai đoạn phát triển',['Concept','Prototype','Alpha','Beta','Soft launch','Live'],v.devStage||'')}${selectLegacy('monetizationModel','Mô hình monetization',['Hybrid IAP','Hybrid IAA','IAP thuần','IAA thuần','Premium','Chưa rõ'],v.monetizationModel||'')}${checkboxGroup('targetGeo','Thị trường mục tiêu',GEO_LIST,v.targetGeo||'')}${numericLegacyField('metricDownloads','Downloads đã có (studio báo)',v.metricDownloads||'','step="any" min="0"')}${field('metricRetention','Retention (studio báo)',v.metricRetention||'','text','placeholder="VD: D1 40% · D7 18%"')}${field('metricCpi','CPI test thực tế (USD)',v.metricCpi??'','number','step="0.01" min="0"')}${metricRevenueFieldHTML(v)}${field('storeUrl','Link store',v.storeUrl||'','url')}${field('videoUrl','Link video / trailer',v.videoUrl||'','url')}${area('expectations','Kỳ vọng publishing (rev share mong muốn, thị trường muốn đánh, hỗ trợ cần từ SAVA…)',v.expectations||'')}</div></div>`;
+    return `<div class="mk-intake-edit"><h3>Hồ sơ đầu vào — thông tin studio</h3><div class="fields">${numericLegacyField('teamSize','Quy mô team',v.teamSize||'','step="1" min="0"')}${selectLegacy('country','Quốc gia',COUNTRY_LIST,v.country||'')}${checkboxGroup('mainGenres','Genre chính',GENRE_LIST,v.mainGenres||'')}${checkboxGroup('mainPlatforms','Nền tảng chính',PLATFORM_LIST,v.mainPlatforms||'')}${area('trackRecord','Track record — game đã phát hành / kết quả',v.trackRecord||'')}${field('website','Website studio',v.website||'','url')}</div></div>`;
   }
   function readIntake(d,kind,fallback) {
     const labels=kind==='game'?GAME_INTAKE_LABELS:COMPANY_INTAKE_LABELS, keys=labels.map(([k])=>k);
-    if (!keys.some(k=>d.get(k)!==null)) return fallback;
+    const multiKeys = kind==='game' ? ['platforms','targetGeo'] : ['mainGenres','mainPlatforms'];
+    const extraKeys = kind==='game' ? ['metricRevenueCur'] : [];
+    const present = [...keys, ...extraKeys].some(k => d.get(k) !== null || d.get('__has_' + k) !== null);
+    if (!present) return fallback;
     const out={};
-    for (const k of keys) { const raw=d.get(k), val=raw===null?'':String(raw).trim(); out[k]=k==='metricCpi'?(val===''? '' : Number(val)):val; }
+    for (const k of keys) {
+      if (multiKeys.includes(k)) {
+        if (d.get('__has_' + k) !== null) { out[k] = (typeof d.getAll === 'function' ? d.getAll(k) : [d.get(k)]).filter(x => x !== null && x !== undefined).map(x => String(x)).join(', '); }
+        else { const raw=d.get(k); out[k]=raw===null?'':String(raw).trim(); }
+        continue;
+      }
+      if (k === 'metricRevenue' || k === 'metricDownloads') {
+        const raw=d.get(k), val=raw===null?'':String(raw).trim();
+        const legacy = d.get(k + 'Legacy');
+        out[k] = (val === '' && legacy) ? String(legacy) : val;
+        continue;
+      }
+      if (k === 'teamSize') {
+        const raw=d.get(k), val=raw===null?'':String(raw).trim();
+        const legacy = d.get('teamSizeLegacy');
+        out[k] = (val === '' && legacy) ? String(legacy) : val;
+        continue;
+      }
+      const raw=d.get(k), val=raw===null?'':String(raw).trim();
+      out[k]=k==='metricCpi'?(val===''? '' : Number(val)):val;
+    }
+    if (kind==='game') {
+      const cur=d.get('metricRevenueCur');
+      if (cur !== null) out.metricRevenueCur = String(cur).trim();
+      else if (fallback && typeof fallback === 'object' && fallback.metricRevenueCur) out.metricRevenueCur = fallback.metricRevenueCur;
+    }
     return out;
   }
   function intakeDisplayHTML(r) {
@@ -149,9 +276,35 @@
       if (v===undefined||v===null||String(v).trim()==='') return '—';
       if (k==='mechanicId') { const rec=DATA.records.find(x=>x.id===v); return rec?`${rec.name} — ${rec.category} (${rec.id})`:String(v); }
       if (k==='metricCpi') { const n=typeof v==='number'?v:Number(v); return Number.isFinite(n)?usd(n):String(v); }
+      if (k==='metricRevenue' && intake.metricRevenueCur) return `${String(v)} ${String(intake.metricRevenueCur)}`;
       return String(v);
     };
-    return `<section class="section"><h3>Hồ sơ đầu vào (BD thu thập từ studio)</h3><dl class="mk-dl">${labels.map(([k,t])=>`<div class="mk-dl-row"><dt>${esc(t)}</dt><dd>${esc(fmt(k,intake[k]))}</dd></div>`).join('')}</dl></section>`;
+    const extra = r.kind==='game' && intake.metricRevenueCur ? `<div class="mk-dl-row"><dt>Tiền tệ Revenue</dt><dd>${esc(intake.metricRevenueCur)}</dd></div>` : '';
+    return `<section class="section"><h3>Hồ sơ đầu vào (BD thu thập từ studio)</h3><dl class="mk-dl">${labels.map(([k,t])=>`<div class="mk-dl-row"><dt>${esc(t)}</dt><dd>${esc(fmt(k,intake[k]))}</dd></div>`).join('')}${extra}</dl></section>`;
+  }
+  /* D: tóm tắt intake 1 dòng cho BD trong dialog review (bản đầy đủ chỉ dùng cho MKT). */
+  function intakeSummaryHTML(r) {
+    const intake=r.intake||{};
+    let parts=[];
+    if (r.kind==='game') {
+      const rec=DATA.records.find(x=>x.id===intake.mechanicId);
+      parts=[rec?`${rec.name}`:(intake.mechanicId||''), intake.genre||'', intake.devStage||''].filter(Boolean);
+    } else {
+      parts=[intake.country||'', intake.mainGenres||'', intake.teamSize?`Team ${intake.teamSize}`:''].filter(Boolean);
+    }
+    return `<section class="section mk-intake-summary"><h3>Hồ sơ đầu vào (BD thu thập từ studio)</h3><p class="mut">${esc(parts.length?parts.join(' · '):'Chưa có thông tin đầu vào')}</p><p><a href="#bd-intake">Xem / sửa hồ sơ đầu vào ở phần BD bên dưới ↓</a></p></section>`;
+  }
+  /* B2: khối điều hướng company — link CRM + game của studio kèm kết quả hiệu lực. */
+  function companyNavHTML(r,s,allRequests) {
+    const games=(s.games||[]).filter(g=>g && g.company===r.entityId);
+    const rowsHtml=games.length?games.map(g=>{
+      const greq=(allRequests||[]).find(x=>x.kind==='game'&&x.entityId===g.id);
+      if (!greq) return `<div class="mk-nav-row"><span>${esc(label(g))}</span><span class="mut">Chưa gửi yêu cầu đánh giá</span></div>`;
+      const eff=effectiveGameResult(greq);
+      const txt=eff.type==='stale'?eff.recommendation:`${eff.label}: ${eff.final===null||eff.final===undefined?'—':num(eff.final,1)}/100 · ${eff.recommendation}`;
+      return `<div class="mk-nav-row"><span>${esc(label(g))}</span><span class="mut">${esc(txt)}</span><button type="button" class="btn" data-review="${esc(greq.id)}">Mở đánh giá game</button></div>`;
+    }).join(''):'<p class="mut">Studio chưa có game nào trong CRM.</p>';
+    return `<section class="section mk-company-nav"><p><a href="index.html?open=company&amp;id=${encodeURIComponent(r.entityId)}">← Hồ sơ công ty trong CRM</a></p><h3>Game của studio</h3>${rowsHtml}</section>`;
   }
   /* ---- Chi tiết mechanic mở rộng (data v2 từ sheets-data.json) ---- */
   const noData = '<p class="mut">chưa có dữ liệu</p>';
@@ -205,7 +358,7 @@
     // M5: phân biệt mốc dữ liệu đã lưu vs gợi ý live.
     const stampNote = saved ? `Điểm đã lưu · ${esc(stamp(a.at) || 'không rõ thời gian')}` : 'Gợi ý live theo dữ liệu thị trường hiện tại — chưa lưu';
     const mechWarn = mechChanged ? `<p class="mk-alert" role="alert">Mechanic đã đổi từ ${esc(mechName(savedMech))} sang ${esc(mechName(curMech))} — điểm Market v2 đã lưu thuộc mechanic cũ, cần chấm lại. Bảng dưới chỉ hiển thị điểm đã lưu (không trộn gợi ý của mechanic mới); khi MKT lưu phiên mới, rawInputs cũ sẽ bị loại và tính lại theo mechanic hiện tại.</p>` : '';
-    return `<section class="section mk-v2"><h3>Market Score v2 · quartile (market-v2) — khung quyết định chính thức</h3><p class="mut">${ctx ? `Gợi ý tự động theo quartile trong nhóm ${esc(ctx.rec.category)} của mechanic ${esc(ctx.rec.name)}; người chấm ghi đè được mọi gợi ý. Production Economics / SAVA Right-to-Win / Gamefeel Whitespace chấm tay — chưa có dữ liệu tự động.` : 'Chưa khớp mechanic — không có gợi ý tự động; vẫn chấm tay được cả 8 tiêu chí.'} ${esc(stampNote)}.</p>${mechWarn}<div class="summary-result"><div><small>Market /100 (chuẩn hoá)</small><strong>${marketDisp}</strong></div><div><small>Prototype /100 (chuẩn hoá)</small><strong>${protoDisp}</strong></div><div><small>Final /100</small><strong>${finalDisp}</strong></div></div>${compBar('Completeness Market', res.market.completeness)}${compBar('Completeness Prototype', res.prototype.completeness)}<p class="mut">${res.marketInsufficient ? 'Market: Chưa đủ dữ liệu để kết luận (completeness &lt; 80%) — điểm chỉ là tạm tính. ' : ''}${res.final === null ? 'Final: chưa tính được Final (thiếu Market hoặc Prototype).' : res.decision ? `Quyết định v2: <b>${esc(res.decision)}</b> (Final ≥80 Greenlight · 65–79.9 Test thêm · &lt;65 Chưa đạt).` : esc(res.decisionBlockedReason || '')}</p><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Market</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc (rawInputs)</th>${role === 'mkt' ? '<th>Chấm / ghi đè</th>' : ''}</tr></thead><tbody>${F.market.map(rowM).join('')}</tbody></table></div><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Prototype</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc</th>${role === 'mkt' ? '<th>Chấm tay</th>' : ''}</tr></thead><tbody>${F.prototype.map(rowP).join('')}</tbody></table></div><p class="mut">Khung cũ (bên dưới) vẫn giữ nguyên để tương thích phiên bản đã lưu; điểm v2 lưu riêng trong scoresV2 của mỗi phiên bản, không ghi đè khung cũ. Quyết định chốt theo Market Score v2 này; điểm marketAuto 4 cấu phần chỉ còn ở tab Thị trường dưới dạng tham khảo.</p></section>`;
+    return `<section class="section mk-v2"><h3>Market Score v2 · quartile (market-v2) — khung quyết định chính thức</h3><p class="mut">${ctx ? `Gợi ý tự động theo quartile trong nhóm ${esc(ctx.rec.category)} của mechanic ${esc(ctx.rec.name)}; người chấm ghi đè được mọi gợi ý. Production Economics / SAVA Right-to-Win / Gamefeel Whitespace chấm tay — chưa có dữ liệu tự động.` : 'Chưa khớp mechanic — không có gợi ý tự động; vẫn chấm tay được cả 8 tiêu chí.'} ${esc(stampNote)}.</p>${mechWarn}<div class="summary-result"><div><small>Market /100 (chuẩn hoá)</small><strong>${marketDisp}</strong></div><div><small>Prototype /100 (chuẩn hoá)</small><strong>${protoDisp}</strong></div><div><small>Final /100</small><strong>${finalDisp}</strong></div></div>${compBar('Completeness Market', res.market.completeness)}${compBar('Completeness Prototype', res.prototype.completeness)}<p class="mut">${res.marketInsufficient ? 'Market: Chưa đủ dữ liệu để kết luận (completeness &lt; 80%) — điểm chỉ là tạm tính. ' : ''}${res.final === null ? 'Final: chưa tính được Final (thiếu Market hoặc Prototype).' : res.decision ? `Quyết định v2: <b>${esc(res.decision)}</b> (Final ≥80 Greenlight · 65–79.9 Test thêm · &lt;65 Chưa đạt).` : esc(res.decisionBlockedReason || '')}</p><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Market</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc (rawInputs)</th>${role === 'mkt' ? '<th>Chấm / ghi đè</th>' : ''}</tr></thead><tbody>${F.market.map(rowM).join('')}</tbody></table></div><div class="table-scroll"><table class="mk-v2-table"><thead><tr><th>Tiêu chí Prototype</th><th class="numeric">Trọng số</th><th class="numeric">Điểm</th><th>Nguồn</th><th>Số gốc</th>${role === 'mkt' ? '<th>Chấm tay</th>' : ''}</tr></thead><tbody>${F.prototype.map(rowP).join('')}</tbody></table></div><p class="mut">Khung workbook (cũ) (bên dưới) vẫn giữ nguyên để tương thích phiên bản đã lưu; điểm v2 lưu riêng trong scoresV2 của mỗi phiên bản, không ghi đè Khung workbook (cũ). Quyết định chốt theo Market Score v2 này; điểm marketAuto 4 cấu phần chỉ còn ở tab Thị trường dưới dạng tham khảo.</p></section>`;
   }
 
   /* ---- Giao diện thị trường trực quan (việc E) ---- */
@@ -275,7 +428,15 @@
   function marketForm(id) {
     const old=id?observations().find(r=>r.id===id):null;
     active={kind:'market',id,baseline:JSON.stringify(read().marketUpdates.find(x=>x.id===id)||null)};
-    showDialog(head(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường')+`<form id="marketForm"><div class="dialog-body"><p class="mut">Thêm bản quan sát có ngày và nguồn. Snapshot gốc luôn giữ lại. Dữ liệu mới không tự kế thừa concentration, growth hoặc CPI của ngày cũ.</p><div class="fields">${field('name','Mechanic / nhóm',old?.name||'','text','required maxlength="150"')}${select('category','Nhóm',['Puzzle','Simulation'],old?.category||category)}${field('date','Ngày snapshot','','date','required')}${field('geo','Thị trường',old?.geo||'','text','required')}${field('platform','Nền tảng',old?.platform||'','text','required')}${field('downloads','Downloads / ngày','','number','min="0" step="any"')}${field('revenue','Revenue USD / ngày','','number','min="0" step="any"')}${field('url','Source URL','','url','required')}${memberField('by','Người cập nhật',null,'',{required:true})}${field('confidence','Confidence 1–5','','number','min="1" max="5" step="1" required')}${select('evidenceType','Loại bằng chứng',['Export','Verified source','Partner cung cấp','Proxy'],'Export')}${area('note','Phạm vi / phương pháp / ghi chú')}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Lưu quan sát</button></div></form>`);
+    /* E3: name là select từ records; name khớp record -> category tự điền + khoá (hidden mirror để FormData vẫn có giá trị). */
+    const nameRec=old?DATA.records.find(r=>r.name===old.name):null;
+    const nameNames=[...new Set(DATA.records.map(r=>r.name))];
+    const nameField=`<label>Mechanic / nhóm<select name="name" required><option value="">— Chọn mechanic —</option>${nameNames.map(n=>`<option value="${esc(n)}" ${old?.name===n?'selected':''}>${esc(n)}</option>`).join('')}${old?.name&&!nameNames.includes(old.name)?`<option value="${esc(old.name)}" selected>(dữ liệu cũ) ${esc(old.name)}</option>`:''}</select></label>`;
+    const catVal=nameRec?nameRec.category:(old?.category||category);
+    const catField=nameRec
+      ? `<input type="hidden" name="category" value="${esc(catVal)}"><label>Nhóm (tự động theo mechanic)<select name="categoryLocked" disabled>${options(['Puzzle','Simulation'],catVal)}</select></label>`
+      : `<label>Nhóm<select name="category">${options(['Puzzle','Simulation'],catVal)}</select></label><span data-category-lock hidden></span>`;
+    showDialog(head(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường')+`<form id="marketForm"><div class="dialog-body"><p class="mut">Thêm bản quan sát có ngày và nguồn. Snapshot gốc luôn giữ lại. Dữ liệu mới không tự kế thừa concentration, growth hoặc CPI của ngày cũ.</p><div class="fields">${nameField}${catField}${field('date','Ngày snapshot','','date','required')}${selectLegacy('geo','Thị trường',GEO_LIST,old?.geo||'US')}${selectLegacy('platform','Nền tảng',['Android','iOS','Android + iOS'],old?.platform||'')}${field('downloads','Downloads / ngày','','number','min="0" step="any"')}${field('revenue','Revenue USD / ngày','','number','min="0" step="any"')}${field('url','Source URL','','url','required')}${memberField('by','Người cập nhật',null,'',{required:true})}${selectLegacy('confidence','Confidence',[['1','1'],['2','2'],['3','3'],['4','4'],['5','5']],old?.confidence!=null?String(old.confidence):'','required')}${select('evidenceType','Loại bằng chứng',['Export','Verified source','Partner cung cấp','Proxy'],'Export')}${area('note','Phạm vi / phương pháp / ghi chú')}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Lưu quan sát</button></div></form>`);
   }
   function submitMarket(e) {
     e.preventDefault();const form=e.target,d=new FormData(form),s=read();
@@ -292,11 +453,16 @@
   }
   function renderReviews() {
     const data=read(),s=crm();
-    const rows=data.requests.filter(r=>reviewFilter==='all'||r.status===reviewFilter).filter(r=>!query||(label(entity(s,r.kind,r.entityId))+' '+r.kind).toLowerCase().includes(query));
-    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc tiến độ">${options([['all','Tất cả tiến độ'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select></div><div class="card-grid">${rows.map(r=>{
-      const en=entity(s,r.kind,r.entityId),v=r.current||{},res=r.kind==='company'?F.company(v):F.game(v);
-      const value=r.kind==='company'?res.total:res.final;
-      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / NĂNG LỰC SẢN XUẤT':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(res.recommendation)}<span><b>${num(value,1)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
+    const rows=data.requests.filter(r=>reviewFilter==='all'||r.status===reviewFilter).filter(r=>reviewKindFilter==='all'||r.kind===reviewKindFilter).filter(r=>!query||(label(entity(s,r.kind,r.entityId))+' '+r.kind).toLowerCase().includes(query));
+    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc tiến độ">${options([['all','Tất cả tiến độ'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select><select id="reviewKindFilter" aria-label="Lọc loại hồ sơ">${options([['all','Tất cả loại'],['company','Company'],['game','Game']],reviewKindFilter)}</select></div><div class="card-grid">${rows.map(r=>{
+      const en=entity(s,r.kind,r.entityId),v=r.current||{};
+      const isCo=r.kind==='company';
+      const eff=isCo?null:effectiveGameResult(r);
+      const res=isCo?F.company(v):eff.legacyResult;
+      const rec=isCo?res.recommendation:eff.recommendation;
+      const value=isCo?res.total:eff.final;
+      const valueLabel=isCo?'Partner Fit (company)':eff.label;
+      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / NĂNG LỰC SẢN XUẤT':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${num(value,1)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
     }).join('')||`<div class="panel empty full"><h3>${data.requests.length?'Không có hồ sơ khớp bộ lọc':'Chưa có yêu cầu đánh giá'}</h3><p class="mut">${role==='bd'?'Chọn company hoặc game đã có trong CRM để giao MKT đánh giá.':'BD gửi yêu cầu company hoặc game từ CRM; hàng chờ sẽ xuất hiện tại đây.'}</p></div>`}</div>`;
   }
   function requestForm(kind='company',id='') {
@@ -316,22 +482,60 @@
   const evidenceLabels={...Object.fromEntries([...F.market,...F.prototype,...F.partner,...F.production]),deal:'Deal Fit · chỉ BD',history:'Publisher History',legalEvidence:'Legal / IP Evidence'};
   const criterionHints={track:'Title đã ship, commercial result và bằng chứng có thể kiểm tra.',team:'Headcount, vai trò cốt lõi, phụ thuộc nhân sự chủ chốt.',capacity:'Capacity thực tế và số luồng production chạy song song.',cadence:'Tần suất build, thời gian phản hồi → build.',milestone:'Lịch sử giao 3–5 milestone gần nhất.',liveops:'Content/event song song với roadmap sản phẩm.',data:'Analytics, attribution, A/B test và độ tin cậy dữ liệu.',collaboration:'Minh bạch, phản hồi, ownership trong quá trình làm việc.',strategy:'SAVA tạo giá trị gì cho quan hệ hợp tác này?',pipeline:'Pipeline 6–12 tháng, khả năng hợp tác nhiều title.',deal:'Điều kiện trả partner, UA spend, recoup, quyền và downside. Không cộng vào Partner Fit.',size:'Quy mô cùng geo/platform/window; không coi cohort là toàn thị trường.',growth:'So cùng cohort giữa hai cửa sổ có mẫu số hợp lệ.',entry:'Concentration, incumbency và khả năng entry; không suy success rate từ gainers.',monetization:'Revenue/download cùng cohort chỉ là RPD, không phải LTV.',ua:'CPI paid installs, creative hook và độ phủ benchmark.',economics:'Man-days, content cost, QA/art và thời gian ra thị trường.',rtw:'Capability, resource và bằng chứng test của SAVA.',whitespace:'Khoảng trống gamefeel so với benchmark có bằng chứng.',uaTest:'Build × geo × platform, spend/paid installs, mẫu test.',retention:'D1/D3/D7/D30 theo cohort và cỡ mẫu.',engagement:'Session, playtime, level reach và churn cliff.',monetizationTest:'ROAS, ARPDAU, LTV/CPI từ test đúng window.',gamefeel:'User test: responsiveness, flow, agency, replay desire.',tech:'Stability, performance, cadence và chi phí hoàn thiện.'};
   function criterion(k,title,weight,e={},editable=true) {
-    const sv=F.score(e);
-    return `<details class="criterion"><summary><span>${esc(title)} ${weight?`<small>· ${num(weight,2)}%</small>`:''}</span><b>${sv===null?'NE':num(sv,1)+'/5'}</b></summary><p class="mut">${esc(criterionHints[k]||'Ghi bằng chứng và trạng thái xác minh.')}</p>${editable?`<div class="fields">${field('s_'+k,'Điểm 1–5',e.score??'','number','min="1" max="5" step="0.1"')}${select('t_'+k,'Trạng thái bằng chứng',F.statuses,e.status||'Thiếu')}<label class="source">Nguồn / ngày cập nhật<input name="u_${esc(k)}" value="${esc(e.source||'')}" placeholder="URL hoặc tài liệu, ngày review"></label><label class="note">Bằng chứng / lý do chấm<textarea name="n_${esc(k)}">${esc(e.note||'')}</textarea></label></div>`:`<p class="text-break">${esc(e.note||'Chưa có bằng chứng.')}</p><p class="source-text">${esc(e.status||'Thiếu')} · ${esc(e.source||'')}</p>`}</details>`;
+    const entry = e && typeof e === 'object' && !Array.isArray(e) ? e : {};
+    const sv=F.score(entry);
+    /* N9: điểm 1–5 đã nhập nhưng F.score null (thiếu note/nguồn/trạng thái) -> nói rõ chưa đủ căn cứ ở bản chỉ-đọc. */
+    const insufficient = !editable && F.valid(entry.score) && sv===null;
+    const insuffSummary = insufficient ? ' <small class="mk-insufficient">điểm chưa đủ căn cứ (thiếu note/nguồn)</small>' : '';
+    return `<details class="criterion"><summary><span>${esc(title)} ${weight?`<small>· ${num(weight,2)}%</small>`:''}</span><b>${sv===null?'NE':num(sv,1)+'/5'}</b>${insuffSummary}</summary><p class="mut">${esc(criterionHints[k]||'Ghi bằng chứng và trạng thái xác minh.')}</p>${editable?`<div class="fields">${field('s_'+k,'Điểm 1–5',entry.score??'','number','min="1" max="5" step="0.1"')}${select('t_'+k,'Trạng thái bằng chứng',F.statuses,entry.status||'Thiếu')}<label class="source">Nguồn / ngày cập nhật<input name="u_${esc(k)}" value="${esc(entry.source||'')}" placeholder="URL hoặc tài liệu, ngày review"></label><label class="note">Bằng chứng / lý do chấm<textarea name="n_${esc(k)}">${esc(entry.note||'')}</textarea></label></div>`:`<p class="text-break">${esc(entry.note||'Chưa có bằng chứng.')}</p><p class="source-text">${esc(entry.status||'Thiếu')} · ${esc(entry.source||'')}</p>${insufficient?'<p class="source-text mk-insufficient">điểm chưa đủ căn cứ (thiếu note/nguồn)</p>':''}`}</details>`;
   }
   function openReview(id) {
-    const r=read().requests.find(r=>r.id===id);if(!r)return;const s=crm(),en=entity(s,r.kind,r.entityId),a=r.current||{},e=a.entries||{};
+    const store=read(); const r=store.requests.find(r=>r.id===id);if(!r)return;const s=crm(),en=entity(s,r.kind,r.entityId),a=r.current||{},e=(a.entries&&typeof a.entries==='object'&&!Array.isArray(a.entries))?a.entries:{};
     active={kind:'review',id,revision:r.revision};
-    const isCompany=r.kind==='company',result=isCompany?F.company(a):F.game(a);
+    const isCompany=r.kind==='company';
+    const eff=isCompany?null:effectiveGameResult(r);
+    const result=isCompany?F.company(a):eff.legacyResult;
+    const headlineRec=isCompany?result.recommendation:eff.recommendation;
     const professionalKeys=isCompany?[['track','Track Record',10/90*100],['team','Năng lực Team',15/90*100],...F.production.map(v=>[...v,0]),['data','Data & Tech',10/90*100],['collaboration','Hợp tác',15/90*100],['strategy','Strategic Fit',15/90*100],['pipeline','Tiềm năng Long-term',10/90*100]]:[...F.market,...F.prototype];
-    const resultHTML=isCompany?`<div class="summary-result"><div><small>Partner Fit /100</small><strong>${num(result.total,1)}</strong></div><div><small>Production Composite /5</small><strong>${num(result.composite,1)}</strong></div><div><small>Evidence coverage</small><strong>${pct(result.coverage)}</strong></div></div><p class="mut">Hard Gate: ${esc(result.hardGate)} · Minimum Evidence: ${result.minimum?'ĐẠT':'THIẾU'} · Confidence: ${esc(result.confidence)}</p>`:`<div class="summary-result"><div><small>Market /100</small><strong>${num(result.market,1)}</strong></div><div><small>Prototype /100</small><strong>${num(result.prototype,1)}</strong></div><div><small>Final /100</small><strong>${num(result.final,1)}</strong></div></div><p class="mut">Data completeness: ${pct(result.completeness)} · Hard Gate: ${esc(result.gate)} · Final = 40% Market + 60% Prototype</p>`;
-    showDialog(head(label(en))+`<form id="reviewForm"><div class="dialog-body"><div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(result.recommendation)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p><p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${intakeDisplayHTML(r)}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&!a.scoresV2&&r.revisions.length?' Phiên bản hiện tại là đánh giá cũ (legacy) — chưa có Market Score v2.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét MKT / bằng chứng cần bổ sung':'BD bổ sung thông tin',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
-      <section class="section"><h3>${isCompany?'Năng lực sản xuất & Partner Fit':'Market Score · 8 tiêu chí'}</h3><p class="mut">${isCompany?'7 pillar chuẩn hóa tổng trọng số 90 → 100. Production = trung bình 4 nhóm; thiếu 1 nhóm → NE. Deal Fit tách riêng.':'Điểm 1–5 theo bộ candidate so sánh: 1 rất bất lợi, 3 trung tính, 5 rất thuận lợi. Trọng số Market và Prototype tính riêng.'}</p>${professionalKeys.map(([k,t,w],i)=>`${!isCompany&&i===F.market.length?'<h3 class="section">Prototype Score · 6 tiêu chí</h3>':''}${criterion(k,t,w,e[k],role==='mkt')}`).join('')}</section>
-      ${isCompany?`<section class="section"><h3>Evidence hỗ trợ</h3>${criterion('history','Publisher History',0,e.history,role==='mkt')}${criterion('legalEvidence','Legal / IP',0,e.legalEvidence,role==='bd')}</section><section class="section"><h3>Deal Fit · phần BD</h3><p class="mut">Không cộng vào Partner Fit. Deal evidence vẫn là điều kiện của Minimum Evidence Gate trong playbook.</p>${criterion('deal','Mức độ phù hợp Deal',0,e.deal,role==='bd')}</section>`:role==='mkt'?`<section class="section"><div class="fields">${field('quality','Evidence Quality 1–5',a.quality??'','number','min="1" max="5" step="1"')}</div></section>`:`<p class="mut">Evidence Quality: ${num(a.quality)}/5</p>`}
-      <section class="section"><h3>${isCompany?'6 Hard Gate · xác minh BD':'Hard Gate · xác minh BD'}</h3><p class="mut">Gate độc lập điểm số. PASS phải có căn cứ; chưa xác minh giữ Pending.</p>${isCompany?F.gates.map(([k,t])=>{const g=a.gates?.[k]||{};return role==='bd'?`<details class="criterion"><summary><span>${esc(t)}</span><b>${esc(g.value||'PENDING')}</b></summary><div class="fields">${select('g_'+k,'Trạng thái',[['PENDING','Chờ xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],g.value||'PENDING')}${field('gu_'+k,'Nguồn / ngày',g.source||'')}${area('gn_'+k,'Bằng chứng xác minh',g.note||'')}</div></details>`:`<div class="weight-row"><span>${esc(t)}</span><b>${esc(g.value||'PENDING')}</b></div>`;}).join(''):role==='bd'?`<div class="fields">${select('gate','Hard Gate',[['PENDING','Chờ xác minh'],['PASS','PASS'],['FAIL','FAIL']],a.gate||'PENDING')}${field('gateSource','Nguồn / ngày xác minh',a.gateSource||'')}${area('gateNote','Bằng chứng / blocker / điều kiện PASS',a.gateNote||'')}</div>`:`<p class="mut">${esc(a.gate||'PENDING')} · ${esc(a.gateNote||'Chờ BD xác minh.')}</p>`}</section>
-      <section class="section"><h3>Điều kiện và bước tiếp theo</h3>${role==='mkt'?`<div class="fields">${area('strengths','Điểm mạnh có bằng chứng',a.strengths||'')}${area('risks','Rủi ro chuyên môn',a.risks||'')}${area('conditions','Điều kiện / bằng chứng cần bổ sung',a.conditions||'')}${area('next','Hành động kế tiếp',a.next||'')}</div>`:`<p class="text-break">${esc(a.strengths||'')}</p><p class="text-break">${esc(a.risks||'')}</p><p class="text-break">${esc(a.conditions||'')}</p><p class="text-break">${esc(a.next||'')}</p><div class="fields">${field('build','Build BD bổ sung',r.build||'')}${field('source','Link BD bổ sung',r.source||'','url')}${memberField('assignee','MKT phụ trách','MKT',r.assignee||'')}${field('due','Hạn đánh giá',r.due||'','date')}</div>${intakeFieldsHTML(r.kind,r.intake||{})}`}</section>
-      <section class="section"><h3>Lịch sử đánh giá · ${r.revisions.length} phiên bản</h3>${r.revisions.slice().reverse().map((h,i)=>{const res=isCompany?F.company(h):F.game(h);return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(h.at))} · ${esc(displayName(h.reviewer))} (${esc(h.role.toUpperCase())}) · ${esc(h.status)}</summary><p>${esc(res.recommendation)} · ${num(isCompany?res.total:res.final,1)}/100 · build ${esc(h.build||'')}${!isCompany&&!h.scoresV2?' · đánh giá cũ (legacy)':''}</p>${!isCompany&&h.scoresV2?(()=>{const v=F.gameV2(h.scoresV2);return `<p class="source-text">Market v2: ${num(v.market.score,1)}/100 · Prototype v2: ${num(v.prototype.score,1)}/100 · Final v2: ${num(v.final,1)}/100${v.decision?' · '+esc(v.decision):''}</p>`;})():''}<p class="text-break">${esc(h.comment||h.bdComment||'')}</p><p class="text-break">${esc(h.conditions||'')}</p>${Object.entries(h.entries||{}).map(([k,v])=>`<p class="source-text"><b>${esc(evidenceLabels[k]||k)}</b> ${num(F.score(v),1)}/5 · ${esc(v.status)} · ${esc(v.note)} · ${esc(v.source)}</p>`).join('')}<p class="source-text">Gate: ${esc(isCompany?JSON.stringify(h.gates||{}):(h.gate||'PENDING')+' · '+(h.gateNote||'')+' · '+(h.gateSource||''))}</p></details>`;}).join('')||'<p class="mut">Chưa có phiên bản đánh giá.</p>'}</section><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><span class="mut">Lưu thêm phiên bản · giữ lịch sử cũ</span><button type="button" class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button>${role==='bd'?'<button type="button" class="btn" data-action="requeue">Gửi MKT đánh giá lại</button>':''}<button class="btn primary">${role==='mkt'?'Lưu đánh giá cho BD':'Lưu bổ sung BD'}</button></div></form>`);
+    /* A3: hiệu lực v2 -> ẨN tổng kết legacy (panel v2 đã có tổng kết); chưa có v2 hiệu lực -> giữ legacy. */
+    const resultHTML=isCompany?`<div class="summary-result"><div><small>Partner Fit (company) /100</small><strong>${num(result.total,1)}</strong></div><div><small>Production Composite /5</small><strong>${num(result.composite,1)}</strong></div><div><small>Evidence coverage</small><strong>${pct(result.coverage)}</strong></div></div><p class="mut">Hard Gate: ${esc(result.hardGate)} · Minimum Evidence: ${result.minimum?'ĐẠT':'THIẾU'} · Confidence: ${esc(result.confidence)}</p>`:eff.type==='v2'?'':`<p class="mut">Tổng kết · Khung workbook (cũ)</p><div class="summary-result"><div><small>Market /100</small><strong>${num(result.market,1)}</strong></div><div><small>Prototype /100</small><strong>${num(result.prototype,1)}</strong></div><div><small>Final /100</small><strong>${num(result.final,1)}</strong></div></div><p class="mut">Data completeness: ${pct(result.completeness)} · Hard Gate: ${esc(result.gate)} · Final = 40% Market + 60% Prototype</p>`;
+    const dialogTitle=isCompany?`Đánh giá Partner — ${label(en)}`:label(en);
+    const companySub=isCompany?`<p class="sub">Khung Partner chính thức · dữ liệu dùng chung với CRM</p>`:'';
+    const navHTML=isCompany?companyNavHTML(r,s,store.requests):'';
+    const intakeHTML=role==='mkt'?intakeDisplayHTML(r):intakeSummaryHTML(r);
+    const criteriaItems=professionalKeys.map(([k,t,w],i)=>`${!isCompany&&i===F.market.length?'<h3 class="section">Prototype Score · 6 tiêu chí</h3>':''}${criterion(k,t,w,e[k],role==='mkt')}`).join('');
+    const qualityBlock=isCompany?'':role==='mkt'?`<section class="section"><div class="fields">${field('quality','Evidence Quality 1–5',a.quality??'','number','min="1" max="5" step="1"')}</div></section>`:`<p class="mut">Evidence Quality: ${num(a.quality)}/5</p>`;
+    let professionalSection;
+    if (isCompany) {
+      professionalSection=`<section class="section"><h3>Năng lực sản xuất &amp; Partner Fit</h3><p class="mut">7 pillar chuẩn hóa tổng trọng số 90 → 100. Production = trung bình 4 nhóm; thiếu 1 nhóm → NE. Deal Fit tách riêng.</p>${criteriaItems}</section>`;
+    } else if (eff.type==='v2') {
+      professionalSection=`<details class="mk-legacy-fold"><summary>Khung workbook (cũ) — chỉ xem lịch sử, không cần chấm khi đã có điểm v2</summary><section class="section"><h3>Market Score · 8 tiêu chí</h3><p class="mut">Điểm 1–5 theo bộ candidate so sánh: 1 rất bất lợi, 3 trung tính, 5 rất thuận lợi. Trọng số Market và Prototype tính riêng.</p>${criteriaItems}</section>${qualityBlock}</details>`;
+    } else {
+      professionalSection=`<section class="section"><h3>Market Score · 8 tiêu chí</h3><p class="mut">Điểm 1–5 theo bộ candidate so sánh: 1 rất bất lợi, 3 trung tính, 5 rất thuận lợi. Trọng số Market và Prototype tính riêng.</p>${criteriaItems}</section>${qualityBlock}`;
+    }
+    /* B3 (N3): role=mkt KHÔNG render Deal Fit, legalEvidence, và note/source của Hard Gate company. */
+    const evidenceSection=isCompany?`<section class="section"><h3>Evidence hỗ trợ</h3>${criterion('history','Publisher History',0,e.history,role==='mkt')}${role==='mkt'?'':criterion('legalEvidence','Legal / IP',0,e.legalEvidence,role==='bd')}</section>`:'';
+    const dealSection=(isCompany&&role!=='mkt')?`<section class="section"><h3>Deal Fit · phần BD</h3><p class="mut">Không cộng vào Partner Fit. Deal evidence vẫn là điều kiện của Minimum Evidence Gate trong playbook.</p>${criterion('deal','Mức độ phù hợp Deal',0,e.deal,role==='bd')}</section>`:'';
+    const historyHTML=r.revisions.slice().reverse().map((h,i)=>{
+      const hh=(h&&typeof h==='object'&&!Array.isArray(h))?h:{};
+      const hEntries=(hh.entries&&typeof hh.entries==='object'&&!Array.isArray(hh.entries))?hh.entries:{};
+      let resH, histRec, histVal;
+      if (isCompany) { try{resH=F.company(hh);}catch{resH={recommendation:'—',total:null};} histRec=resH.recommendation; histVal=resH.total; }
+      else { const effH=effectiveGameResult({kind:'game',entityId:r.entityId,intake:r.intake,current:hh}); histRec=effH.recommendation; histVal=effH.final; resH=effH.legacyResult; }
+      const gateLine=isCompany
+        ? (role==='mkt' ? F.gates.map(([gk,gt])=>`${gt}: ${gateLabel(hh.gates?.[gk]?.value||'PENDING')}`).join(' · ') : JSON.stringify(hh.gates||{}))
+        : (hh.gate||'PENDING')+' · '+(hh.gateNote||'')+' · '+(hh.gateSource||'');
+      const entriesHTML=Object.entries(hEntries).filter(([k,v])=>v&&typeof v==='object'&&!Array.isArray(v)).filter(([k])=>!(isCompany&&role==='mkt'&&(k==='deal'||k==='legalEvidence'))).map(([k,v])=>{const sv=F.score(v);const insuff=F.valid(v.score)&&sv===null?' · điểm chưa đủ căn cứ (thiếu note/nguồn)':'';return `<p class="source-text"><b>${esc(evidenceLabels[k]||k)}</b> ${num(sv,1)}/5 · ${esc(v.status||'')} · ${esc(v.note||'')} · ${esc(v.source||'')}${esc(insuff)}</p>`;}).join('');
+      return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(hh.at))} · ${esc(displayName(hh.reviewer))} (${esc((hh.role||'').toUpperCase())}) · ${esc(hh.status||'')}</summary><p>${esc(histRec)} · ${num(histVal,1)}/100 · build ${esc(hh.build||'')}${!isCompany&&!hh.scoresV2?' · Khung workbook (cũ)':''}</p>${!isCompany&&hh.scoresV2?(()=>{try{const v=F.gameV2(hh.scoresV2);return `<p class="source-text">Market v2: ${num(v.market.score,1)}/100 · Prototype v2: ${num(v.prototype.score,1)}/100 · Final v2: ${num(v.final,1)}/100${v.decision?' · '+esc(v.decision):''}</p>`;}catch{return '';}})():''}<p class="text-break">${esc(hh.comment||hh.bdComment||'')}</p><p class="text-break">${esc(hh.conditions||'')}</p>${entriesHTML}<p class="source-text">Gate: ${esc(gateLine)}</p></details>`;
+    }).join('');
+    showDialog(head(dialogTitle)+`<form id="reviewForm"><div class="dialog-body">${companySub}<div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(headlineRec)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p><p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${navHTML}${intakeHTML}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&eff.type==='legacy'&&r.revisions.length?' Phiên bản hiện tại là Khung workbook (cũ) — chưa có Market Score v2.':''}${!isCompany&&eff.type==='stale'?' Điểm v2 thuộc mechanic cũ — chờ chấm lại.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét của MKT':'Ghi chú bổ sung của BD',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
+      ${professionalSection}
+      ${evidenceSection}${dealSection}
+      <section class="section"><h3>${isCompany?'6 Hard Gate · xác minh BD':'Hard Gate · xác minh BD'}</h3><p class="mut">Gate độc lập điểm số. Đạt phải có căn cứ; chưa xác minh giữ Chưa xác minh.</p>${isCompany?F.gates.map(([k,t])=>{const g=a.gates?.[k]||{};return role==='bd'?`<details class="criterion"><summary><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></summary><div class="fields">${select('g_'+k,'Trạng thái',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],g.value||'PENDING')}${field('gu_'+k,'Nguồn / ngày',g.source||'')}${area('gn_'+k,'Bằng chứng xác minh',g.note||'')}</div></details>`:`<div class="weight-row"><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></div>`;}).join(''):role==='bd'?`<div class="fields">${select('gate','Hard Gate',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],a.gate||'PENDING')}${field('gateSource','Nguồn / ngày xác minh',a.gateSource||'')}${area('gateNote','Bằng chứng / blocker / điều kiện Đạt',a.gateNote||'')}</div>`:`<p class="mut">${esc(gateLabel(a.gate||'PENDING'))} · ${esc(a.gateNote||'Chờ BD xác minh.')}</p>`}</section>
+      <section class="section"><h3>Điều kiện và bước tiếp theo</h3>${role==='mkt'?`<div class="fields">${area('strengths','Điểm mạnh có bằng chứng',a.strengths||'')}${area('risks','Rủi ro chuyên môn',a.risks||'')}${area('conditions','Điều kiện / bằng chứng cần bổ sung',a.conditions||'')}${area('next','Hành động kế tiếp',a.next||'')}</div>`:`<p class="text-break">${esc(a.strengths||'')}</p><p class="text-break">${esc(a.risks||'')}</p><p class="text-break">${esc(a.conditions||'')}</p><p class="text-break">${esc(a.next||'')}</p><div class="fields">${field('build','Build BD bổ sung',r.build||'')}${field('source','Link BD bổ sung',r.source||'','url')}${memberField('assignee','MKT phụ trách','MKT',r.assignee||'')}${field('due','Hạn đánh giá',r.due||'','date')}</div><div id="bd-intake">${intakeFieldsHTML(r.kind,r.intake||{})}</div>`}</section>
+      <section class="section"><h3>Lịch sử đánh giá · ${r.revisions.length} phiên bản</h3>${historyHTML||'<p class="mut">Chưa có phiên bản đánh giá.</p>'}</section><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><span class="mut">Lưu thêm phiên bản · giữ lịch sử cũ</span><button type="button" class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button>${role==='bd'?'<button type="button" class="btn" data-action="requeue">Gửi MKT đánh giá lại</button>':''}<button class="btn primary">${role==='mkt'?'Lưu đánh giá cho BD':'Lưu bổ sung BD'}</button></div></form>`);
   }
+  
   function entryFrom(d,k) {
     const raw=String(d.get('s_'+k)??'').trim(),status=String(d.get('t_'+k)||'Thiếu'),note=String(d.get('n_'+k)||'').trim(),source=String(d.get('u_'+k)||'').trim();
     const score=raw===''?null:Number(raw);
@@ -347,7 +551,11 @@
     const a=structuredClone(r.current||{entries:{}});a.entries ||= {};const val=k=>String(d.get(k)||'').trim();
     if(role==='mkt') {
       const keys=r.kind==='company'?['track','team',...F.production.map(([k])=>k),'data','collaboration','strategy','pipeline','history']:[...F.market,...F.prototype].map(([k])=>k);
-      keys.forEach(k=>a.entries[k]=entryFrom(d,k));
+      /* A4 + N14: đếm điểm v2 được nhập TRƯỚC. Có >=1 điểm v2 -> KHÔNG đọc lại ô legacy
+         s_<k>/quality (entries + quality mang nguyên từ current revision sang) và chỉ
+         khi đó mới gán a.scoresV2; không có điểm v2 nào -> không gán scoresV2 (a là bản
+         clone của current nên scoresV2 cũ — nếu có — giữ nguyên, không tạo object rỗng). */
+      let v2Built=null, v2Count=0;
       if(r.kind==='game'&&d.get('v2m_size')!==null) {
         const ctx=v2Context(r), savedV2=(r.current||{}).scoresV2||{};
         const curMech=r.intake?.mechanicId||null, savedMech=savedV2.fromMechanicId??savedV2.mechanicId??null;
@@ -361,18 +569,21 @@
           // rawInputs chỉ lấy từ gợi ý của mechanic hiện tại (hoặc null nếu không có gợi ý).
           const keepPrev=!mechChanged&&prev&&prev.score===score;
           const source=keepPrev?prev.source:sug?(score===sug.score?'auto':'override'):'manual';
-          v2.market[k]={score,source,rawInputs:keepPrev?(prev.rawInputs??null):(sug?sug.rawInputs:null)};
+          v2.market[k]={score,source,rawInputs:keepPrev?(prev.rawInputs??null):(sug?sug.rawInputs:null)}; v2Count++;
         }
         for(const [k] of F.prototype) {
           const raw=String(d.get('v2p_'+k)??'').trim(); if(raw==='') continue;
           const score=Number(raw); if(!F.validV2(score)) throw Error('Điểm Prototype v2 '+k+' phải từ 1–5, bước 0.5.');
-          v2.prototype[k]={score,source:'manual',rawInputs:null};
+          v2.prototype[k]={score,source:'manual',rawInputs:null}; v2Count++;
         }
-        a.scoresV2=v2; delete a.legacy;
+        if(v2Count>0) v2Built=v2;
       }
+      const hasV2Input=v2Count>0;
+      if(!hasV2Input) keys.forEach(k=>a.entries[k]=entryFrom(d,k));
+      if(v2Built) { a.scoresV2=v2Built; delete a.legacy; }
       a.status=val('status');a.build=val('build');a.comment=val('comment');
       for(const k of ['strengths','risks','conditions','next'])a[k]=val(k);
-      if(r.kind==='game')a.quality=val('quality')===''?null:Number(val('quality'));
+      if(r.kind==='game'&&!hasV2Input)a.quality=val('quality')===''?null:Number(val('quality'));
       if(a.status==='Chờ bổ sung'&&!a.conditions&&!a.comment)throw Error('Ghi rõ bằng chứng đang cần bổ sung.');
       if(a.status==='Hoàn tất') {
         if(!a.comment)throw Error('Ghi nhận xét chuyên môn trước khi hoàn tất.');
@@ -442,6 +653,25 @@
   document.addEventListener('change',e=>{
     if(e.target.id==='category'){category=e.target.value;renderMarket();}
     if(e.target.id==='reviewFilter'){reviewFilter=e.target.value;renderReviews();}
+    if(e.target.id==='reviewKindFilter'){reviewKindFilter=e.target.value;renderReviews();}
+    if(e.target.name==='genre') {
+      const form=e.target.form||e.target.closest('form');
+      const wrap=form?.querySelector('[data-subgenre-wrap]');
+      if(wrap){ const cur=form.querySelector('[name="subGenre"]')?.value||''; wrap.innerHTML=subGenreFieldHTML(e.target.value,cur); }
+    }
+    if(e.target.name==='name'&&e.target.form?.id==='marketForm') {
+      const form=e.target.form, rec=DATA.records.find(r=>r.name===e.target.value);
+      let hidden=form.querySelector('input[type="hidden"][name="category"]');
+      let sel=form.querySelector('select[name="category"]')||form.querySelector('select[name="categoryLocked"]');
+      if(rec) {
+        if(sel){ sel.value=rec.category; sel.disabled=true; sel.name='categoryLocked'; }
+        if(!hidden){ hidden=document.createElement('input'); hidden.type='hidden'; hidden.name='category'; form.querySelector('.fields')?.prepend(hidden); }
+        hidden.value=rec.category;
+      } else {
+        if(hidden) hidden.remove();
+        if(sel){ sel.disabled=false; sel.name='category'; }
+      }
+    }
     if(e.target.name==='kind'&&e.target.form?.id==='requestForm') {
       const select=e.target.form.elements.entityId,s=crm(),records=e.target.value==='company'?s.companies.filter(isStudio):eligibleGames(s);
       select.innerHTML='<option value="">Chọn hồ sơ CRM</option>'+records.map(x=>`<option value="${esc(x.id)}">${esc(label(x))}</option>`).join('');
@@ -454,6 +684,13 @@
   });
   addEventListener('storage',e=>{if([KEY,STORE_KEY].includes(e.key)&&!$('#editor').open)render();});
   try {
+    /* E4: migration Partner legacy — CHỈ gọi nếu phía CRM đã cung cấp qua bridge/shared
+       (window.PartnerMigration hoặc hàm tương tự). Không có sẵn thì bỏ qua: migration
+       phía CRM chạy ở index.html là đủ, không tự viết trùng ở đây. */
+    try {
+      const pm = (typeof window !== 'undefined') ? (window.PartnerMigration || window.PartnerLegacyMigration || window.migratePartnerLegacy || null) : null;
+      if (pm) { if (typeof pm === 'function') pm(); else if (typeof pm.migrate === 'function') pm.migrate(); else if (typeof pm.run === 'function') pm.run(); }
+    } catch {}
     render();
     const kind=params.get('kind'),id=params.get('id'),existing=read().requests.find(r=>r.kind===kind&&r.entityId===id);
     if(kind&&id){tab='reviews';render();if(existing)openReview(existing.id);else if(role==='bd'&&entity(crm(),kind,id))requestForm(kind,id);}
