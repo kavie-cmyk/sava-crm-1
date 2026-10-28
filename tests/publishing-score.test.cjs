@@ -24,18 +24,30 @@ test('missing evidence is NE and never defaults to a neutral score',()=>{
 test('partner normalizes seven pillars from weight 90 and excludes Deal Fit',()=>{
  const a=fullCompany(5);assert.equal(F.partner.reduce((s,r)=>s+r[2],0),90);assert.equal(F.company(a).total,100);
  a.entries.deal=e(1);assert.equal(F.company(a).total,100);assert.equal(F.company(a).dealFit,1);
- delete a.entries.deal;assert.equal(F.company(a).total,100);assert.equal(F.company(a).minimum,false);assert.equal(F.company(a).recommendation,'Thiếu Evidence');
+ /* Hợp nhất PartnerEval: entry `deal` KHÔNG thuộc 11 mục evidence (7 pillar + 4 ô con
+    Production) nên xoá `deal` không kéo coverage/evidenceGate xuống nữa — mọi mục còn
+    lại đều "Đã xác minh" => coverage 11/11, evidenceGate ĐẠT, minimum=true, và kết
+    luận theo phân loại của Partner Fit 100 là "Ưu tiên" (không còn "Thiếu Evidence"). */
+ delete a.entries.deal;const r=F.company(a);
+ assert.equal(r.total,100);assert.equal(r.coverage,1);assert.equal(r.coveragePct,100);assert.equal(r.evidenceGate,'ĐẠT');assert.equal(r.minimum,true);assert.equal(r.recommendation,'Ưu tiên');
 });
-test('production score requires four groups, coverage only requires three',()=>{
+test('production score requires four groups; coverage counts the 11 unified evidence items',()=>{
  const a=fullCompany(4);delete a.entries.liveops;const r=F.company(a);
- assert.equal(r.composite,null);assert.equal(r.total,null);assert.equal(r.coverage,1);assert.equal(r.minimum,false);
+ /* Thiếu liveops -> production composite null (cần đủ 4 ô con) và total null.
+    Coverage hợp nhất tính /11 mục: 6 pillar đơn lẻ + 3/4 ô con đã xác minh = 9/11
+    (pillar Production chỉ "Đã xác minh" khi đủ 4 ô con) => 0.818; 81.8% >= 80%
+    nên evidenceGate vẫn ĐẠT -> minimum=true. */
+ assert.equal(r.composite,null);assert.equal(r.total,null);assert.equal(r.coverage,0.818);assert.equal(r.coveragePct,81.8);assert.equal(r.evidenceGate,'ĐẠT');assert.equal(r.minimum,true);
  a.entries.liveops=e(3);a.entries.capacity=e(4);a.entries.cadence=e(3);a.entries.milestone=e(3);
- assert.equal(F.company(a).composite,3.3);
+ /* Composite = trung bình 4 ô con KHÔNG làm tròn trung gian: (4+3+3+3)/4 = 3.25 (bản cũ làm tròn -> 3.3). */
+ assert.equal(F.company(a).composite,3.25);
 });
 test('six hard gates cannot be compensated by points',()=>{
  const a=fullCompany(5);a.gates.legal.value='FAIL';assert.equal(F.company(a).recommendation,'Bị chặn');
  a.gates.legal.value='PENDING';assert.equal(F.company(a).recommendation,'Chờ xác minh');
- a.gates.legal.value='PASS';a.gates.legal.source='';assert.equal(F.company(a).hardGate,'CHỜ XÁC MINH');
+ /* Hợp nhất: Hard Gate chỉ theo value PASS/FAIL — source/note rỗng KHÔNG hạ cổng xuống
+    "CHỜ XÁC MINH" nữa (bản cũ đòi cả note+source). */
+ a.gates.legal.value='PASS';a.gates.legal.source='';a.gates.legal.note='';assert.equal(F.company(a).hardGate,'ĐẠT');
 });
 test('source Partner Fit classifications and evidence confidence',()=>{
  for(const [n,label] of [[4.25,'Ưu tiên'],[3.75,'Đạt'],[3.25,'Có điều kiện'],[3.24,'Cần xem xét']]) assert.equal(F.company(fullCompany(n)).classification,label);

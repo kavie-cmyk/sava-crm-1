@@ -1,10 +1,23 @@
 /* Partner Eval (khung Partner gắn vào hồ sơ công ty, drawer trong index.html).
-   Logic thuần được trích trực tiếp từ khối PARTNER EVAL trong index.html nên test
-   kiểm đúng code đang chạy, không phải bản sao. Smoke UI dùng stub tối thiểu cho
-   esc/ownerSel/memberName/S/LINES (môi trường này không có jsdom/playwright). */
+   Sau hợp nhất, khối PARTNER EVAL trong index.html chỉ DELEGATE sang
+   window.PartnerEval — implementation Partner DUY NHẤT nằm ở shared.js.
+   Harness vì vậy nạp THẬT shared.js vào một vm context (window trỏ về chính
+   context đó để shared.js gắn window.PartnerEval như trong trình duyệt) rồi
+   mới trích logic/UI từ index.html và chạy với window.PartnerEval THẬT đó —
+   không stub số liệu/logic Partner giả. Smoke UI vẫn dùng stub tối thiểu cho
+   esc/ownerSel/memberName/S/LINES (hàm môi trường của trang, không phải logic Partner). */
 const test = require('node:test'), assert = require('node:assert/strict');
-const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
+
+/* Nạp shared.js thật: top-level của shared.js chỉ dùng window/localStorage/document
+   bên trong thân hàm nên nạp trần an toàn; nó sẽ tự gắn window.PartnerEval. */
+const sharedCtx = vm.createContext({ console });
+sharedCtx.window = sharedCtx;
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared.js'), 'utf8'), sharedCtx, { filename: 'shared.js' });
+const realPartnerEval = sharedCtx.window.PartnerEval;
+assert.ok(realPartnerEval && typeof realPartnerEval.compute === 'function' && typeof realPartnerEval.normalize === 'function' && typeof realPartnerEval.empty === 'function',
+  'shared.js thật không gắn window.PartnerEval (compute/normalize/empty)');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 function extract(startMarker, endMarker) {
@@ -20,11 +33,21 @@ const SStub = { members: [{ id: 'mai', name: 'Mai', role: 'MKT', active: true }]
 const memberNameStub = (s, id) => { const m = (s.members || []).find(x => x.id === id); return m ? m.name : '—'; };
 const ownerSelStub = (id, cur) => `<select id="${id}"><option value="">— Chưa gán —</option>${cur ? `<option value="${cur}" selected>${cur}</option>` : ''}</select>`;
 const LINESStub = { publishing: { name: 'Publishing', color: '#0ea5e9' } };
-const api = new Function('esc', 'ownerSel', 'memberName', 'S', 'LINES',
+/* window được truyền vào là window THẬT chứa PartnerEval vừa nạp từ shared.js;
+   khối logic trích từ index.html delegate sang đó (đúng như runtime trình duyệt:
+   shared.js nạp trước script inline của index.html). */
+const api = new Function('esc', 'ownerSel', 'memberName', 'S', 'LINES', 'window',
   logicCode + '\n' + uiCode +
-  '\n;return {PE_GATES,PE_PILLARS,PE_PROD_SUBS,PE_EVIDENCE_TOTAL,peEmptyEval,peNormalize,peHardGate,peCoverage,peConfidence,peEvidenceGate,pePartnerFit,peClassify,peCompute,peSummaryHTML,partnerEvalSection,partnerEvalBadge,partnerPagerHTML};'
-)(escStub, ownerSelStub, memberNameStub, SStub, LINESStub);
-const { peCompute, peConfidence, peEvidenceGate, pePartnerFit, peClassify } = api;
+  /* Khối logic hợp nhất chỉ còn export peEmptyEval/peNormalize/peCompute (+ hằng PE_*);
+     các helper rời peHardGate/peCoverage/peConfidence/peEvidenceGate/pePartnerFit/peClassify
+     của bản cũ không còn tồn tại — mọi khẳng định bên dưới đi qua peCompute THẬT. */
+  '\n;return {PE_GATES,PE_PILLARS,PE_PROD_SUBS,PE_EVIDENCE_TOTAL,peEmptyEval,peNormalize,peCompute,peSummaryHTML,partnerEvalSection,partnerEvalBadge,partnerPagerHTML};'
+)(escStub, ownerSelStub, memberNameStub, SStub, LINESStub, { PartnerEval: realPartnerEval });
+const { peCompute } = api;
+/* Mảng PE_* sinh từ vm context của shared.js mang prototype của realm đó ->
+   deepStrictEqual ở các test dưới fail oan ("same structure but not reference-equal").
+   Ép các tuple về mảng của realm chính; GIÁ TRỊ vẫn nguyên từ shared.js thật. */
+for (const k of ['PE_GATES', 'PE_PILLARS', 'PE_PROD_SUBS']) api[k] = [...api[k]].map(t => [...t]);
 
 /* Fixture điểm mẫu từ báo cáo khảo sát khung Partner (chỉ lấy bộ số điểm):
    Track 5, Team 2, Production 3.5, Data 3, Hợp tác 4, Strategic 5, Long-term 4. */
@@ -70,7 +93,6 @@ test('Deal Fit không vào tổng Partner Fit', () => {
 
 test('thiếu 1 trong 7 điểm -> Partner Fit null (chưa đủ điểm)', () => {
   const scores = { ...FIXTURE_SCORES }; delete scores.team;
-  assert.equal(pePartnerFit(scores), null);
   const r = peCompute(makeEval({ scores }));
   assert.equal(r.partnerFit, null);
   assert.equal(r.classification, null);
@@ -89,21 +111,24 @@ test('ma trận kết luận cuối theo đúng công thức gốc (cột N)', (
 });
 
 test('phân loại Partner Fit tại các ngưỡng 85 / 75 / 65', () => {
+  /* Helper rời pePartnerFit/peClassify không còn tồn tại sau hợp nhất — đi qua
+     peCompute THẬT với điểm đều cả 7 pillar (fit = điểm × 20). */
   const uniform = n => Object.fromEntries(api.PE_PILLARS.map(([k]) => [k, n]));
-  assert.equal(pePartnerFit(uniform(4.25)), 85.0); assert.equal(peClassify(85.0), 'Ưu tiên');
-  assert.equal(pePartnerFit(uniform(3.75)), 75.0); assert.equal(peClassify(75.0), 'Đạt');
-  assert.equal(pePartnerFit(uniform(3.25)), 65.0); assert.equal(peClassify(65.0), 'Có điều kiện');
-  assert.equal(peClassify(64.9), 'Cần xem xét');
-  assert.equal(peClassify(null), null);
+  const at = n => peCompute(makeEval({ scores: uniform(n) }));
+  assert.equal(at(4.25).partnerFit, 85.0); assert.equal(at(4.25).classification, 'Ưu tiên');
+  assert.equal(at(3.75).partnerFit, 75.0); assert.equal(at(3.75).classification, 'Đạt');
+  assert.equal(at(3.25).partnerFit, 65.0); assert.equal(at(3.25).classification, 'Có điều kiện');
+  assert.equal(at(3.245).partnerFit, 64.9); assert.equal(at(3.245).classification, 'Cần xem xét');
+  /* fit null -> classification null: đã khẳng định ở test "thiếu 1 trong 7 điểm". */
 });
 
 test('coverage / confidence / evidence gate tại các biên 80% · 90% · 60%', () => {
-  assert.equal(peEvidenceGate(80), 'ĐẠT');
-  assert.equal(peEvidenceGate(79.9), 'CHƯA ĐẠT');
-  assert.equal(peConfidence(90), 'Cao');
-  assert.equal(peConfidence(89.9), 'Trung bình');
-  assert.equal(peConfidence(60), 'Trung bình');
-  assert.equal(peConfidence(59.9), 'Thấp');
+  /* Helper rời peEvidenceGate/peConfidence theo % tự do không còn tồn tại — coverage
+     chỉ sinh từ số mục đã xác minh /11, nên kiểm các giá trị /11 kẹp sát nhất quanh
+     từng ngưỡng: 80% nằm giữa 8/11 (72.7) và 9/11 (81.8); 90% giữa 9/11 (81.8) và
+     10/11 (90.9); 60% giữa 6/11 (54.5) và 7/11 (63.6). */
+  const c8 = peCompute(makeEval({ verifiedCount: 8 }));
+  assert.equal(c8.coverage.pct, 72.7); assert.equal(c8.evidenceGate, 'CHƯA ĐẠT'); assert.equal(c8.confidence, 'Trung bình');
   /* Qua peCompute với mẫu số 11 mục: 9/11, 10/11, 7/11, 6/11 */
   const c9 = peCompute(makeEval({ verifiedCount: 9 }));
   assert.equal(c9.coverage.verified, 9); assert.equal(c9.coverage.total, 11);
