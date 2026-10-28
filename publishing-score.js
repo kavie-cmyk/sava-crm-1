@@ -15,6 +15,20 @@
     || ['Thiếu','Chưa rõ','Đã trao đổi','Đối tác đã gửi','Đã xác minh','N/A'];
   /* Đổi nhãn trạng thái cũ: "Partner cung cấp" -> "Đối tác đã gửi". */
   const normalizeStatus = v => v === 'Partner cung cấp' ? 'Đối tác đã gửi' : v;
+  /* Fallback DUY NHẤT cho trạng thái lạ (A6/M1): ngoài thang -> "Chưa rõ".
+     Hằng/fallback dùng chung đặt ở shared.js (normalizeEvidenceStatusStrict);
+     bản ở đây là bản sao fallback khi file này chạy độc lập (Node test) và
+     PHẢI cho cùng kết quả. Đợt 2: publishing.js normalizeRevision dùng
+     normalizeStatusStrict này (PublishingScore.normalizeStatusStrict). */
+  const normalizeStatusStrict = v => { const st = normalizeStatus(v); return statuses.includes(st) ? st : 'Chưa rõ'; };
+  /* Ép điểm dạng chuỗi AN TOÀN, thống nhất với PartnerEval.partnerScoreOrNull
+     ở shared.js (B5): chuỗi số hợp lệ "4.5" -> 4.5; chuỗi không phải số /
+     rỗng / ngoài 1–5 -> null (coi như không có điểm). Số chuẩn không đổi. */
+  const scoreVal = v => {
+    if (v === '' || v === null || v === undefined) return null;
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+  };
   /* Tập trạng thái ĐỦ ĐIỀU KIỆN chấm điểm của hàm evidence() legacy.
      Trước hợp nhất, evidence() dùng statuses.slice(1,4) trên thang cũ
      ['Thiếu','Đã trao đổi','Partner cung cấp','Đã xác minh','N/A'] — tức đúng
@@ -51,7 +65,7 @@
      production KHÔNG làm tròn trung gian. */
   function partnerComputeFallback(raw) {
     const scoresIn = (raw && raw.scores) || {};
-    const vals = partner.map(([k]) => valid(scoresIn[k]) ? scoresIn[k] : null);
+    const vals = partner.map(([k]) => scoreVal(scoresIn[k]));
     const partnerFit = vals.some(v => v === null) ? null : round(partner.reduce((s, [, , w], i) => s + vals[i] * w, 0) / 5 / 90 * 100);
     const hs = gates.map(([k]) => (raw && raw.hardGate && raw.hardGate[k] && raw.hardGate[k].status) || 'Chưa xác minh');
     const hardGate = hs.includes('Không đạt') ? 'KHÔNG ĐẠT' : hs.every(s => s === 'Đạt') ? 'ĐẠT' : 'CHỜ XÁC MINH';
@@ -72,13 +86,13 @@
     else conclusion = classification || 'Chưa đủ điểm';
     let strongest = null, weakest = null;
     partner.forEach(([k, label]) => {
-      const s = valid(scoresIn[k]) ? scoresIn[k] : null;
+      const s = scoreVal(scoresIn[k]);
       if (s === null) return;
       if (!strongest || s > strongest.score) strongest = { key: k, label, score: s };
       if (!weakest || s < weakest.score) weakest = { key: k, label, score: s };
     });
-    const scoresOut = Object.fromEntries(partner.map(([k]) => [k, valid(scoresIn[k]) ? scoresIn[k] : null]));
-    return { hardGate, coverage, confidence, evidenceGate, partnerFit, classification, conclusion, strongest, weakest, dealFit: valid(raw && raw.dealFit) ? raw.dealFit : null, scores: scoresOut, productionScore: scoresOut.production };
+    const scoresOut = Object.fromEntries(partner.map(([k]) => [k, scoreVal(scoresIn[k])]));
+    return { hardGate, coverage, confidence, evidenceGate, partnerFit, classification, conclusion, strongest, weakest, dealFit: scoreVal(raw && raw.dealFit), scores: scoresOut, productionScore: scoresOut.production };
   }
   function partnerComputeShared(raw) {
     const PE = (root && root.PartnerEval) || (typeof PartnerEval !== 'undefined' ? PartnerEval : null);
@@ -110,7 +124,8 @@
     const src = a && typeof a === 'object' ? a : {};
     const e = src.entries || {};
     const g = src.gates || {};
-    const directScore = entry => (entry && valid(entry.score)) ? entry.score : null;
+    /* B5: điểm entry dạng chuỗi số ("4.5") được ép số như PartnerEval. */
+    const directScore = entry => entry ? scoreVal(entry.score) : null;
     const prodScores = production.map(([k]) => directScore(e[k]));
     const productionScore = prodScores.every(n => n !== null) ? prodScores.reduce((s, n) => s + n, 0) / 4 : null;
     const values = Object.fromEntries(partner.map(([k]) => [k, k === 'production' ? productionScore : directScore(e[k])]));
@@ -121,10 +136,7 @@
       const v = gv && gv.value;
       hardGateRaw[k] = { status: v === 'PASS' ? 'Đạt' : v === 'FAIL' ? 'Không đạt' : 'Chưa xác minh', note: String((gv && gv.note) || '') };
     });
-    const evStatus = entry => {
-      const st = normalizeStatus(entry && entry.status);
-      return statuses.includes(st) ? st : 'Chưa rõ';
-    };
+    const evStatus = entry => normalizeStatusStrict(entry && entry.status);
     const evidenceRaw = { productionSubs: {} };
     partner.forEach(([k]) => {
       if (k === 'production') {
@@ -372,7 +384,42 @@
       completenessTotal: (m.scoredWeight + pr.scoredWeight) / 200,
       decisionBlockedReason: final === null ? 'Thiếu Market hoặc Prototype nên chưa tính được Final' : !enough ? 'Completeness của Market/Prototype chưa đạt 80% nên chưa áp nhãn quyết định' : null};
   }
-  const api = {market,prototype,partner,production,gates,statuses,scorableStatuses,normalizeStatus,valid,evidence,score,game,company,version:'workbook-2026-10-28-v1',marketAuto,marketVersion,percentileRank,percentileToScore5,cpiBandFor,uaBandScore,marketVersion2,quartileScore5,marketSuggest,gameV2,validV2};
+  /* === Định nghĩa DUY NHẤT "có điểm v2" (B3/B6, QA vòng 3) ===
+     Áp cho gameV2 wrapper ở mọi bề mặt: publishing-bridge.gameSummary (đợt 1),
+     effectiveGameResult trong publishing.js (đợt 2 PHẢI dùng đúng hàm này
+     qua PublishingScore.hasValidV2 / v2Candidate, không tự đếm lại):
+     - Ứng viên v2 (v2Candidate): input.scoresV2 nếu là object thuần; nếu
+       không, chính input khi nó mang block market/prototype (object thuần).
+       current{market,prototype} KHÔNG kèm scoresV2 cũng là ứng viên.
+       current.entries (khung workbook cũ) KHÔNG phải ứng viên v2.
+     - "Có v2" (hasValidV2): ứng viên tồn tại VÀ có ít nhất 1 điểm HỢP LỆ
+       theo validV2 (số hữu hạn, 1–5, bước 0.5) trong block market/prototype
+       hiệu lực — block rỗng thì lấy từ candidate.entries phẳng (đúng cách
+       gameV2 pick). scoresV2 rỗng-không-entries = không có v2; điểm ngoài
+       thang / sai bước (3.25, 0, 5.5) hay NaN = không có v2 hợp lệ -> các
+       wrapper phải rơi về legacy. */
+  const isPlainObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  function v2Candidate(input) {
+    if (!isPlainObj(input)) return null;
+    if (isPlainObj(input.scoresV2)) return input.scoresV2;
+    if (isPlainObj(input.market) || isPlainObj(input.prototype)) return input;
+    return null;
+  }
+  function v2EffectiveBlocks(candidate) {
+    const flat = isPlainObj(candidate.entries) ? candidate.entries : {};
+    const pick = (src, keys) => {
+      if (isPlainObj(src) && Object.keys(src).length) return src;
+      return Object.fromEntries(keys.map(([k]) => [k, flat[k]]).filter(([, v]) => isPlainObj(v) && isNum(v.score)));
+    };
+    return { market: pick(candidate.market, market), prototype: pick(candidate.prototype, prototype) };
+  }
+  function hasValidV2(input) {
+    const c = v2Candidate(input);
+    if (!c) return false;
+    const b = v2EffectiveBlocks(c);
+    return [...Object.values(b.market), ...Object.values(b.prototype)].some(e => isPlainObj(e) && validV2(e.score));
+  }
+  const api = {market,prototype,partner,production,gates,statuses,scorableStatuses,normalizeStatus,normalizeStatusStrict,valid,evidence,score,game,company,version:'workbook-2026-10-28-v1',marketAuto,marketVersion,percentileRank,percentileToScore5,cpiBandFor,uaBandScore,marketVersion2,quartileScore5,marketSuggest,gameV2,validV2,hasValidV2,v2Candidate};
   root.PublishingScore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

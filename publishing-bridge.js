@@ -19,10 +19,17 @@
     const d = readStore();
     return d && Array.isArray(d.requests) ? d.requests.filter(r => r && typeof r === 'object') : [];
   }
+  /* QUY TẮC CHỌN REQUEST DUY NHẤT (A5): khi có nhiều request cùng kind+entityId,
+     request canonical là request khớp CUỐI CÙNG trong mảng requests.
+     Mọi bề mặt — partnerSummary/gameSummary (qua find), migration Partner
+     (migratePartnerLegacy) — đều chọn đúng request này, không bề mặt nào
+     chọn "request đầu tiên có revisions" như bản cũ nữa. */
+  function selectRequest(list, kind, id) {
+    const matches = (Array.isArray(list) ? list : []).filter(r => r && typeof r === 'object' && r.kind === kind && r.entityId === id);
+    return matches.length ? matches[matches.length - 1] : undefined;
+  }
   function find(kind, id) {
-    /* "Mới nhất" = request khớp cuối cùng trong mảng (publishing.js vốn không tạo trùng). */
-    const list = allRequests().filter(r => r.kind === kind && r.entityId === id);
-    return list.length ? list[list.length - 1] : undefined;
+    return selectRequest(allRequests(), kind, id);
   }
   /* S3 guard: nếu state CRM (window.S hoặc biến toàn cục S của index.html) tồn
      tại, entity phải còn trong S.games / S.companies; đã bị xoá -> coi như
@@ -70,8 +77,8 @@
   const PARTNER_PILLAR_KEYS = ['track', 'team', 'production', 'data', 'collaboration', 'strategy', 'pipeline'];
   const PROD_SUB_KEYS = ['capacity', 'cadence', 'milestone', 'liveops'];
   function directEntryScore(e) {
-    const n = e && e.score;
-    return (typeof n === 'number' && Number.isFinite(n) && n >= 1 && n <= 5) ? n : null;
+    /* B5: dùng scoreOrNull của bridge (ép chuỗi số an toàn như PartnerEval). */
+    return scoreOrNull(e && e.score);
   }
   function partnerSummary(companyId) {
     const empty = { exists: false, requestId: null, status: null, versions: 0, computed: null, dealFit: null, pillars: {}, strongest: null, weakest: null, strengths: '', risks: '', weak: '', next: '', reviewer: '', date: '', current: null };
@@ -114,17 +121,35 @@
     };
   }
 
-  /* ===== Game: tóm tắt canonical (v2 chính thức; legacy chỉ khi không có v2 thật) ===== */
-  function v2InputOf(cur) {
-    if (!cur || typeof cur !== 'object') return null;
-    if (cur.scoresV2 && typeof cur.scoresV2 === 'object') return cur.scoresV2;
-    if ((cur.market && typeof cur.market === 'object') || (cur.prototype && typeof cur.prototype === 'object')) return cur;
+  /* ===== Game: tóm tắt canonical (v2 chính thức; legacy chỉ khi không có v2 thật) =====
+     "Có v2" theo ĐỊNH NGHĨA DUY NHẤT ở PublishingScore.hasValidV2 /
+     v2Candidate (publishing-score.js — xem comment B3/B6 ở đó): ứng viên là
+     scoresV2 (object thuần) hoặc chính current khi mang block market/
+     prototype; cần ≥1 điểm validV2 (1–5, bước 0.5). Hai hàm local dưới đây
+     chỉ là bản sao fallback khi PublishingScore chưa nạp và phải cho cùng
+     kết quả; đường chính luôn ưu tiên PublishingScore. */
+  const isPlainObjB = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  function v2CandidateOf(cur) {
+    const PS = (typeof window !== 'undefined' && window.PublishingScore) || null;
+    if (PS && typeof PS.v2Candidate === 'function') { try { return PS.v2Candidate(cur); } catch {} }
+    if (!isPlainObjB(cur)) return null;
+    if (isPlainObjB(cur.scoresV2)) return cur.scoresV2;
+    if (isPlainObjB(cur.market) || isPlainObjB(cur.prototype)) return cur;
     return null;
   }
-  function v2HasAnyScore(v2In) {
-    if (!v2In || typeof v2In !== 'object') return false;
-    const blockHas = b => !!b && typeof b === 'object' && Object.values(b).some(e => e && typeof e === 'object' && typeof e.score === 'number' && Number.isFinite(e.score));
-    return blockHas(v2In.market) || blockHas(v2In.prototype);
+  function v2HasValidScore(cur) {
+    const PS = (typeof window !== 'undefined' && window.PublishingScore) || null;
+    if (PS && typeof PS.hasValidV2 === 'function') { try { return PS.hasValidV2(cur); } catch {} }
+    const c = v2CandidateOf(cur);
+    if (!c) return false;
+    const validB = n => typeof n === 'number' && Number.isFinite(n) && n >= 1 && n <= 5 && Math.abs(n * 2 - Math.round(n * 2)) < 1e-9;
+    const flat = isPlainObjB(c.entries) ? c.entries : {};
+    const blockHas = (b, keys) => {
+      const src = isPlainObjB(b) && Object.keys(b).length ? b : Object.fromEntries(keys.map(k => [k, flat[k]]));
+      return Object.values(src).some(e => isPlainObjB(e) && validB(e.score));
+    };
+    return blockHas(c.market, ['size','growth','entry','monetization','ua','economics','rtw','whitespace'])
+        || blockHas(c.prototype, ['uaTest','retention','engagement','monetizationTest','gamefeel','tech']);
   }
   function gameSummary(id) {
     const empty = { exists: false, requestId: null, status: null, versions: 0, v2: null, legacy: null, mechanicMismatch: false, current: null, request: null };
@@ -135,10 +160,11 @@
     let v2 = null, legacy = null, mechanicMismatch = false;
     const PS = (typeof window !== 'undefined' && window.PublishingScore) || null;
     if (cur && PS) {
-      const v2In = v2InputOf(cur);
-      /* N14: scoresV2 rỗng điểm (cả market + prototype đều không có điểm nào)
-         -> coi như KHÔNG có v2, rơi về legacy có nhãn. */
-      if (v2In && v2HasAnyScore(v2In) && typeof PS.gameV2 === 'function') {
+      const v2In = v2CandidateOf(cur);
+      /* N14 + B3/B6: scoresV2 rỗng-không-entries, hoặc chỉ chứa điểm KHÔNG
+         hợp lệ (ngoài 1–5 / sai bước 0.5 / NaN) -> coi như KHÔNG có v2,
+         rơi về legacy có nhãn. */
+      if (v2In && v2HasValidScore(cur) && typeof PS.gameV2 === 'function') {
         try { v2 = PS.gameV2(v2In); } catch { v2 = null; }
         if (v2) {
           /* N13: điểm v2 thuộc mechanic khác mechanic hiện tại của intake ->
@@ -207,13 +233,49 @@
 
   /* ===== Migration Partner legacy (c.partnerEval) -> canonical (request kind=company) =====
      Chạy khi nạp ở index.html (DOMContentLoaded — lúc đó state CRM S đã có).
-     Idempotent: công ty đã đặt partnerEvalMigrated thì bỏ qua; canonical đã có
-     revision thì canonical thắng, chỉ đặt cờ. KHÔNG xoá c.partnerEval. */
+     Idempotent: công ty đã đặt partnerEvalMigrated thì bỏ qua, trừ khi request
+     canonical đã bị xoá (cờ tự hồi, A5); canonical (request cuối mảng) đã có
+     revision HOẶC current có dữ liệu chấm thật thì canonical thắng, chỉ đặt
+     cờ (A3). KHÔNG xoá c.partnerEval. */
   const GATE_KEYS = ['legal', 'ip', 'conflict', 'transparency', 'continuity', 'integrity'];
   function scoreOrNull(v) {
     if (v === '' || v === null || v === undefined) return null;
     const n = typeof v === 'number' ? v : parseFloat(v);
     return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+  }
+  /* A3: request canonical "đã có dữ liệu chấm thật" — xét CURRENT nữa, không
+     chỉ revisions.length: current.entries / current.scores có điểm hợp lệ
+     hoặc ghi chú/nguồn, current.gates (hoặc hardGate) có cổng đã xử lý.
+     Entry chỉ có trạng thái mặc định ("Thiếu"/"Chưa rõ") và không điểm/ghi
+     chú thì chưa tính là dữ liệu thật. */
+  function requestCurrentHasData(cur) {
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) return false;
+    const entries = cur.entries && typeof cur.entries === 'object' ? cur.entries : {};
+    for (const e of Object.values(entries)) {
+      if (!e || typeof e !== 'object') continue;
+      if (scoreOrNull(e.score) !== null) return true;
+      if (String(e.note || '').trim() || String(e.source || '').trim()) return true;
+      const st = String(e.status || '').trim();
+      if (st && st !== 'Thiếu' && st !== 'Chưa rõ') return true;
+    }
+    const scores = cur.scores && typeof cur.scores === 'object' ? cur.scores : {};
+    for (const v of Object.values(scores)) {
+      if (scoreOrNull(v) !== null) return true;
+      if (v && typeof v === 'object' && scoreOrNull(v.score) !== null) return true;
+    }
+    const gates = (cur.gates && typeof cur.gates === 'object') ? cur.gates : (cur.hardGate && typeof cur.hardGate === 'object' ? cur.hardGate : {});
+    for (const g of Object.values(gates)) {
+      if (!g || typeof g !== 'object') continue;
+      const v = g.value !== undefined ? g.value : g.status;
+      if (v && v !== 'PENDING' && v !== 'Chưa xác minh') return true;
+      if (String(g.note || '').trim() || String(g.source || '').trim()) return true;
+    }
+    return false;
+  }
+  function requestHasCanonicalData(r) {
+    if (!r || typeof r !== 'object') return false;
+    if (Array.isArray(r.revisions) && r.revisions.length > 0) return true;
+    return requestCurrentHasData(r.current);
   }
   function partnerEvalHasData(ev) {
     if (!ev || typeof ev !== 'object') return false;
@@ -236,20 +298,20 @@
       if ((!g || typeof g !== 'object') && k === 'continuity' && ev.hardGate) g = ev.hardGate.control;
       gates[k] = { value: gateMap[g && g.status] || 'PENDING', note: String((g && g.note) || ''), source: '' };
     });
-    /* Hợp nhất taxonomy: hai phía nay dùng CHUNG thang trạng thái xác minh
-       (shared.js EVIDENCE_STATUSES) nên migration đi qua NGUYÊN VẸN mọi nấc —
-       bản cũ ép 'Chưa rõ' -> 'Đã trao đổi' vì thang Publishing cũ không có
-       'Chưa rõ' ở vị trí đó. Nhãn cũ 'Partner cung cấp' đổi thành
-       'Đối tác đã gửi' (qua PartnerEval.normalizeStatus nếu có). Giá trị lạ /
-       thiếu -> 'Đã trao đổi' như fallback cũ. */
-    const normStatus = v => (typeof window !== 'undefined' && window.PartnerEval && typeof window.PartnerEval.normalizeStatus === 'function')
-      ? window.PartnerEval.normalizeStatus(v) : (v === 'Partner cung cấp' ? 'Đối tác đã gửi' : v);
-    const unifiedStatuses = (typeof window !== 'undefined' && window.PartnerEval && Array.isArray(window.PartnerEval.EVIDENCE_STATUSES))
-      ? window.PartnerEval.EVIDENCE_STATUSES : null;
-    const mapEv = e => {
-      const st = normStatus(e && e.status);
-      return { status: unifiedStatuses ? (unifiedStatuses.includes(st) ? st : 'Đã trao đổi') : (st || 'Đã trao đổi'), note: String((e && e.note) || ''), source: '' };
+    /* Hợp nhất taxonomy + A6/M1: hai phía dùng CHUNG thang trạng thái xác
+       minh (shared.js EVIDENCE_STATUSES) nên migration đi qua NGUYÊN VẸN mọi
+       nấc của thang; nhãn cũ 'Partner cung cấp' đổi thành 'Đối tác đã gửi'.
+       Giá trị lạ / thiếu -> fallback DUY NHẤT "Chưa rõ" qua
+       normalizeStatusStrict dùng chung — bridge TUYỆT ĐỐI không tự nâng
+       thành "Đã trao đổi" như fallback cũ nữa. */
+    const strictStatus = v => {
+      if (typeof window !== 'undefined' && window.PartnerEval && typeof window.PartnerEval.normalizeStatusStrict === 'function') return window.PartnerEval.normalizeStatusStrict(v);
+      if (typeof window !== 'undefined' && typeof window.normalizeEvidenceStatusStrict === 'function') return window.normalizeEvidenceStatusStrict(v);
+      const st = v === 'Partner cung cấp' ? 'Đối tác đã gửi' : v;
+      const list = ['Thiếu', 'Chưa rõ', 'Đã trao đổi', 'Đối tác đã gửi', 'Đã xác minh', 'N/A'];
+      return list.includes(st) ? st : 'Chưa rõ';
     };
+    const mapEv = e => ({ status: strictStatus(e && e.status), note: String((e && e.note) || ''), source: '' });
     const entries = {};
     PARTNER_PILLAR_KEYS.forEach(k => {
       if (k === 'production') return;
@@ -266,7 +328,16 @@
       const s = scoreOrNull(sub.score);
       entries[k] = { score: s !== null ? s : prodScore, status: m.status, note: m.note, source: '' };
     });
-    entries.deal = { score: scoreOrNull(ev.dealFit), status: 'Đã trao đổi', note: '', source: '' };
+    /* A6: entry deal không có trạng thái evidence legacy để mang theo — để
+       "Chưa rõ", không tự gán "Đã trao đổi" như bản cũ. */
+    entries.deal = { score: scoreOrNull(ev.dealFit), status: 'Chưa rõ', note: '', source: '' };
+    /* A7: evidence CẤP PILLAR Production (status/note của chính pillar, tách
+       khỏi 4 ô con) mang theo ở field riêng productionPillarEvidence của
+       revision, và reviewDate mang theo ở field reviewDate. Hai field này
+       KHÔNG tham gia tính coverage/Fit của adapter (adapter suy evidence
+       pillar Production từ 4 ô con như trước) nên số canonical không đổi;
+       đợt 2 hiển thị/đọc hai field này từ revision. */
+    const productionPillarEvidence = mapEv((ev.evidence || {}).production);
     /* Kết luận có hay chưa quyết định status request: đủ Partner Fit + Hard Gate
        ĐẠT + Evidence Gate ĐẠT thì kết luận là phân loại thật -> "Hoàn tất". */
     let hasConclusion = false;
@@ -278,7 +349,8 @@
     } catch {}
     const status = hasConclusion ? 'Hoàn tất' : 'Đang đánh giá';
     return {
-      entries, gates,
+      entries, gates, productionPillarEvidence,
+      reviewDate: String(ev.reviewDate || ''),
       strengths: '', risks: String(ev.notesWeak || ''), conditions: '', next: String(ev.nextAction || ''),
       comment: '', bdComment: '',
       reviewer: String(ev.reviewer || ''), role: 'bd', status,
@@ -289,34 +361,52 @@
   function migratePartnerLegacy() {
     const st = crmState();
     if (!st || !Array.isArray(st.companies)) return { migrated: 0, flagged: 0, skipped: 0 };
-    let store = null;
+    let store = null, hadRaw = false;
     try {
       const raw = localStorage.getItem(STORE_KEY_PUB);
-      if (raw) { store = JSON.parse(raw); if (!store || typeof store !== 'object') return { migrated: 0, flagged: 0, skipped: 0 }; }
-    } catch { return { migrated: 0, flagged: 0, skipped: 0 }; } /* lỗi parse -> bỏ qua migration, không chặn trang */
-    if (!store) store = { version: 1, requests: [], marketUpdates: [] };
+      if (raw) { hadRaw = true; store = JSON.parse(raw); }
+    } catch { return { migrated: 0, flagged: 0, skipped: 0, error: 'parse' }; } /* lỗi parse -> bỏ qua migration, không chặn trang */
+    if (!hadRaw) store = { version: 1, requests: [], marketUpdates: [] };
+    /* A4: kho lạ — kho là MẢNG/scalar, version !== 1 (chỉ version 1 của
+       publishing.js hợp lệ), hoặc requests/marketUpdates có mặt mà không
+       phải mảng — thì migration HỦY không thành công giả: không ghi kho,
+       không đặt cờ partnerEvalMigrated, và lần mở sau thử lại được. */
+    if (!store || typeof store !== 'object' || Array.isArray(store)) return { migrated: 0, flagged: 0, skipped: 0, error: 'store-shape' };
+    if (store.version !== 1) return { migrated: 0, flagged: 0, skipped: 0, error: 'store-version' };
+    if (store.requests !== undefined && !Array.isArray(store.requests)) return { migrated: 0, flagged: 0, skipped: 0, error: 'store-shape' };
+    if (store.marketUpdates !== undefined && !Array.isArray(store.marketUpdates)) return { migrated: 0, flagged: 0, skipped: 0, error: 'store-shape' };
     if (!Array.isArray(store.requests)) store.requests = [];
     if (!Array.isArray(store.marketUpdates)) store.marketUpdates = [];
-    let migrated = 0, flagged = 0, storeChanged = false, crmChanged = false;
+    /* Lập KẾ HOẠCH trước, chỉ áp thay đổi CRM sau khi kho Publishing đã ghi
+       thành công (A4: ghi không được -> không cờ nào bị đặt, thử lại sau). */
+    let migrated = 0, flagged = 0, storeChanged = false;
+    const crmActions = []; /* {company, value:true} đặt cờ | {company, value:false} hồi cờ */
     st.companies.forEach(c => {
-      if (!c || typeof c !== 'object' || c.partnerEvalMigrated) return;
+      if (!c || typeof c !== 'object') return;
+      /* A5: canonical đã bị XÓA (không còn request company nào cho công ty
+         này) mà cờ vẫn đặt -> cờ tự hồi trong kế hoạch; nếu c.partnerEval
+         còn dữ liệu, migration chạy lại ngay lần này từ bản legacy đó. */
+      const canonical = selectRequest(store.requests, 'company', c.id);
+      let isMigrated = !!c.partnerEvalMigrated;
+      if (isMigrated && !canonical) { crmActions.push({ company: c, value: false }); isMigrated = false; }
+      if (isMigrated) return;
       if (!isStudio(c)) return;
       if (!partnerEvalHasData(c.partnerEval)) return;
       const ev = c.partnerEval;
-      const existing = store.requests.filter(r => r && r.kind === 'company' && r.entityId === c.id);
-      const withRev = existing.find(r => Array.isArray(r.revisions) && r.revisions.length > 0);
-      if (withRev) { c.partnerEvalMigrated = true; flagged++; crmChanged = true; return; }
+      /* A3 + A5: "canonical thắng" xét TRÊN ĐÚNG request canonical (cuối
+         mảng, cùng quy tắc partnerSummary) và gồm cả current có dữ liệu
+         chấm thật (revisions=[] vẫn thắng) — không ghi đè bằng legacy. */
+      if (canonical && requestHasCanonicalData(canonical)) { crmActions.push({ company: c, value: true }); flagged++; return; }
       const rev = legacyToRevision(ev);
-      const target = existing[existing.length - 1];
-      if (target) {
-        target.current = rev;
-        target.revisions = [rev];
-        target.revision = 1;
-        target.status = rev.status;
-        if (!target.requestedBy) target.requestedBy = String(ev.reviewer || '');
-        if (!target.assignee) target.assignee = '';
-        if (!target.intake || typeof target.intake !== 'object') target.intake = {};
-        target.migratedFrom = 'bd-partnerEval';
+      if (canonical) {
+        canonical.current = rev;
+        canonical.revisions = [rev];
+        canonical.revision = 1;
+        canonical.status = rev.status;
+        if (!canonical.requestedBy) canonical.requestedBy = String(ev.reviewer || '');
+        if (!canonical.assignee) canonical.assignee = '';
+        if (!canonical.intake || typeof canonical.intake !== 'object') canonical.intake = {};
+        canonical.migratedFrom = 'bd-partnerEval';
       } else {
         const rid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? 'REV-' + crypto.randomUUID() : 'REV-mig-' + Date.now() + '-' + String(c.id);
         store.requests.push({
@@ -328,17 +418,30 @@
         });
       }
       storeChanged = true; migrated++;
-      c.partnerEvalMigrated = true; crmChanged = true;
+      crmActions.push({ company: c, value: true });
     });
-    if (storeChanged) { try { localStorage.setItem(STORE_KEY_PUB, JSON.stringify(store)); } catch {} }
-    if (crmChanged) {
+    if (storeChanged) {
+      try { localStorage.setItem(STORE_KEY_PUB, JSON.stringify(store)); }
+      catch { return { migrated: 0, flagged: 0, skipped: 0, error: 'write-failed' }; } /* A4: không ghi được -> không đặt cờ nào */
+    }
+    if (crmActions.length) {
+      crmActions.forEach(a => { if (a.value) a.company.partnerEvalMigrated = true; else delete a.company.partnerEvalMigrated; });
       try { if (typeof storeState === 'function' && typeof S !== 'undefined') storeState(S); } catch {}
       try { if (typeof render === 'function') render(); } catch {}
     }
     return { migrated, flagged, skipped: 0 };
   }
 
-  window.PublishingBridge = { summary, gameBadge, partnerSummary, gameSummary, migratePartnerLegacy };
+  /* A13: API bridge phơi cho các trang Publishing (đợt 2 nạp publishing-bridge.js
+     rồi gọi qua window.PublishingBridge):
+       summary(kind,id), gameBadge(id), partnerSummary(companyId),
+       gameSummary(gameId), migratePartnerLegacy(),
+       selectRequest(list,kind,id) — quy tắc chọn canonical (A5),
+       requestCurrentHasData(current), requestHasCanonicalData(request) — A3,
+       hasValidGameV2(current) — định nghĩa "có v2" duy nhất (B3, delegating
+       PublishingScore.hasValidV2). */
+  function hasValidGameV2(cur) { return v2HasValidScore(cur); }
+  window.PublishingBridge = { summary, gameBadge, partnerSummary, gameSummary, migratePartnerLegacy, selectRequest, requestCurrentHasData, requestHasCanonicalData, hasValidGameV2 };
   addEventListener('storage', e => { if (e.key === 'sava_publishing_v1') { if (typeof render === 'function') render(); if (typeof refreshDrawer === 'function') refreshDrawer(); } });
   /* Migration chạy khi trang CRM (index.html) đã nạp xong state S. */
   if (typeof document !== 'undefined') {

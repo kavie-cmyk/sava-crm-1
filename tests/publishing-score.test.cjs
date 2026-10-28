@@ -121,6 +121,52 @@ test('legacy evidence() behavior preserved across the rename (same qualifying se
   assert.equal(F.score(withStatus('Chưa rõ')), null);
   assert.equal(F.score(withStatus('N/A')), null);
 });
+/* ---- Đợt 1 QA vòng 3: B5 ép điểm chuỗi + B3/B6 định nghĩa "có v2" + A6 strict ---- */
+test('B5: adapter company ép điểm dạng chuỗi như PartnerEval ("4.5" -> 4.5, "abc" -> không có điểm)', () => {
+  const numeric = fullCompany(4.5);
+  const asString = fullCompany(4.5);
+  Object.values(asString.entries).forEach(en => { en.score = String(en.score); });
+  assert.equal(F.company(asString).total, F.company(numeric).total);
+  assert.equal(F.company(asString).composite, 4.5);
+  const bad = fullCompany(4);
+  bad.entries.track.score = 'abc';
+  assert.equal(F.company(bad).total, null);
+  const empty = fullCompany(4);
+  empty.entries.team.score = '';
+  assert.equal(F.company(empty).total, null);
+});
+test('A6: normalizeStatusStrict — trạng thái lạ về "Chưa rõ", nhãn cũ đổi tên, nấc hợp lệ giữ nguyên', () => {
+  assert.equal(F.normalizeStatusStrict('Trạng thái lạ'), 'Chưa rõ');
+  assert.equal(F.normalizeStatusStrict(undefined), 'Chưa rõ');
+  assert.equal(F.normalizeStatusStrict('Partner cung cấp'), 'Đối tác đã gửi');
+  assert.equal(F.normalizeStatusStrict('Đã trao đổi'), 'Đã trao đổi');
+  assert.equal(F.normalizeStatusStrict('N/A'), 'N/A');
+});
+test('B3/B6: hasValidV2 — định nghĩa duy nhất về "có v2 hợp lệ"', () => {
+  const v = s => ({score: s});
+  assert.equal(F.hasValidV2({scoresV2: {market: {size: v(4.5)}, prototype: {}}}), true);
+  /* current{market,prototype} không kèm scoresV2 cũng là ứng viên v2 */
+  assert.equal(F.hasValidV2({market: {size: v(5)}, prototype: {}}), true);
+  /* scoresV2 rỗng-không-entries -> không có v2 */
+  assert.equal(F.hasValidV2({scoresV2: {market: {}, prototype: {}}}), false);
+  assert.equal(F.hasValidV2({scoresV2: {}}), false);
+  /* entries phẳng BÊN TRONG scoresV2 được tính (đúng cách gameV2 pick) */
+  assert.equal(F.hasValidV2({scoresV2: {entries: {size: v(5)}}}), true);
+  /* current.entries của khung workbook cũ KHÔNG phải v2 */
+  assert.equal(F.hasValidV2({entries: {size: v(5)}}), false);
+  /* điểm không hợp lệ (sai bước / ngoài thang / NaN) -> không có v2 hợp lệ */
+  assert.equal(F.hasValidV2({scoresV2: {market: {size: v(3.25)}, prototype: {}}}), false);
+  assert.equal(F.hasValidV2({scoresV2: {market: {size: v(0)}, prototype: {}}}), false);
+  assert.equal(F.hasValidV2({scoresV2: {market: {size: v(5.5)}, prototype: {}}}), false);
+  assert.equal(F.hasValidV2({scoresV2: {market: {size: v(NaN)}, prototype: {}}}), false);
+  assert.equal(F.hasValidV2(null), false);
+  assert.equal(F.hasValidV2({scoresV2: [1, 2]}), false);
+  /* v2Candidate nhất quán với định nghĩa trên */
+  assert.deepEqual(F.v2Candidate({market: {size: v(5)}}), {market: {size: v(5)}});
+  assert.equal(F.v2Candidate({entries: {size: v(5)}}), null);
+  /* gameV2 tự nó cũng bỏ qua điểm không hợp lệ khi tính (giữ nguyên như trước) */
+  assert.equal(F.gameV2({market: {size: v(3.25)}, prototype: {}}).final, null);
+});
 test('company adapter: N/A excluded from coverage denominator (unified rule)', () => {
   const a = fullCompany(5);
   /* 5 pillar đơn lẻ N/A; team + 4 ô con (=> pillar Production) đã xác minh:

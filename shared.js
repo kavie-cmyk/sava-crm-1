@@ -82,7 +82,15 @@ const PARTNER_GATE_STATUSES = ["Đạt", "Không đạt", "Chưa xác minh"];
 const EVIDENCE_STATUSES = ["Thiếu", "Chưa rõ", "Đã trao đổi", "Đối tác đã gửi", "Đã xác minh", "N/A"];
 const PARTNER_EVIDENCE_STATUSES = EVIDENCE_STATUSES;
 function normalizeEvidenceStatus(v) { return v === "Partner cung cấp" ? "Đối tác đã gửi" : v; }
-if (typeof window !== "undefined") { window.EVIDENCE_STATUSES = EVIDENCE_STATUSES; window.normalizeEvidenceStatus = normalizeEvidenceStatus; }
+/* Fallback DUY NHẤT cho trạng thái evidence lạ (A6/M1, QA vòng 3): đổi nhãn cũ
+   rồi, nếu không nằm trong thang EVIDENCE_STATUSES, trả "Chưa rõ" — KHÔNG giữ
+   verbatim, KHÔNG tự nâng lên "Đã trao đổi". Đây là hàm dùng chung đặt ở
+   shared.js: PartnerEval.normalize, migrateState, adapter PublishingScore và
+   bridge đều dùng nó; đợt 2 publishing.js normalizeRevision PHẢI dùng hàm này
+   (window.normalizeEvidenceStatusStrict / PartnerEval.normalizeStatusStrict)
+   thay cho normalizeStatus (chỉ đổi nhãn) khi chuẩn hoá entry của revision. */
+function normalizeEvidenceStatusStrict(v) { const st = normalizeEvidenceStatus(v); return EVIDENCE_STATUSES.includes(st) ? st : "Chưa rõ"; }
+if (typeof window !== "undefined") { window.EVIDENCE_STATUSES = EVIDENCE_STATUSES; window.normalizeEvidenceStatus = normalizeEvidenceStatus; window.normalizeEvidenceStatusStrict = normalizeEvidenceStatusStrict; }
 const PARTNER_EVIDENCE_TOTAL = 11; /* 7 pillar + 4 ô con Production (mẫu số tối đa; "N/A" bị trừ ra khi tính coverage) */
 function partnerRound1(n) { return Math.round((n + Number.EPSILON) * 10) / 10; }
 function partnerScoreOrNull(v) {
@@ -114,9 +122,9 @@ function partnerEvalNormalize(raw) {
     const e = evIn[k];
     if (e && typeof e === "object") {
       /* Đổi nhãn trạng thái cũ "Partner cung cấp" -> "Đối tác đã gửi" khi nạp;
-         các nấc giữa của thang hợp nhất đi qua NGUYÊN VẸN (không ép phẳng). */
-      const st = normalizeEvidenceStatus(e.status);
-      if (PARTNER_EVIDENCE_STATUSES.includes(st)) out.evidence[k].status = st;
+         các nấc giữa của thang hợp nhất đi qua NGUYÊN VẸN (không ép phẳng);
+         trạng thái ngoài thang -> fallback duy nhất "Chưa rõ" (A6/M1). */
+      out.evidence[k].status = normalizeEvidenceStatusStrict(e.status);
       out.evidence[k].note = String(e.note || "");
     }
   });
@@ -124,8 +132,7 @@ function partnerEvalNormalize(raw) {
   PARTNER_PROD_SUBS.forEach(([k]) => {
     const e = subsIn[k];
     if (e && typeof e === "object") {
-      const st = normalizeEvidenceStatus(e.status);
-      if (PARTNER_EVIDENCE_STATUSES.includes(st)) out.evidence.productionSubs[k].status = st;
+      out.evidence.productionSubs[k].status = normalizeEvidenceStatusStrict(e.status);
       out.evidence.productionSubs[k].note = String(e.note || "");
     }
   });
@@ -169,7 +176,7 @@ function partnerEvalCompute(raw) {
   });
   return { hardGate, coverage, confidence, evidenceGate, partnerFit, classification, conclusion, strongest, weakest, dealFit: ev.dealFit, scores: ev.scores, productionScore: ev.scores.production };
 }
-if (typeof window !== "undefined") { window.PartnerEval = { GATES: PARTNER_GATES, PILLARS: PARTNER_PILLARS, PROD_SUBS: PARTNER_PROD_SUBS, EVIDENCE_STATUSES, EVIDENCE_TOTAL: PARTNER_EVIDENCE_TOTAL, normalizeStatus: normalizeEvidenceStatus, empty: partnerEvalEmpty, normalize: partnerEvalNormalize, compute: partnerEvalCompute }; }
+if (typeof window !== "undefined") { window.PartnerEval = { GATES: PARTNER_GATES, PILLARS: PARTNER_PILLARS, PROD_SUBS: PARTNER_PROD_SUBS, EVIDENCE_STATUSES, EVIDENCE_TOTAL: PARTNER_EVIDENCE_TOTAL, normalizeStatus: normalizeEvidenceStatus, normalizeStatusStrict: normalizeEvidenceStatusStrict, empty: partnerEvalEmpty, normalize: partnerEvalNormalize, compute: partnerEvalCompute }; }
 /* Tiêu chí MKT chấm game — khác bộ tiêu chí thẩm định của BD */
 const MKT_CRITERIA = [
   ["market", "Tiềm năng thị trường (độ lớn + đang hot?)"],
@@ -260,7 +267,10 @@ function seed() { return {
    Chỉ migrate khi trường THỰC SỰ thiếu (undefined): lead.company === "" nghĩa là
    đã chủ động gỡ công ty (vd xóa công ty) nên KHÔNG tự tạo lại công ty. */
 function migrateState(s) {
-  if (!s || typeof s !== "object") return seed();
+  /* A1/A12: mảng (vd "[1,2]") hay scalar KHÔNG phải state hợp lệ — coi như
+     hỏng và về seed, tuyệt đối không trả mảng cho app. (loadState còn đi
+     thêm đường backup + banner trước khi gọi migrateState — xem dưới.) */
+  if (!s || typeof s !== "object" || Array.isArray(s)) return seed();
   /* Strip di sản Publishing OS (pubos.js đã gỡ 28/10/2026): chỉ xóa đúng các key
      pubos/pubosPending trên deal, pubos trên game và pubosWithdrawals ở state gốc.
      Chạy mỗi lần load qua migrateState — idempotent, không đụng dữ liệu khác. */
@@ -275,9 +285,13 @@ function migrateState(s) {
   if (!Array.isArray(s.members)) { s.members = defaultMembers(); }
   else {
     const cleanedMembers = [];
+    const seenMemberIds = new Set();
     s.members.forEach(m => {
-      if (!m || typeof m !== "object") return;
+      if (!m || typeof m !== "object" || Array.isArray(m)) return;
       if (typeof m.id !== "string" || m.id === "") return;
+      /* A12: member trùng id chỉ giữ phần tử ĐẦU TIÊN. */
+      if (seenMemberIds.has(m.id)) return;
+      seenMemberIds.add(m.id);
       if (typeof m.name !== "string" || m.name === "") m.name = m.id;
       if (!["BD", "MKT", "Admin", "Khác"].includes(m.role)) m.role = "Khác";
       if (typeof m.active !== "boolean") m.active = true;
@@ -293,11 +307,13 @@ function migrateState(s) {
      status của evidence pillar + ô con Production. Kho Publishing
      (sava_publishing_v1) được đổi nhãn ở publishing.js read()/normalizeRevision. */
   if (Array.isArray(s.companies)) s.companies.forEach(c => {
-    const evd = c && typeof c === "object" && c.partnerEval && typeof c.partnerEval === "object" ? c.partnerEval.evidence : null;
+    const evd = c && typeof c === "object" && !Array.isArray(c) && c.partnerEval && typeof c.partnerEval === "object" ? c.partnerEval.evidence : null;
     if (!evd || typeof evd !== "object") return;
-    Object.values(evd).forEach(e => { if (e && typeof e === "object" && typeof e.status === "string") e.status = normalizeEvidenceStatus(e.status); });
+    /* A6/M1: trạng thái lạ -> "Chưa rõ" qua fallback strict dùng chung,
+       không giữ verbatim như bản cũ (chỉ đổi nhãn). */
+    Object.values(evd).forEach(e => { if (e && typeof e === "object" && typeof e.status === "string") e.status = normalizeEvidenceStatusStrict(e.status); });
     const subs = evd.productionSubs;
-    if (subs && typeof subs === "object") Object.values(subs).forEach(e => { if (e && typeof e === "object" && typeof e.status === "string") e.status = normalizeEvidenceStatus(e.status); });
+    if (subs && typeof subs === "object") Object.values(subs).forEach(e => { if (e && typeof e === "object" && typeof e.status === "string") e.status = normalizeEvidenceStatusStrict(e.status); });
   });
   if (!Array.isArray(s.companies)) s.companies = [];
   if (!Array.isArray(s.deals)) s.deals = [];
@@ -314,7 +330,11 @@ function migrateState(s) {
   ["companies", "games", "deals", "leads", "tasks", "activities", "members"].forEach(k => {
     if (Array.isArray(s[k])) {
       const before = s[k].length;
-      s[k] = s[k].filter(x => !!x && typeof x === "object");
+      /* A12: đường xử lý đã chọn cho entity sai kiểu — phần tử là MẢNG hoặc
+         scalar/null (deal/lead là mảng/scalar cũng vậy) bị LOẠI khỏi danh
+         sách và tính vào droppedNonObjects/cờ sanitized như phần tử hỏng,
+         KHÔNG cố chuẩn hoá mảng thành object. */
+      s[k] = s[k].filter(x => !!x && typeof x === "object" && !Array.isArray(x));
       droppedNonObjects += before - s[k].length;
     }
   });
@@ -327,9 +347,24 @@ function migrateState(s) {
       }
     } catch (e) {}
   }
-  /* N2: mọi company phải có roles là object (drawer/section đọc c.roles.*). */
-  s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object")) c.roles = {}; });
-  (s.deals || []).forEach(d => { if (!Array.isArray(d.leads)) d.leads = []; });
+  /* N2 + A12: mọi company phải có roles là object THUẦN (drawer/section đọc
+     c.roles.*) — roles là MẢNG cũng coi như sai cấu trúc, thay bằng {}. */
+  s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object" || Array.isArray(c.roles))) c.roles = {}; });
+  /* A12: ép kiểu ở biên — id của entity do shared.js quản lý và các khóa
+     ngoại dạng SỐ được ép về CHUỖI (định danh chuẩn trong app là chuỗi);
+     id/khóa ngoại là chuỗi giữ nguyên, kiểu lạ khác để nguyên cho các lớp
+     trên tự xử lý như trước. */
+  ["companies", "games", "deals", "leads", "tasks", "activities"].forEach(k => {
+    s[k].forEach(x => { if (typeof x.id === "number" && Number.isFinite(x.id)) x.id = String(x.id); });
+  });
+  s.games.forEach(g => { if (typeof g.company === "number" && Number.isFinite(g.company)) g.company = String(g.company); });
+  s.deals.forEach(d => {
+    ["company", "game"].forEach(f => { if (typeof d[f] === "number" && Number.isFinite(d[f])) d[f] = String(d[f]); });
+  });
+  s.leads.forEach(l => { if (typeof l.company === "number" && Number.isFinite(l.company)) l.company = String(l.company); });
+  s.tasks.forEach(t => { if (typeof t.deal === "number" && Number.isFinite(t.deal)) t.deal = String(t.deal); });
+  s.activities.forEach(a => { if (typeof a.deal === "number" && Number.isFinite(a.deal)) a.deal = String(a.deal); });
+  (s.deals || []).forEach(d => { if (!Array.isArray(d.leads)) d.leads = []; else d.leads = d.leads.map(v => (typeof v === "number" && Number.isFinite(v)) ? String(v) : v); });
   let migSeq = 0;
   const newCompanyId = () => {
     let id;
@@ -350,7 +385,7 @@ function migrateState(s) {
     }
   });
   /* N2 (tiếp): company vừa tạo trong migration lead ở trên cũng phải có roles object. */
-  s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object")) c.roles = {}; });
+  s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object" || Array.isArray(c.roles))) c.roles = {}; });
   return s;
 }
 /* S1a: dữ liệu localStorage hỏng (JSON.parse lỗi hoặc migrateState ném lỗi)
@@ -361,23 +396,39 @@ function migrateState(s) {
    (3) KHÔNG ghi đè key chính trong loadState — raw hỏng giữ nguyên cho tới
        lần save() hợp lệ đầu tiên;
    (4) trả migrateState(seed()) để app vẫn chạy. Raw rỗng -> hành vi như cũ. */
+/* Đường dữ liệu hỏng DÙNG CHUNG cho mọi dạng raw không dùng được (A1/A2):
+   backup raw vào key corrupt_backup + đặt cờ CRM_LOAD_ISSUE (banner) +
+   trả seed đã migrate. KHÔNG ghi đè key chính ở đây: raw hỏng giữ nguyên
+   cho tới lần storeState() hợp lệ đầu tiên, và storeState chỉ còn được gọi
+   với state đã chuẩn hoá bởi migrateState nên không còn đường nào ghi lại
+   raw mảng/scalar lạ lên kho. */
+function corruptStateFallback(raw) {
+  const at = new Date().toISOString();
+  const backupKey = STORE_KEY + "__corrupt_backup";
+  try { localStorage.setItem(backupKey, JSON.stringify({ at, raw })); } catch (e2) {}
+  try {
+    const w = (typeof window !== "undefined" && window) || (typeof globalThis !== "undefined" ? globalThis : null);
+    if (w) w.CRM_LOAD_ISSUE = { type: "corrupt", backupKey, at };
+  } catch (e3) {}
+  return migrateState(seed());
+}
 function loadState() {
   let raw = null;
   try { raw = localStorage.getItem(STORE_KEY); } catch (e) { return migrateState(seed()); }
   if (!raw) return migrateState(seed());
+  let parsedRaw;
+  try { parsedRaw = JSON.parse(raw); } catch (e) { return corruptStateFallback(raw); }
+  /* A1/A2: JSON parse được nhưng KHÔNG phải object thuần — mảng ("[1,2]")
+     hay scalar hợp lệ (null / "hello" / 123 / true) — đều là dữ liệu hỏng:
+     đi đúng đường backup + banner như JSON hỏng, không trả mảng cho app và
+     không ghi đè seed im lặng ngay lần load đầu. */
+  if (!parsedRaw || typeof parsedRaw !== "object" || Array.isArray(parsedRaw)) return corruptStateFallback(raw);
   try {
-    const parsed = migrateState(JSON.parse(raw));
+    const parsed = migrateState(parsedRaw);
     storeState(parsed);
     return parsed;
   } catch (e) {
-    const at = new Date().toISOString();
-    const backupKey = STORE_KEY + "__corrupt_backup";
-    try { localStorage.setItem(backupKey, JSON.stringify({ at, raw })); } catch (e2) {}
-    try {
-      const w = (typeof window !== "undefined" && window) || (typeof globalThis !== "undefined" ? globalThis : null);
-      if (w) w.CRM_LOAD_ISSUE = { type: "corrupt", backupKey, at };
-    } catch (e3) {}
-    return migrateState(seed());
+    return corruptStateFallback(raw);
   }
 }
 function storeState(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {} }
