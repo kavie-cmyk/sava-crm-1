@@ -47,6 +47,99 @@ function memberName(s, id) {
   return String(id);
 }
 if (typeof window !== "undefined") { window.memberList = memberList; window.memberName = memberName; window.defaultMembers = defaultMembers; }
+/* === Partner Eval hợp nhất (khung file 2 — Publishing Partner Selection) ===
+   Implementation Partner DUY NHẤT dùng chung cho BD (drawer công ty trong
+   index.html), module Publishing (adapter trong publishing-score.js) và bridge.
+   Logic sao Y HỆT peCompute cũ trong index.html; khác biệt có chủ đích:
+   - Key cổng "Tính liên tục của team" chuẩn hoá là "continuity" (dữ liệu cũ
+     trong index.html dùng key "control" — normalize đọc cả hai, đầu ra chỉ
+     còn "continuity").
+   - compute() trả thêm scores (đã normalize) + productionScore
+     (= scores.production) để adapter phía Publishing dùng thống nhất. */
+const PARTNER_GATES = [["legal", "Pháp lý / Hợp đồng"], ["ip", "Quyền sở hữu IP / source code"], ["conflict", "Xung đột Publisher"], ["transparency", "Minh bạch Data"], ["continuity", "Tính liên tục của team"], ["integrity", "Uy tín / Compliance"]];
+const PARTNER_PILLARS = [["track", "Track Record", 10], ["team", "Năng lực Team", 15], ["production", "Production & Execution", 15], ["data", "Data & Tech", 10], ["collaboration", "Hợp tác", 15], ["strategy", "Strategic Fit", 15], ["pipeline", "Tiềm năng Long-term", 10]];
+const PARTNER_PROD_SUBS = [["capacity", "Capacity"], ["cadence", "Cadence"], ["milestone", "Milestone"], ["liveops", "LiveOps"]];
+const PARTNER_GATE_STATUSES = ["Đạt", "Không đạt", "Chưa xác minh"];
+const PARTNER_EVIDENCE_STATUSES = ["Đã xác minh", "Thiếu", "Chưa rõ"];
+const PARTNER_EVIDENCE_TOTAL = 11; /* 7 pillar + 4 ô con Production */
+function partnerRound1(n) { return Math.round((n + Number.EPSILON) * 10) / 10; }
+function partnerScoreOrNull(v) {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+}
+function partnerEvalEmpty() {
+  const ev = { hardGate: {}, evidence: { productionSubs: {} }, scores: {}, dealFit: null, notesWeak: "", nextAction: "", reviewDate: "", reviewer: "", updatedAt: "" };
+  PARTNER_GATES.forEach(([k]) => { ev.hardGate[k] = { status: "Chưa xác minh", note: "" }; });
+  PARTNER_PILLARS.forEach(([k]) => { ev.evidence[k] = { note: "", status: "Chưa rõ" }; ev.scores[k] = null; });
+  PARTNER_PROD_SUBS.forEach(([k]) => { ev.evidence.productionSubs[k] = { note: "", status: "Chưa rõ" }; });
+  return ev;
+}
+function partnerEvalNormalize(raw) {
+  const out = partnerEvalEmpty();
+  if (!raw || typeof raw !== "object") return out;
+  PARTNER_GATES.forEach(([k]) => {
+    let g = raw.hardGate && raw.hardGate[k];
+    /* Migration key cổng: dữ liệu cũ dùng "control" cho cổng continuity. */
+    if ((!g || typeof g !== "object") && k === "continuity" && raw.hardGate) g = raw.hardGate.control;
+    if (g && typeof g === "object") {
+      if (PARTNER_GATE_STATUSES.includes(g.status)) out.hardGate[k].status = g.status;
+      out.hardGate[k].note = String(g.note || "");
+    }
+  });
+  const evIn = raw.evidence && typeof raw.evidence === "object" ? raw.evidence : {};
+  PARTNER_PILLARS.forEach(([k]) => {
+    const e = evIn[k];
+    if (e && typeof e === "object") {
+      if (PARTNER_EVIDENCE_STATUSES.includes(e.status)) out.evidence[k].status = e.status;
+      out.evidence[k].note = String(e.note || "");
+    }
+  });
+  const subsIn = evIn.productionSubs && typeof evIn.productionSubs === "object" ? evIn.productionSubs : {};
+  PARTNER_PROD_SUBS.forEach(([k]) => {
+    const e = subsIn[k];
+    if (e && typeof e === "object") {
+      if (PARTNER_EVIDENCE_STATUSES.includes(e.status)) out.evidence.productionSubs[k].status = e.status;
+      out.evidence.productionSubs[k].note = String(e.note || "");
+    }
+  });
+  PARTNER_PILLARS.forEach(([k]) => { out.scores[k] = partnerScoreOrNull(raw.scores ? raw.scores[k] : null); });
+  out.dealFit = partnerScoreOrNull(raw.dealFit);
+  out.notesWeak = String(raw.notesWeak || "");
+  out.nextAction = String(raw.nextAction || "");
+  out.reviewDate = String(raw.reviewDate || "");
+  out.reviewer = String(raw.reviewer || "");
+  out.updatedAt = String(raw.updatedAt || "");
+  return out;
+}
+function partnerEvalCompute(raw) {
+  const ev = partnerEvalNormalize(raw);
+  const hs = PARTNER_GATES.map(([k]) => (ev.hardGate && ev.hardGate[k] && ev.hardGate[k].status) || "Chưa xác minh");
+  const hardGate = hs.includes("Không đạt") ? "KHÔNG ĐẠT" : hs.every(s => s === "Đạt") ? "ĐẠT" : "CHỜ XÁC MINH";
+  let verified = 0;
+  PARTNER_PILLARS.forEach(([k]) => { if (ev.evidence && ev.evidence[k] && ev.evidence[k].status === "Đã xác minh") verified++; });
+  PARTNER_PROD_SUBS.forEach(([k]) => { if (ev.evidence && ev.evidence.productionSubs && ev.evidence.productionSubs[k] && ev.evidence.productionSubs[k].status === "Đã xác minh") verified++; });
+  const coverage = { verified, total: PARTNER_EVIDENCE_TOTAL, pct: partnerRound1(verified / PARTNER_EVIDENCE_TOTAL * 100) };
+  const confidence = coverage.pct >= 90 ? "Cao" : coverage.pct >= 60 ? "Trung bình" : "Thấp";
+  const evidenceGate = coverage.pct >= 80 ? "ĐẠT" : "CHƯA ĐẠT";
+  const vals = PARTNER_PILLARS.map(([k]) => partnerScoreOrNull(ev.scores ? ev.scores[k] : null));
+  const partnerFit = vals.some(v => v === null) ? null : partnerRound1(PARTNER_PILLARS.reduce((sum, [, , w], i) => sum + vals[i] * w, 0) / 5 / 90 * 100);
+  const classification = (partnerFit === null || partnerFit === undefined) ? null : partnerFit >= 85 ? "Ưu tiên" : partnerFit >= 75 ? "Đạt" : partnerFit >= 65 ? "Có điều kiện" : "Cần xem xét";
+  let conclusion;
+  if (hardGate === "KHÔNG ĐẠT") conclusion = "Bị chặn";
+  else if (hardGate === "CHỜ XÁC MINH") conclusion = "Chờ xác minh";
+  else if (evidenceGate !== "ĐẠT") conclusion = "Thiếu Evidence";
+  else conclusion = classification || "Chưa đủ điểm";
+  let strongest = null, weakest = null;
+  PARTNER_PILLARS.forEach(([k, label]) => {
+    const s = ev.scores[k];
+    if (s === null) return;
+    if (!strongest || s > strongest.score) strongest = { key: k, label, score: s };
+    if (!weakest || s < weakest.score) weakest = { key: k, label, score: s };
+  });
+  return { hardGate, coverage, confidence, evidenceGate, partnerFit, classification, conclusion, strongest, weakest, dealFit: ev.dealFit, scores: ev.scores, productionScore: ev.scores.production };
+}
+if (typeof window !== "undefined") { window.PartnerEval = { GATES: PARTNER_GATES, PILLARS: PARTNER_PILLARS, PROD_SUBS: PARTNER_PROD_SUBS, empty: partnerEvalEmpty, normalize: partnerEvalNormalize, compute: partnerEvalCompute }; }
 /* Tiêu chí MKT chấm game — khác bộ tiêu chí thẩm định của BD */
 const MKT_CRITERIA = [
   ["market", "Tiềm năng thị trường (độ lớn + đang hot?)"],
@@ -142,16 +235,36 @@ function migrateState(s) {
      pubos/pubosPending trên deal, pubos trên game và pubosWithdrawals ở state gốc.
      Chạy mỗi lần load qua migrateState — idempotent, không đụng dữ liệu khác. */
   delete s.pubosWithdrawals;
-  /* Thành viên (S.members): nếu chưa có / không phải mảng hợp lệ -> khởi tạo từ USERS
-     (id = key USERS để owner/assignee/who cũ khớp nguyên vẹn). Idempotent: members
-     đã hợp lệ thì GIỮ NGUYÊN, chỉ chuẩn hoá role/active thiếu — không nhân đôi, không ghi đè. */
-  if (!isValidMembers(s.members)) { s.members = defaultMembers(); }
-  else s.members.forEach(m => { if (!["BD", "MKT", "Admin", "Khác"].includes(m.role)) m.role = "Khác"; if (typeof m.active !== "boolean") m.active = true; });
+  /* Thành viên (S.members) — S1b: lọc/sửa TỪNG phần tử thay vì reset toàn bộ
+     khi có 1 phần tử hỏng. Phần tử không phải object hoặc thiếu id (không phải
+     string / rỗng) -> loại bỏ; thiếu name (không phải string / rỗng) -> name = id;
+     role/active chuẩn hoá như trước. Chỉ khi s.members không phải mảng, hoặc
+     sau lọc mảng rỗng, mới dùng defaultMembers().
+     Lựa chọn: giữ nguyên hàm isValidMembers ở trên (không xoá) để tương thích
+     ngược nếu code ngoài còn tham chiếu, nhưng migrateState KHÔNG dùng nó nữa. */
+  if (!Array.isArray(s.members)) { s.members = defaultMembers(); }
+  else {
+    const cleanedMembers = [];
+    s.members.forEach(m => {
+      if (!m || typeof m !== "object") return;
+      if (typeof m.id !== "string" || m.id === "") return;
+      if (typeof m.name !== "string" || m.name === "") m.name = m.id;
+      if (!["BD", "MKT", "Admin", "Khác"].includes(m.role)) m.role = "Khác";
+      if (typeof m.active !== "boolean") m.active = true;
+      cleanedMembers.push(m);
+    });
+    s.members = cleanedMembers.length ? cleanedMembers : defaultMembers();
+  }
   if (Array.isArray(s.deals)) s.deals.forEach(d => { if (d && typeof d === "object") { delete d.pubos; delete d.pubosPending; } });
   if (Array.isArray(s.games)) s.games.forEach(g => { if (g && typeof g === "object") delete g.pubos; });
   if (!Array.isArray(s.companies)) s.companies = [];
   if (!Array.isArray(s.deals)) s.deals = [];
   if (!Array.isArray(s.leads)) s.leads = [];
+  if (!Array.isArray(s.games)) s.games = [];
+  if (!Array.isArray(s.tasks)) s.tasks = [];
+  if (!Array.isArray(s.activities)) s.activities = [];
+  /* N2: mọi company phải có roles là object (drawer/section đọc c.roles.*). */
+  s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object")) c.roles = {}; });
   (s.deals || []).forEach(d => { if (!Array.isArray(d.leads)) d.leads = []; });
   let migSeq = 0;
   const newCompanyId = () => {
@@ -172,21 +285,39 @@ function migrateState(s) {
       }
     }
   });
+  /* N2 (tiếp): company vừa tạo trong migration lead ở trên cũng phải có roles object. */
+  s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object")) c.roles = {}; });
   return s;
 }
+/* S1a: dữ liệu localStorage hỏng (JSON.parse lỗi hoặc migrateState ném lỗi)
+   KHÔNG được lặng lẽ reset về seed rồi ghi đè mất dữ liệu thật. Hành vi mới:
+   (1) sao lưu raw nguyên văn vào key backup (ghi đè bản backup cũ — chỉ giữ
+       sự cố hỏng mới nhất, đơn giản và truy vết được qua field `at`);
+   (2) đặt window.CRM_LOAD_ISSUE để index.html hiển thị cảnh báo;
+   (3) KHÔNG ghi đè key chính trong loadState — raw hỏng giữ nguyên cho tới
+       lần save() hợp lệ đầu tiên;
+   (4) trả migrateState(seed()) để app vẫn chạy. Raw rỗng -> hành vi như cũ. */
 function loadState() {
+  let raw = null;
+  try { raw = localStorage.getItem(STORE_KEY); } catch (e) { return migrateState(seed()); }
+  if (!raw) return migrateState(seed());
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const parsed = migrateState(JSON.parse(raw));
-      storeState(parsed);
-      return parsed;
-    }
-  } catch (e) {}
-  return migrateState(seed());
+    const parsed = migrateState(JSON.parse(raw));
+    storeState(parsed);
+    return parsed;
+  } catch (e) {
+    const at = new Date().toISOString();
+    const backupKey = STORE_KEY + "__corrupt_backup";
+    try { localStorage.setItem(backupKey, JSON.stringify({ at, raw })); } catch (e2) {}
+    try {
+      const w = (typeof window !== "undefined" && window) || (typeof globalThis !== "undefined" ? globalThis : null);
+      if (w) w.CRM_LOAD_ISSUE = { type: "corrupt", backupKey, at };
+    } catch (e3) {}
+    return migrateState(seed());
+  }
 }
 function storeState(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {} }
-function money(n, cur) { if (n == null) return "—"; return cur === "USD" ? "$" + n.toLocaleString("en-US") : Math.round(n / 1e6).toLocaleString("vi-VN") + "tr ₫"; }
+function money(n, cur) { if (n == null || typeof n !== "number" || !Number.isFinite(n)) return "—"; return cur === "USD" ? "$" + n.toLocaleString("en-US") : Math.round(n / 1e6).toLocaleString("vi-VN") + "tr ₫"; }
 function stageOf(line, key) { return LINES[line].stages.find(s => s[0] === key); }
 function isOpen(d) { return d.stage !== "won" && d.stage !== "lost"; }
 function toast(msg) {

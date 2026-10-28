@@ -27,26 +27,92 @@
     const recommendation = gate === 'FAIL' ? 'NO-GO' : gate !== 'PASS' ? 'HOLD — Gate pending' : completeness < .8 || final === null ? 'HOLD — Missing data' : final >= 80 ? 'GREENLIGHT' : final >= 65 ? 'TEST MORE' : 'NO-GO';
     return {market:ms,prototype:ps,final,completeness,gate,recommendation};
   }
+  /* Fallback Partner compute — CHỈ dùng khi PartnerEval dùng chung (shared.js)
+     chưa nạp (vd test Node require riêng file này). Trong trình duyệt shared.js
+     luôn nạp trước nên đường chính là PartnerEval.compute ở dưới. Logic sao
+     đúng quy tắc PartnerEval: fit làm tròn 1 thập phân ở bước cuối (EPSILON),
+     production KHÔNG làm tròn trung gian. */
+  function partnerComputeFallback(raw) {
+    const scoresIn = (raw && raw.scores) || {};
+    const vals = partner.map(([k]) => valid(scoresIn[k]) ? scoresIn[k] : null);
+    const partnerFit = vals.some(v => v === null) ? null : round(partner.reduce((s, [, , w], i) => s + vals[i] * w, 0) / 5 / 90 * 100);
+    const hs = gates.map(([k]) => (raw && raw.hardGate && raw.hardGate[k] && raw.hardGate[k].status) || 'Chưa xác minh');
+    const hardGate = hs.includes('Không đạt') ? 'KHÔNG ĐẠT' : hs.every(s => s === 'Đạt') ? 'ĐẠT' : 'CHỜ XÁC MINH';
+    let verified = 0;
+    partner.forEach(([k]) => { if (raw && raw.evidence && raw.evidence[k] && raw.evidence[k].status === 'Đã xác minh') verified++; });
+    production.forEach(([k]) => { if (raw && raw.evidence && raw.evidence.productionSubs && raw.evidence.productionSubs[k] && raw.evidence.productionSubs[k].status === 'Đã xác minh') verified++; });
+    const pct = round(verified / 11 * 100);
+    const coverage = { verified, total: 11, pct };
+    const confidence = pct >= 90 ? 'Cao' : pct >= 60 ? 'Trung bình' : 'Thấp';
+    const evidenceGate = pct >= 80 ? 'ĐẠT' : 'CHƯA ĐẠT';
+    const classification = partnerFit === null ? null : partnerFit >= 85 ? 'Ưu tiên' : partnerFit >= 75 ? 'Đạt' : partnerFit >= 65 ? 'Có điều kiện' : 'Cần xem xét';
+    let conclusion;
+    if (hardGate === 'KHÔNG ĐẠT') conclusion = 'Bị chặn';
+    else if (hardGate === 'CHỜ XÁC MINH') conclusion = 'Chờ xác minh';
+    else if (evidenceGate !== 'ĐẠT') conclusion = 'Thiếu Evidence';
+    else conclusion = classification || 'Chưa đủ điểm';
+    let strongest = null, weakest = null;
+    partner.forEach(([k, label]) => {
+      const s = valid(scoresIn[k]) ? scoresIn[k] : null;
+      if (s === null) return;
+      if (!strongest || s > strongest.score) strongest = { key: k, label, score: s };
+      if (!weakest || s < weakest.score) weakest = { key: k, label, score: s };
+    });
+    const scoresOut = Object.fromEntries(partner.map(([k]) => [k, valid(scoresIn[k]) ? scoresIn[k] : null]));
+    return { hardGate, coverage, confidence, evidenceGate, partnerFit, classification, conclusion, strongest, weakest, dealFit: valid(raw && raw.dealFit) ? raw.dealFit : null, scores: scoresOut, productionScore: scoresOut.production };
+  }
+  function partnerComputeShared(raw) {
+    const PE = (root && root.PartnerEval) || (typeof PartnerEval !== 'undefined' ? PartnerEval : null);
+    if (PE && typeof PE.compute === 'function') return PE.compute(raw);
+    return partnerComputeFallback(raw);
+  }
+  /* company(a) — nay là ADAPTER của PartnerEval dùng chung (shared.js):
+     map assessment của store Publishing (a.entries/a.gates) sang raw chuẩn
+     Partner, gọi PartnerEval.compute, rồi trả về SHAPE CŨ mà publishing.js /
+     publishing-bridge.js đang dùng (+ field mới partnerFit/evidenceGate/
+     conclusion/coveragePct). Thay đổi hành vi có chủ đích so với bản cũ:
+     - Score pillar chỉ cần số hợp lệ 1–5, KHÔNG còn đòi evidence note+source.
+     - Production = trung bình 4 ô con (đủ cả 4), KHÔNG làm tròn trung gian —
+       đây là gốc lệch 85.0 vs 85.2 của bản cũ (round composite trước khi tính fit).
+     - Evidence coverage chỉ đếm status "Đã xác minh" trên 11 mục (7 pillar +
+       4 ô con); entry phụ (history/deal/legalEvidence) không thuộc 11 mục.
+       Evidence của pillar Production suy từ 4 ô con: đủ 4 ô "Đã xác minh"
+       thì pillar Production mới "Đã xác minh".
+     - Hard Gate chỉ theo value PASS/FAIL, không còn đòi note+source. */
   function company(a) {
-    const e = a.entries || {};
-    const prod = production.map(([k]) => score(e[k]));
-    const composite = prod.every(n => n !== null) ? round(prod.reduce((s,n) => s+n,0)/4) : null;
-    const values = Object.fromEntries(partner.map(([k]) => [k,k === 'production' ? composite : score(e[k])]));
-    const total = Object.values(values).every(n => n !== null) ? round(partner.reduce((s,[k,,w]) => s + values[k]*w,0)/5/90*100) : null;
-    const gateValues = gates.map(([k]) => a.gates?.[k]?.value);
-    const hardGate = gateValues.includes('FAIL') ? 'KHÔNG ĐẠT' : gates.every(([k]) => a.gates?.[k]?.value === 'PASS' && String(a.gates[k].note || '').trim() && String(a.gates[k].source || '').trim()) ? 'ĐẠT' : 'CHỜ XÁC MINH';
-    const covered = ['track','team','data','collaboration','deal','strategy','pipeline'].filter(k => evidence(e[k])).length + (production.filter(([k]) => evidence(e[k])).length >= 3 ? 1 : 0);
-    const coverage = covered/8;
-    const allEvidence = ['track','team',...production.map(([k]) => k),'data','collaboration','history','deal','legalEvidence','strategy','pipeline'].map(k=>e[k]).filter(evidence);
-    const verified = allEvidence.filter(x=>x.status === 'Đã xác minh').length;
-    const supplied = allEvidence.filter(x=>x.status === 'Partner cung cấp').length;
-    const confidence = coverage < .5 ? 'Thấp' : coverage >= .75 && verified / Math.max(1,allEvidence.length) >= .5 ? 'Cao' : (verified + supplied)/Math.max(1,allEvidence.length) >= .5 ? 'Trung bình' : 'Thấp';
-    const required = ['team',...production.map(([k])=>k),'data','collaboration','deal'];
-    const missing = required.filter(k => !evidence(e[k]));
-    const minimum = hardGate === 'ĐẠT' && !missing.length;
-    const classification = total === null ? 'NE — Chưa đủ điểm' : total >= 85 ? 'Ưu tiên' : total >= 75 ? 'Đạt' : total >= 65 ? 'Có điều kiện' : 'Cần xem xét';
-    const recommendation = hardGate === 'KHÔNG ĐẠT' ? 'Bị chặn' : hardGate !== 'ĐẠT' ? 'Chờ xác minh' : !minimum ? 'Thiếu Evidence' : classification;
-    return {total,composite,values,coverage,confidence,minimum,missing,hardGate,classification,recommendation,dealFit:score(e.deal)};
+    const src = a && typeof a === 'object' ? a : {};
+    const e = src.entries || {};
+    const g = src.gates || {};
+    const directScore = entry => (entry && valid(entry.score)) ? entry.score : null;
+    const prodScores = production.map(([k]) => directScore(e[k]));
+    const productionScore = prodScores.every(n => n !== null) ? prodScores.reduce((s, n) => s + n, 0) / 4 : null;
+    const values = Object.fromEntries(partner.map(([k]) => [k, k === 'production' ? productionScore : directScore(e[k])]));
+    const hardGateRaw = {};
+    gates.forEach(([k]) => {
+      let gv = g[k];
+      if ((!gv || typeof gv !== 'object') && k === 'continuity' && g.control) gv = g.control;
+      const v = gv && gv.value;
+      hardGateRaw[k] = { status: v === 'PASS' ? 'Đạt' : v === 'FAIL' ? 'Không đạt' : 'Chưa xác minh', note: String((gv && gv.note) || '') };
+    });
+    const evStatus = entry => (entry && entry.status === 'Đã xác minh') ? 'Đã xác minh' : 'Chưa rõ';
+    const evidenceRaw = { productionSubs: {} };
+    partner.forEach(([k]) => {
+      if (k === 'production') {
+        const allVerified = production.every(([sk]) => e[sk] && e[sk].status === 'Đã xác minh');
+        evidenceRaw[k] = { status: allVerified ? 'Đã xác minh' : 'Chưa rõ', note: '' };
+      } else {
+        evidenceRaw[k] = { status: evStatus(e[k]), note: String((e[k] && e[k].note) || '') };
+      }
+    });
+    production.forEach(([k]) => { evidenceRaw.productionSubs[k] = { status: evStatus(e[k]), note: String((e[k] && e[k].note) || '') }; });
+    const raw = { hardGate: hardGateRaw, evidence: evidenceRaw, scores: values, dealFit: directScore(e.deal), notesWeak: '', nextAction: '', reviewDate: '', reviewer: '', updatedAt: '' };
+    const res = partnerComputeShared(raw);
+    const missingSet = new Set();
+    partner.forEach(([k]) => { if (values[k] === null || evidenceRaw[k].status !== 'Đã xác minh') missingSet.add(k); });
+    production.forEach(([k]) => { if (evidenceRaw.productionSubs[k].status !== 'Đã xác minh') missingSet.add(k); });
+    const missing = [...missingSet];
+    const partnerFit = res.partnerFit;
+    return { total: partnerFit, composite: res.productionScore, values, coverage: res.coverage.pct / 100, confidence: res.confidence, minimum: res.evidenceGate === 'ĐẠT', missing, hardGate: res.hardGate, classification: res.classification === null ? 'NE — Chưa đủ điểm' : res.classification, recommendation: res.conclusion, dealFit: res.dealFit, partnerFit, evidenceGate: res.evidenceGate, conclusion: res.conclusion, coveragePct: res.coverage.pct };
   }
   /* ---- Market Score TỰ ĐỘNG (pubos-market-v1) — thêm mới, không đổi hàm cũ ----
      Tính thuần từ records theo cấu trúc publishing-data + target (record hoặc id). */
