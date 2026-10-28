@@ -121,9 +121,10 @@
 <button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="tasks" class=""><i data-icon="check"></i><span>Công việc</span></button></nav>
+  <a href="publishing.html" class="role-link" style="margin:12px 15px;display:block;padding:10px">Game & Publishing · Thị trường →</a>
   <div id="pubosBox"><div><b>Publishing OS</b>Chưa kết nối</div></div>
   <div class="foot">
-    <a href="mkt.html"><i data-icon="game"></i>Đánh giá game · Marketing<i data-icon="arrow"></i></a>
+    <a href="mkt.html"><i data-icon="game"></i>Company & Game · Marketing<i data-icon="arrow"></i></a>
     <a href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing" target="_blank" rel="noopener"><i data-icon="external"></i>SAVA Publishing OS</a>
     <div class="foot-label">Môi trường dùng thử · 3 người</div>
     <button onclick="resetDemo()"><i data-icon="reset"></i> Đặt lại dữ liệu mẫu</button>
@@ -137,7 +138,7 @@
   </header>
   <details class="prototype-note">
     <summary><span class="status-dot" aria-hidden="true"></span><b>Bản dùng thử</b><span class="note-secondary">Dữ liệu CRM mẫu · Lưu trên trình duyệt</span><span class="note-more">Thông tin dữ liệu<i data-icon="chevron"></i></span></summary>
-    <p>Dữ liệu CRM là dữ liệu mẫu, không phải khách hàng thật, và được lưu trong trình duyệt. Giao diện BD và Marketing dùng chung dữ liệu trên cùng trình duyệt. Marketing chỉ xem hàng chờ đánh giá game đối tác. Kết nối Publishing OS cho phép gửi dữ liệu game và deal sang hệ thống thật; thao tác đồng bộ hiện có vẫn hoạt động.</p>
+    <p>Dữ liệu CRM là dữ liệu mẫu, không phải khách hàng thật, và được lưu trong trình duyệt. Giao diện BD và Marketing dùng chung dữ liệu trên cùng trình duyệt. Marketing xem/cập nhật thị trường, đánh giá năng lực studio và từng game trong phân hệ Game & Publishing. Kết quả đánh giá mới chưa đồng bộ máy chủ. Kết nối Publishing OS cho phép gửi dữ liệu game và deal sang hệ thống thật; thao tác đồng bộ hiện có vẫn hoạt động.</p>
   </details>
   <div class="toolbar">
     <div class="page-heading"><h1 id="viewTitle">Tổng quan</h1><p class="page-description" id="viewDescription">Theo dõi cơ hội, đối tác và công việc của team.</p></div>
@@ -190,6 +191,8 @@
 <div id="toast"></div>
 <script src="apple-ui.js"></script>
 <script src="shared.js"></script>
+<script src="publishing-score.js"></script>
+<script src="publishing-bridge.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="pubos.js"></script>
 <script>
@@ -525,6 +528,7 @@ function openCompany(id) {
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editCompany('${c.id}')">✏️ Sửa công ty</button><button class="btn danger" onclick="deleteCompany('${c.id}')">🗑 Xóa công ty</button></div>
     <button class="btn" onclick="closeDrawer(); openAddFor('${c.id}')">+ Thêm deal cho công ty này</button>
+    ${c.roles?.publishing && window.PublishingBridge ? PublishingBridge.summary("company",c.id) : ""}
     <h3 style="margin:18px 0 8px">📥 Leads của công ty này (bấm để xem chi tiết lead)</h3>
     ${leadsForCompany(c.id).map(leadMini).join("") || '<div class="mut">Chưa có lead nào thuộc công ty này.</div>'}
     <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>
@@ -552,12 +556,12 @@ function openGame(id) {
       <div class="k">Deal liên quan</div><div>${deals.length} deal</div>
     </div>
     ${scores ? `<h3 style="margin:14px 0 6px">📊 Chấm điểm thẩm định</h3>${scores}` : ""}
-    ${g.own==='partner' ? `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:11px 13px;margin-top:14px;font-size:13px"><b>📊 Đánh giá chi tiết kèm dữ liệu thị trường</b> (Market Score, CPI benchmark, Pre-Scan, Hard Gate) nằm ở SAVA Publishing OS:<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn" style="background:#0ea5e9;text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#games">🎮 Mở Lựa chọn trò chơi ↗</a><a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="https://kieuttl-dovey.github.io/sava-publishing-os/#sourcing">🔎 Mở Tìm kiếm cơ hội ↗</a></div></div>` : ""}
-    ${g.own==='partner' ? (g.mktEval ? `<h3 style="margin:16px 0 6px">📣 Đánh giá của MKT <span class="mut" style="font-weight:400">(${USERS[g.mktEval.by]} · ${g.mktEval.at})</span></h3>` + MKT_CRITERIA.map(([k,lb]) => `<div class="score"><div class="lb">${lb.split(" (")[0]}</div><div class="bar"><i style="width:${(g.mktEval.scores[k]||0)*10}%; background:#8b5cf6"></i></div><b>${g.mktEval.scores[k]}/10</b></div>`).join("") + `<div style="font-size:13px; margin-top:8px">Kết luận MKT: <b>${g.mktEval.verdict}</b></div><div style="font-size:13px; margin-top:4px">💬 ${g.mktEval.comment}</div>` : `<h3 style="margin:16px 0 6px">📣 Đánh giá của MKT</h3><div class="mut">⏳ Đang chờ MKT đánh giá — <a href="mkt.html">mở giao diện MKT →</a></div>`) : ""}
+    ${window.PublishingBridge ? PublishingBridge.summary("game",g.id) : ""}
+    ${g.own==='partner' ? (g.mktEval ? `<h3 style="margin:16px 0 6px">📣 Đánh giá cũ của MKT · thang /10 <span class="mut" style="font-weight:400">(${USERS[g.mktEval.by]} · ${g.mktEval.at})</span></h3>` + MKT_CRITERIA.map(([k,lb]) => `<div class="score"><div class="lb">${lb.split(" (")[0]}</div><div class="bar"><i style="width:${(g.mktEval.scores[k]||0)*10}%; background:#8b5cf6"></i></div><b>${g.mktEval.scores[k]}/10</b></div>`).join("") + `<div style="font-size:13px; margin-top:8px">Kết luận MKT: <b>${g.mktEval.verdict}</b></div><div style="font-size:13px; margin-top:4px">💬 ${g.mktEval.comment}</div>` : `<h3 style="margin:16px 0 6px">📣 Đánh giá của MKT</h3><div class="mut">⏳ Đang chờ MKT đánh giá — <a href="mkt.html">mở giao diện MKT →</a></div>`) : ""}
     ${g.own==='partner' ? `<div id="pubosSection"></div>` : ""}
     <h3 style="margin:16px 0 8px">📋 Deal liên quan (bấm để mở deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
-    <div class="mut" style="margin-top:14px">Ở bản thật: gắn link build, pitch deck, trailer tại đây; mỗi lần chấm điểm là 1 bản ghi riêng có người chấm + ngày chấm.</div>`);
+    <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>`);
   if (window.PubOS && g.own === "partner") { try { PubOS.renderGameSection(g); } catch (e) {} }
 }
 /* --- Cầu nối Publishing OS: index.html chỉ gọi, toàn bộ logic Supabase ở pubos.js --- */
