@@ -365,8 +365,8 @@ function vGames() {
     const scores = g.scores ? Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận thẩm định: <b>${g.verdict}</b> · Điểm TB: <b>${(Object.values(g.scores).reduce((a,b)=>a+b,0)/Math.max(1, Object.keys(g.scores).length)).toFixed(1)}</b></div>` : "";
     return `<div class="gcard" onclick="openGame('${g.id}')" style="cursor:pointer" title="Bấm để xem chi tiết game + deal liên quan"><div class="emoji">${g.emoji}</div><h4>${g.title}</h4>
       <div class="mut">${g.genre} · ${g.platform}</div>
-      <div style="margin:6px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${g.stage}</span> ${g.own==='partner' ? `<span class="pill" style="background:${g.mktEval?'#22c55e':'#f59e0b'}">${g.mktEval?'MKT: '+g.mktEval.verdict:'MKT: chờ đánh giá'}</span>` : ''}</div>
-      <div style="font-size:13px">${g.desc}</div>${scores}
+      <div style="margin:6px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${g.stage}</span> ${window.PublishingBridge ? PublishingBridge.gameBadge(g.id) : ""}</div>
+      <div style="font-size:13px">${g.desc}</div>${scores ? '<div class="mut" style="margin-top:12px">Điểm thẩm định cũ · thang /10</div>'+scores : ""}
       <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>d.title).join("; ") || "—"}</div></div>`;
   }).join("");
   const emptyNote = !show.length && (curLine === "ai" || curLine === "metaverse") ? `<div class="panel mut" style="font-size:13.5px">Mảng này không dùng game — game chỉ thuộc mảng Game Studio (game của Sava) và Publishing (game đối tác).</div>` : "";
