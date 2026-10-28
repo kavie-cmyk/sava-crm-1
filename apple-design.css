@@ -152,8 +152,13 @@ button:disabled { cursor: default; }
 .chip { border-radius: 6px; padding: 3px 8px; font-size: .64rem; }
 .pill { font-size: .62rem; padding: 3px 8px; }
 .pill.gray { background: #f1f3f5; color: #7c8690; }
-.table-wrap { overflow-x: auto; scrollbar-width: thin; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.table-wrap table { min-width: 680px; }
 table { font-size: .77rem; min-width: 680px; }
+/* Text người dùng dài không khoảng trắng (tên công ty/deal/game, tiêu đề việc...)
+   không được giãn vỡ layout: cho phép ngắt ở bất kỳ ký tự nào trong các ô
+   tên/tiêu đề chính. */
+.dcard .t, .dcard .c, .gcard h4, .task .tt, .drawer h2, .activity-content strong, .activity-content p, .col h4, td, th { overflow-wrap: anywhere; }
 th { font-size: .66rem; color: #939ba4; padding: 12px 13px; background: #f9fafb; font-weight: 550; }
 td { padding: 17px 13px; border-color: #eef1f4; line-height: 1.6; color: #58636f; }
 td b { color: #36434e; font-weight: 600; }
