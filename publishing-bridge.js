@@ -236,8 +236,20 @@
       if ((!g || typeof g !== 'object') && k === 'continuity' && ev.hardGate) g = ev.hardGate.control;
       gates[k] = { value: gateMap[g && g.status] || 'PENDING', note: String((g && g.note) || ''), source: '' };
     });
-    const evStatusMap = { 'Đã xác minh': 'Đã xác minh', 'Thiếu': 'Thiếu', 'Chưa rõ': 'Đã trao đổi' };
-    const mapEv = e => ({ status: evStatusMap[e && e.status] || 'Đã trao đổi', note: String((e && e.note) || ''), source: '' });
+    /* Hợp nhất taxonomy: hai phía nay dùng CHUNG thang trạng thái xác minh
+       (shared.js EVIDENCE_STATUSES) nên migration đi qua NGUYÊN VẸN mọi nấc —
+       bản cũ ép 'Chưa rõ' -> 'Đã trao đổi' vì thang Publishing cũ không có
+       'Chưa rõ' ở vị trí đó. Nhãn cũ 'Partner cung cấp' đổi thành
+       'Đối tác đã gửi' (qua PartnerEval.normalizeStatus nếu có). Giá trị lạ /
+       thiếu -> 'Đã trao đổi' như fallback cũ. */
+    const normStatus = v => (typeof window !== 'undefined' && window.PartnerEval && typeof window.PartnerEval.normalizeStatus === 'function')
+      ? window.PartnerEval.normalizeStatus(v) : (v === 'Partner cung cấp' ? 'Đối tác đã gửi' : v);
+    const unifiedStatuses = (typeof window !== 'undefined' && window.PartnerEval && Array.isArray(window.PartnerEval.EVIDENCE_STATUSES))
+      ? window.PartnerEval.EVIDENCE_STATUSES : null;
+    const mapEv = e => {
+      const st = normStatus(e && e.status);
+      return { status: unifiedStatuses ? (unifiedStatuses.includes(st) ? st : 'Đã trao đổi') : (st || 'Đã trao đổi'), note: String((e && e.note) || ''), source: '' };
+    };
     const entries = {};
     PARTNER_PILLAR_KEYS.forEach(k => {
       if (k === 'production') return;

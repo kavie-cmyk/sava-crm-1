@@ -135,3 +135,21 @@ test('v2 suggest: Puzzle có CPI có gợi ý UA; mechanic không CPI -> UA null
   assert.equal(s8.ua, null);
   assert.notEqual(s8.monetization, null);
 });
+
+/* ---- Hợp nhất taxonomy: loại bằng chứng thị trường (2026-10-28) ----
+   Khẳng định MỚI có chủ đích: publishing.js giữ HẰNG DUY NHẤT
+   EVIDENCE_TYPES = bộ 99_LISTS của file gốc; form quan sát dùng hằng đó qua
+   selectLegacy (giá trị cũ ngoài bộ — vd "Partner cung cấp" chiều loại bằng
+   chứng, KHÔNG map — hiện dạng "(dữ liệu cũ)"); danh sách form cũ
+   ['Export','Verified source','Partner cung cấp','Proxy'] không còn nữa,
+   'Export'/'Verified source' chỉ còn trong bảng MAP khi đọc dữ liệu đã lưu. */
+test('evidence types unified: single 99_LISTS constant drives the market form', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'publishing.js'), 'utf8');
+  assert.ok(src.includes("const EVIDENCE_TYPES = ['Fact','Proxy','Hypothesis','Internal actual'];"), 'thiếu hằng EVIDENCE_TYPES bộ 99_LISTS');
+  assert.ok(src.includes("selectLegacy('evidenceType','Loại bằng chứng',EVIDENCE_TYPES,"), 'form chưa dùng EVIDENCE_TYPES qua selectLegacy');
+  assert.ok(!src.includes("['Export','Verified source','Partner cung cấp','Proxy']"), 'danh sách loại bằng chứng cũ vẫn còn trong form');
+  assert.ok(src.includes("'Export': 'Fact'") && src.includes("'Verified source': 'Fact'"), 'thiếu mapping dữ liệu đã lưu Export/Verified source -> Fact');
+  /* Provenance tĩnh trong publishing-data.js KHÔNG thuộc vốn từ form: giữ nguyên */
+  const dataSrc = fs.readFileSync(path.join(__dirname, '..', 'publishing-data.js'), 'utf8');
+  assert.ok(dataSrc.includes('CURRENT TOP100 TITLE-LEVEL CLASSIFICATION'), 'provenance workbook bị đụng');
+});

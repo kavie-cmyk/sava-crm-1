@@ -273,3 +273,80 @@ test('tích hợp tĩnh vào index.html + cú pháp mọi script inline', () => 
     finally { fs.unlinkSync(f); }
   });
 });
+
+/* ---- Hợp nhất taxonomy evidence (2026-10-28) ----
+   Khẳng định MỚI có chủ đích:
+   - PartnerEval dùng thang hợp nhất duy nhất từ shared.js; normalize đổi nhãn
+     "Partner cung cấp" -> "Đối tác đã gửi" và giữ nguyên các nấc giữa.
+   - Coverage loại mục "N/A" khỏi mẫu số (trước hợp nhất: N/A không tồn tại
+     trong thang canonical nên mọi mục đều vào mẫu số 11). Fixture chuẩn
+   75.0 / biên 85.0 ở các test trên KHÔNG đổi vì không dùng N/A. */
+test('hợp nhất taxonomy: thang trạng thái duy nhất + normalize đổi nhãn, giữ nấc giữa', () => {
+  assert.deepEqual([...realPartnerEval.EVIDENCE_STATUSES], ['Thiếu', 'Chưa rõ', 'Đã trao đổi', 'Đối tác đã gửi', 'Đã xác minh', 'N/A']);
+  assert.equal(realPartnerEval.normalizeStatus('Partner cung cấp'), 'Đối tác đã gửi');
+  const ev = api.peEmptyEval();
+  ev.evidence.track.status = 'Partner cung cấp';
+  ev.evidence.team.status = 'Đã trao đổi';
+  ev.evidence.data.status = 'N/A';
+  const n = api.peNormalize(ev);
+  assert.equal(n.evidence.track.status, 'Đối tác đã gửi');
+  assert.equal(n.evidence.team.status, 'Đã trao đổi');
+  assert.equal(n.evidence.data.status, 'N/A');
+});
+test('hợp nhất taxonomy: coverage loại "N/A" khỏi mẫu số, fixture chuẩn vẫn 75.0 "Đạt"', () => {
+  const ev = makeEval({});
+  /* Đổi 6 mục chưa-kể-production thành N/A, giữ 5 mục đã xác minh:
+     makeEval đánh dấu verified theo thứ tự [7 pillar..., 4 ô con...]:
+     đặt lại thủ công cho rõ: 5 verified + 6 N/A trên đúng 11 mục. */
+  const items = [...api.PE_PILLARS.map(([k]) => ev.evidence[k]), ...api.PE_PROD_SUBS.map(([k]) => ev.evidence.productionSubs[k])];
+  items.forEach((t, i) => { t.status = i < 5 ? 'Đã xác minh' : 'N/A'; });
+  const r = peCompute(ev);
+  assert.equal(r.coverage.verified, 5);
+  assert.equal(r.coverage.total, 5);
+  assert.equal(r.coverage.excludedNA, 6);
+  assert.equal(r.coverage.pct, 100);
+  assert.equal(r.evidenceGate, 'ĐẠT');
+  assert.equal(r.partnerFit, 75.0);
+  assert.equal(r.conclusion, 'Đạt');
+  /* Toàn bộ N/A -> mẫu số 0 -> pct 0, không chia cho 0 */
+  items.forEach(t => { t.status = 'N/A'; });
+  const r0 = peCompute(ev);
+  assert.equal(r0.coverage.total, 0);
+  assert.equal(r0.coverage.pct, 0);
+});
+test('hợp nhất taxonomy: migrateState (kho CRM) đổi nhãn trạng thái trên c.partnerEval', () => {
+  assert.equal(typeof sharedCtx.migrateState, 'function');
+  const s = sharedCtx.migrateState({
+    members: [], companies: [{ id: 'cx', name: 'X', roles: {}, partnerEval: { evidence: { track: { status: 'Partner cung cấp', note: '' }, productionSubs: { capacity: { status: 'Partner cung cấp', note: '' } } } } }],
+    games: [], deals: [], leads: [], tasks: [], activities: [],
+  });
+  assert.equal(s.companies[0].partnerEval.evidence.track.status, 'Đối tác đã gửi');
+  assert.equal(s.companies[0].partnerEval.evidence.productionSubs.capacity.status, 'Đối tác đã gửi');
+});
+test('hợp nhất taxonomy: bridge migration giữ nguyên nấc giữa (không còn ép Chưa rõ -> Đã trao đổi)', () => {
+  const store = new Map();
+  const localStorageStub = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)); },
+    removeItem: k => { store.delete(k); },
+  };
+  const bCtx = vm.createContext({ console, localStorage: localStorageStub, addEventListener: () => {} });
+  bCtx.window = bCtx;
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared.js'), 'utf8'), bCtx, { filename: 'shared.js' });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'publishing-score.js'), 'utf8'), bCtx, { filename: 'publishing-score.js' });
+  const ev = makeEval({ verifiedCount: 3 });
+  ev.evidence.track.status = 'Partner cung cấp';
+  const crmState = {
+    members: [], deals: [], games: [], leads: [], tasks: [], activities: [],
+    companies: [{ id: 'cmig2', name: 'Studio Taxonomy', type: 'Game studio', roles: { publishing: 'Game studio' }, contact: 'An', phone: '', last: '', partnerEval: ev }],
+  };
+  bCtx.S = crmState;
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'publishing-bridge.js'), 'utf8'), bCtx, { filename: 'publishing-bridge.js' });
+  const r1 = bCtx.window.PublishingBridge.migratePartnerLegacy();
+  assert.equal(r1.migrated, 1);
+  const pub = JSON.parse(store.get('sava_publishing_v1'));
+  const rev = pub.requests.find(r => r.kind === 'company' && r.entityId === 'cmig2').current;
+  /* track: nhãn cũ -> nhãn mới; pillar chưa xác minh giữ "Chưa rõ" (bản cũ ép thành "Đã trao đổi") */
+  assert.equal(rev.entries.track.status, 'Đối tác đã gửi');
+  assert.equal(rev.entries.data.status, 'Chưa rõ');
+});

@@ -13,6 +13,22 @@
   const stamp = v => v ? new Date(v).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}) : '';
   const uuid = () => crypto.randomUUID();
   const REVIEW_STATUSES = ['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'];
+  /* === Loại bằng chứng dữ liệu thị trường HỢP NHẤT (đợt hợp nhất taxonomy) ===
+     HẰNG DUY NHẤT cho "Loại bằng chứng" của quan sát thị trường (marketUpdates
+     trong kho sava_publishing_v1): đúng bộ file gốc 99_LISTS. Mọi select/hiển
+     thị loại bằng chứng trong module này lấy từ đây. (Chuỗi provenance tĩnh
+     trong publishing-data.js — vd "CURRENT TOP100 TITLE-LEVEL CLASSIFICATION"
+     ở entry/uaBenchmark của record workbook — là text nguồn gốc, KHÔNG thuộc
+     vốn từ này và không bị map.)
+     Mapping dữ liệu đã lưu khi đọc (read()): 'Export' -> 'Fact',
+     'Verified source' -> 'Fact', 'Proxy' -> 'Proxy' (giữ nguyên). Riêng
+     'Partner cung cấp' (chiều LOẠI bằng chứng) KHÔNG map: giữ nguyên giá trị
+     đã lưu và hiển thị qua cơ chế "(dữ liệu cũ)" của selectLegacy — không âm
+     thầm gắn nhãn lại. (Khác chiều TRẠNG THÁI xác minh: ở đó "Partner cung
+     cấp" đã đổi tên thành "Đối tác đã gửi" — xem shared.js/publishing-score.js.) */
+  const EVIDENCE_TYPES = ['Fact','Proxy','Hypothesis','Internal actual'];
+  const MARKET_EVIDENCE_TYPE_MAP = { 'Export': 'Fact', 'Verified source': 'Fact', 'Proxy': 'Proxy' };
+  const normalizeMarketEvidenceType = v => (typeof v === 'string' && Object.prototype.hasOwnProperty.call(MARKET_EVIDENCE_TYPE_MAP, v)) ? MARKET_EVIDENCE_TYPE_MAP[v] : v;
   /* N7: chuẩn hoá 1 revision — role luôn là chuỗi (mặc định ''), entries luôn là
      object và từng entry là object (entry hỏng thì bỏ), scoresV2 chỉ giữ khi là object. */
   function normalizeRevision(h) {
@@ -23,6 +39,12 @@
       const clean = {};
       for (const [k, v] of Object.entries(h.entries)) if (v && typeof v === 'object' && !Array.isArray(v)) clean[k] = v;
       h.entries = clean;
+      /* Hợp nhất taxonomy: đổi nhãn trạng thái xác minh lưu trữ cũ
+         "Partner cung cấp" -> "Đối tác đã gửi" trên mọi entry khi nạp kho
+         Publishing (cả current lẫn revisions, qua sanitizeRequest). */
+      if (F && typeof F.normalizeStatus === 'function') {
+        for (const v of Object.values(h.entries)) if (typeof v.status === 'string') v.status = F.normalizeStatus(v.status);
+      }
     }
     if (h.scoresV2 !== undefined && h.scoresV2 !== null && (typeof h.scoresV2 !== 'object' || Array.isArray(h.scoresV2))) delete h.scoresV2;
     return h;
@@ -51,7 +73,10 @@
     const requests = (Array.isArray(x.requests) ? x.requests : []).map(sanitizeRequest).filter(Boolean);
     const marketUpdates = (Array.isArray(x.marketUpdates) ? x.marketUpdates : [])
       .filter(u => u && typeof u === 'object' && u.id)
-      .map(u => ({...u, audit: Array.isArray(u.audit) ? u.audit : []}));
+      /* Hợp nhất taxonomy: map loại bằng chứng đã lưu về bộ 99_LISTS khi đọc
+         ('Export'/'Verified source' -> 'Fact', 'Proxy' giữ nguyên; giá trị
+         khác — gồm 'Partner cung cấp' chiều loại bằng chứng — giữ nguyên). */
+      .map(u => ({...u, evidenceType: normalizeMarketEvidenceType(u.evidenceType), audit: Array.isArray(u.audit) ? u.audit : []}));
     return {...x, requests, marketUpdates};
   }
   function write(s) { localStorage.setItem(KEY,JSON.stringify(s)); }
@@ -436,7 +461,7 @@
     const catField=nameRec
       ? `<input type="hidden" name="category" value="${esc(catVal)}"><label>Nhóm (tự động theo mechanic)<select name="categoryLocked" disabled>${options(['Puzzle','Simulation'],catVal)}</select></label>`
       : `<label>Nhóm<select name="category">${options(['Puzzle','Simulation'],catVal)}</select></label><span data-category-lock hidden></span>`;
-    showDialog(head(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường')+`<form id="marketForm"><div class="dialog-body"><p class="mut">Thêm bản quan sát có ngày và nguồn. Snapshot gốc luôn giữ lại. Dữ liệu mới không tự kế thừa concentration, growth hoặc CPI của ngày cũ.</p><div class="fields">${nameField}${catField}${field('date','Ngày snapshot','','date','required')}${selectLegacy('geo','Thị trường',GEO_LIST,old?.geo||'US')}${selectLegacy('platform','Nền tảng',['Android','iOS','Android + iOS'],old?.platform||'')}${field('downloads','Downloads / ngày','','number','min="0" step="any"')}${field('revenue','Revenue USD / ngày','','number','min="0" step="any"')}${field('url','Source URL','','url','required')}${memberField('by','Người cập nhật',null,'',{required:true})}${selectLegacy('confidence','Confidence',[['1','1'],['2','2'],['3','3'],['4','4'],['5','5']],old?.confidence!=null?String(old.confidence):'','required')}${select('evidenceType','Loại bằng chứng',['Export','Verified source','Partner cung cấp','Proxy'],'Export')}${area('note','Phạm vi / phương pháp / ghi chú')}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Lưu quan sát</button></div></form>`);
+    showDialog(head(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường')+`<form id="marketForm"><div class="dialog-body"><p class="mut">Thêm bản quan sát có ngày và nguồn. Snapshot gốc luôn giữ lại. Dữ liệu mới không tự kế thừa concentration, growth hoặc CPI của ngày cũ.</p><div class="fields">${nameField}${catField}${field('date','Ngày snapshot','','date','required')}${selectLegacy('geo','Thị trường',GEO_LIST,old?.geo||'US')}${selectLegacy('platform','Nền tảng',['Android','iOS','Android + iOS'],old?.platform||'')}${field('downloads','Downloads / ngày','','number','min="0" step="any"')}${field('revenue','Revenue USD / ngày','','number','min="0" step="any"')}${field('url','Source URL','','url','required')}${memberField('by','Người cập nhật',null,'',{required:true})}${selectLegacy('confidence','Confidence',[['1','1'],['2','2'],['3','3'],['4','4'],['5','5']],old?.confidence!=null?String(old.confidence):'','required')}${selectLegacy('evidenceType','Loại bằng chứng',EVIDENCE_TYPES,old?.evidenceType||'Fact')}${area('note','Phạm vi / phương pháp / ghi chú')}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Lưu quan sát</button></div></form>`);
   }
   function submitMarket(e) {
     e.preventDefault();const form=e.target,d=new FormData(form),s=read();
@@ -624,7 +649,7 @@
   }
   function renderFramework() {
     const weights = rows => rows.map(([k,t,w])=>`<div class="weight-row"><span>${esc(t)}</span><b>${w}%</b></div>`).join('');
-    $('#screen').innerHTML=`<div class="rule-grid"><section class="panel"><p class="eyebrow">GAME · 10_SCORECARD</p><h3>Market Score · 40% Final</h3>${weights(F.market)}<div class="formula">Market = Σ(điểm 1–5 × trọng số) / 5</div><h3 class="section">Prototype Score · 60% Final</h3>${weights(F.prototype)}<div class="formula">Final = Market × 0.4 + Prototype × 0.6</div><p class="mut">Data completeness = số input hợp lệ / 15 (8 Market + 6 Prototype + Evidence Quality). Ngưỡng 80%. Thiếu điểm giữ trống, không tự điền 3.</p><div class="chips">${badge('≥80 GREENLIGHT')}${badge('65–<80 TEST MORE')}${badge('<65 NO-GO')}</div><p class="mut">Hard Gate FAIL → NO-GO; Pending → HOLD; thiếu dữ liệu → HOLD. Điểm từng tiêu chí do MKT nhập theo bằng chứng; tổng điểm tự tính, không suy điểm từ doanh thu đơn lẻ.</p></section><section class="panel"><p class="eyebrow">COMPANY · 04_SCORECARD</p><h3>Partner Fit · không gồm Deal Fit</h3>${weights(F.partner)}<div class="formula">Partner Fit = ROUND((Track×10 + Team×15 + Production×15 + Data×10 + Hợp tác×15 + Strategic×15 + Long-term×10) / 5 / 90 × 100, 1)</div><p class="mut">Tổng trọng số nguồn là 90 sau khi bỏ Deal Fit. Điểm pillar lấy từ entries đã lưu; điểm Production = trung bình 4 ô con Capacity/Cadence/Milestone/LiveOps (đủ 4 mới tính, không làm tròn trung gian); thiếu một ô con → Production = NE. Chỉ tính Partner Fit khi đủ 7 pillar, làm tròn 1 chữ số ở bước cuối.</p><div class="chips">${badge('≥85 Ưu tiên')}${badge('75–<85 Đạt')}${badge('65–<75 Có điều kiện')}${badge('<65 Cần xem xét')}</div><h3 class="section">Hard Gate và Minimum Evidence</h3>${F.gates.map(([,t])=>`<div class="weight-row">${esc(t)}</div>`).join('')}<p class="mut">Hard Gate 6 cổng: có 1 cổng “Không đạt” → KHÔNG ĐẠT; đủ 6 cổng “Đạt” → ĐẠT; còn lại → CHỜ XÁC MINH. Kết luận: KHÔNG ĐẠT → Bị chặn; CHỜ XÁC MINH → Chờ xác minh; Minimum Evidence Gate chưa ĐẠT → Thiếu Evidence; còn lại lấy theo phân loại Partner Fit.</p><p class="mut">Evidence coverage tính trên 11 mục (7 pillar + 4 ô con Production: Capacity/Cadence/Milestone/LiveOps), chỉ mục “Đã xác minh” mới tính. Confidence: coverage ≥90% Cao, 60–89% Trung bình, &lt;60% Thấp. Minimum Evidence Gate = ĐẠT khi coverage ≥80% (quy tắc CRM áp theo ngưỡng 80% của khung game; file 2 không cho số cụ thể). Deal Fit chấm riêng 1–5, không cộng vào Partner Fit. Module Publishing và giao diện BD dùng chung một implementation PartnerEval (shared.js), không còn hai bộ quy tắc.</p></section></div><section class="panel"><h3>Nguồn và cách xử lý khác biệt trong file</h3><p class="sub">SAVA_Mobile_Game_Decision.xlsx: 10_SCORECARD!B4:B11, E4:E9, I4:I8 và các sheet thị trường. Publishing_Partner_Selection_Playbook.xlsx: 02_Hard_Gate, 03_Evidence, 04_Scorecard!D7:K7, L9:N9.</p><p class="sub">Sheet 05_Decision còn mô tả cũ gồm Deal 10%; bản này dùng công thức Partner Fit mới tại 04_Scorecard, loại Deal Fit và chuẩn hóa 90 → 100. Workbook game cho phép công thức tạm khi thiếu input; hệ thống giữ HOLD khi thiếu một nhóm điểm. Các kiểm tra bắt buộc ghi nguồn/bằng chứng là điều kiện bổ sung khi nhập liệu, không thay trọng số.</p><p class="sub">Khung Partner Fit này dành cho studio/indie. Publisher không dùng bộ năng lực sản xuất này. Không nhập Partner Master, deal, decision hay điểm đánh giá mẫu của các file. Đánh giá cũ /10 trong CRM giữ làm lịch sử; không tự quy đổi sang thang /5.</p></section>`;
+    $('#screen').innerHTML=`<div class="rule-grid"><section class="panel"><p class="eyebrow">GAME · 10_SCORECARD</p><h3>Market Score · 40% Final</h3>${weights(F.market)}<div class="formula">Market = Σ(điểm 1–5 × trọng số) / 5</div><h3 class="section">Prototype Score · 60% Final</h3>${weights(F.prototype)}<div class="formula">Final = Market × 0.4 + Prototype × 0.6</div><p class="mut">Data completeness = số input hợp lệ / 15 (8 Market + 6 Prototype + Evidence Quality). Ngưỡng 80%. Thiếu điểm giữ trống, không tự điền 3.</p><div class="chips">${badge('≥80 GREENLIGHT')}${badge('65–<80 TEST MORE')}${badge('<65 NO-GO')}</div><p class="mut">Hard Gate FAIL → NO-GO; Pending → HOLD; thiếu dữ liệu → HOLD. Điểm từng tiêu chí do MKT nhập theo bằng chứng; tổng điểm tự tính, không suy điểm từ doanh thu đơn lẻ.</p></section><section class="panel"><p class="eyebrow">COMPANY · 04_SCORECARD</p><h3>Partner Fit · không gồm Deal Fit</h3>${weights(F.partner)}<div class="formula">Partner Fit = ROUND((Track×10 + Team×15 + Production×15 + Data×10 + Hợp tác×15 + Strategic×15 + Long-term×10) / 5 / 90 × 100, 1)</div><p class="mut">Tổng trọng số nguồn là 90 sau khi bỏ Deal Fit. Điểm pillar lấy từ entries đã lưu; điểm Production = trung bình 4 ô con Capacity/Cadence/Milestone/LiveOps (đủ 4 mới tính, không làm tròn trung gian); thiếu một ô con → Production = NE. Chỉ tính Partner Fit khi đủ 7 pillar, làm tròn 1 chữ số ở bước cuối.</p><div class="chips">${badge('≥85 Ưu tiên')}${badge('75–<85 Đạt')}${badge('65–<75 Có điều kiện')}${badge('<65 Cần xem xét')}</div><h3 class="section">Hard Gate và Minimum Evidence</h3>${F.gates.map(([,t])=>`<div class="weight-row">${esc(t)}</div>`).join('')}<p class="mut">Hard Gate 6 cổng: có 1 cổng “Không đạt” → KHÔNG ĐẠT; đủ 6 cổng “Đạt” → ĐẠT; còn lại → CHỜ XÁC MINH. Kết luận: KHÔNG ĐẠT → Bị chặn; CHỜ XÁC MINH → Chờ xác minh; Minimum Evidence Gate chưa ĐẠT → Thiếu Evidence; còn lại lấy theo phân loại Partner Fit.</p><p class="mut">Evidence coverage tính trên 11 mục (7 pillar + 4 ô con Production: Capacity/Cadence/Milestone/LiveOps), chỉ mục “Đã xác minh” mới tính; mục “N/A” (không áp dụng) bị loại khỏi mẫu số. Trạng thái xác minh dùng thang hợp nhất: Thiếu → Chưa rõ → Đã trao đổi → Đối tác đã gửi → Đã xác minh, cộng “N/A”. Confidence: coverage ≥90% Cao, 60–89% Trung bình, &lt;60% Thấp. Minimum Evidence Gate = ĐẠT khi coverage ≥80% (quy tắc CRM áp theo ngưỡng 80% của khung game; file 2 không cho số cụ thể). Deal Fit chấm riêng 1–5, không cộng vào Partner Fit. Module Publishing và giao diện BD dùng chung một implementation PartnerEval (shared.js), không còn hai bộ quy tắc.</p></section></div><section class="panel"><h3>Nguồn và cách xử lý khác biệt trong file</h3><p class="sub">SAVA_Mobile_Game_Decision.xlsx: 10_SCORECARD!B4:B11, E4:E9, I4:I8 và các sheet thị trường. Publishing_Partner_Selection_Playbook.xlsx: 02_Hard_Gate, 03_Evidence, 04_Scorecard!D7:K7, L9:N9.</p><p class="sub">Sheet 05_Decision còn mô tả cũ gồm Deal 10%; bản này dùng công thức Partner Fit mới tại 04_Scorecard, loại Deal Fit và chuẩn hóa 90 → 100. Workbook game cho phép công thức tạm khi thiếu input; hệ thống giữ HOLD khi thiếu một nhóm điểm. Các kiểm tra bắt buộc ghi nguồn/bằng chứng là điều kiện bổ sung khi nhập liệu, không thay trọng số.</p><p class="sub">Khung Partner Fit này dành cho studio/indie. Publisher không dùng bộ năng lực sản xuất này. Không nhập Partner Master, deal, decision hay điểm đánh giá mẫu của các file. Đánh giá cũ /10 trong CRM giữ làm lịch sử; không tự quy đổi sang thang /5.</p></section>`;
   }
   document.addEventListener('click',e=>{
     const b=e.target.closest('button');
@@ -679,7 +704,7 @@
     }
     if(e.target.closest('.criterion')){
       const box=e.target.closest('.criterion'),scoreEl=box.querySelector('input[name^="s_"]'),statusEl=box.querySelector('select[name^="t_"]');
-      if(scoreEl&&statusEl){const v=scoreEl.value===''?null:Number(scoreEl.value);box.querySelector('summary b').textContent=F.valid(v)&&F.statuses.slice(1,4).includes(statusEl.value)?num(v,1)+'/5':'NE';}
+      if(scoreEl&&statusEl){const v=scoreEl.value===''?null:Number(scoreEl.value);box.querySelector('summary b').textContent=F.valid(v)&&F.scorableStatuses.includes(statusEl.value)?num(v,1)+'/5':'NE';}
     }
   });
   addEventListener('storage',e=>{if([KEY,STORE_KEY].includes(e.key)&&!$('#editor').open)render();});

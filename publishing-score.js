@@ -6,10 +6,27 @@
   const partner = [['track','Track Record',10],['team','Năng lực Team',15],['production','Production & Execution',15],['data','Data & Tech',10],['collaboration','Hợp tác',15],['strategy','Strategic Fit',15],['pipeline','Tiềm năng Long-term',10]];
   const production = [['capacity','Production Capacity'],['cadence','Development Cadence'],['milestone','Milestone Reliability'],['liveops','LiveOps Scalability']];
   const gates = [['legal','Pháp lý / Hợp đồng'],['ip','Quyền sở hữu IP / source code'],['conflict','Xung đột Publisher'],['transparency','Minh bạch Data'],['continuity','Tính liên tục của team'],['integrity','Uy tín / Compliance']];
-  const statuses = ['Thiếu','Đã trao đổi','Partner cung cấp','Đã xác minh','N/A'];
+  /* Thang trạng thái xác minh HỢP NHẤT: hằng chuẩn nằm ở shared.js
+     (EVIDENCE_STATUSES, nạp trước file này trong mọi trang). Khi chạy độc lập
+     (Node test require riêng file này, không có shared.js) mới dùng danh sách
+     dự phòng — PHẢI giống hệt hằng ở shared.js (test kiểm chứng khớp). */
+  const statuses = (root && Array.isArray(root.EVIDENCE_STATUSES) && root.EVIDENCE_STATUSES)
+    || (root && root.PartnerEval && Array.isArray(root.PartnerEval.EVIDENCE_STATUSES) && root.PartnerEval.EVIDENCE_STATUSES)
+    || ['Thiếu','Chưa rõ','Đã trao đổi','Đối tác đã gửi','Đã xác minh','N/A'];
+  /* Đổi nhãn trạng thái cũ: "Partner cung cấp" -> "Đối tác đã gửi". */
+  const normalizeStatus = v => v === 'Partner cung cấp' ? 'Đối tác đã gửi' : v;
+  /* Tập trạng thái ĐỦ ĐIỀU KIỆN chấm điểm của hàm evidence() legacy.
+     Trước hợp nhất, evidence() dùng statuses.slice(1,4) trên thang cũ
+     ['Thiếu','Đã trao đổi','Partner cung cấp','Đã xác minh','N/A'] — tức đúng
+     3 trạng thái này. Thang hợp nhất đổi thứ tự (chèn "Chưa rõ" vào giữa) nên
+     slice theo vị trí sẽ SAI (mất "Đã xác minh", thừa "Chưa rõ"); vì vậy tập
+     đủ điều kiện được ghi TƯỜNG MINH để GIỮ NGUYÊN hành vi tính điểm legacy:
+     chỉ đổi tên "Partner cung cấp" -> "Đối tác đã gửi", normalizeStatus giúp
+     bản ghi còn nhãn cũ vẫn đủ điều kiện y hệt trước. */
+  const scorableStatuses = ['Đã trao đổi','Đối tác đã gửi','Đã xác minh'];
   const valid = n => typeof n === 'number' && Number.isFinite(n) && n >= 1 && n <= 5;
   const round = n => Math.round((n + Number.EPSILON) * 10) / 10;
-  const evidence = e => !!e && statuses.slice(1,4).includes(e.status) && !!String(e.note || '').trim() && !!String(e.source || '').trim();
+  const evidence = e => !!e && scorableStatuses.includes(normalizeStatus(e.status)) && !!String(e.note || '').trim() && !!String(e.source || '').trim();
   const score = e => evidence(e) && valid(e.score) ? e.score : null;
   function weighted(keys, entries) {
     const values = keys.map(([k]) => score(entries[k]));
@@ -38,11 +55,13 @@
     const partnerFit = vals.some(v => v === null) ? null : round(partner.reduce((s, [, , w], i) => s + vals[i] * w, 0) / 5 / 90 * 100);
     const hs = gates.map(([k]) => (raw && raw.hardGate && raw.hardGate[k] && raw.hardGate[k].status) || 'Chưa xác minh');
     const hardGate = hs.includes('Không đạt') ? 'KHÔNG ĐẠT' : hs.every(s => s === 'Đạt') ? 'ĐẠT' : 'CHỜ XÁC MINH';
-    let verified = 0;
-    partner.forEach(([k]) => { if (raw && raw.evidence && raw.evidence[k] && raw.evidence[k].status === 'Đã xác minh') verified++; });
-    production.forEach(([k]) => { if (raw && raw.evidence && raw.evidence.productionSubs && raw.evidence.productionSubs[k] && raw.evidence.productionSubs[k].status === 'Đã xác minh') verified++; });
-    const pct = round(verified / 11 * 100);
-    const coverage = { verified, total: 11, pct };
+    let verified = 0, excludedNA = 0;
+    partner.forEach(([k]) => { const st = raw && raw.evidence && raw.evidence[k] && normalizeStatus(raw.evidence[k].status); if (st === 'Đã xác minh') verified++; else if (st === 'N/A') excludedNA++; });
+    production.forEach(([k]) => { const st = raw && raw.evidence && raw.evidence.productionSubs && raw.evidence.productionSubs[k] && normalizeStatus(raw.evidence.productionSubs[k].status); if (st === 'Đã xác minh') verified++; else if (st === 'N/A') excludedNA++; });
+    /* Đồng bộ PartnerEval (shared.js): mục "N/A" loại khỏi mẫu số coverage. */
+    const coverageTotal = 11 - excludedNA;
+    const pct = coverageTotal > 0 ? round(verified / coverageTotal * 100) : 0;
+    const coverage = { verified, total: coverageTotal, totalItems: 11, excludedNA, pct };
     const confidence = pct >= 90 ? 'Cao' : pct >= 60 ? 'Trung bình' : 'Thấp';
     const evidenceGate = pct >= 80 ? 'ĐẠT' : 'CHƯA ĐẠT';
     const classification = partnerFit === null ? null : partnerFit >= 85 ? 'Ưu tiên' : partnerFit >= 75 ? 'Đạt' : partnerFit >= 65 ? 'Có điều kiện' : 'Cần xem xét';
@@ -78,7 +97,15 @@
        4 ô con); entry phụ (history/deal/legalEvidence) không thuộc 11 mục.
        Evidence của pillar Production suy từ 4 ô con: đủ 4 ô "Đã xác minh"
        thì pillar Production mới "Đã xác minh".
-     - Hard Gate chỉ theo value PASS/FAIL, không còn đòi note+source. */
+     - Hard Gate chỉ theo value PASS/FAIL, không còn đòi note+source.
+     - (Hợp nhất taxonomy) Trạng thái evidence của entry đi qua NGUYÊN VẸN
+       theo thang hợp nhất (kể cả các nấc giữa "Đã trao đổi" / "Đối tác đã
+       gửi" / "Chưa rõ" / "N/A") thay vì ép phẳng về "Chưa rõ" như trước;
+       nhãn cũ "Partner cung cấp" được normalizeStatus đổi thành
+       "Đối tác đã gửi". Pillar Production (suy từ 4 ô con, không có entry
+       riêng): đủ 4 ô "Đã xác minh" -> "Đã xác minh"; đủ 4 ô "N/A" -> "N/A"
+       (để mẫu số coverage trừ nhất quán với 4 ô con); còn lại "Chưa rõ"
+       như trước. */
   function company(a) {
     const src = a && typeof a === 'object' ? a : {};
     const e = src.entries || {};
@@ -94,12 +121,16 @@
       const v = gv && gv.value;
       hardGateRaw[k] = { status: v === 'PASS' ? 'Đạt' : v === 'FAIL' ? 'Không đạt' : 'Chưa xác minh', note: String((gv && gv.note) || '') };
     });
-    const evStatus = entry => (entry && entry.status === 'Đã xác minh') ? 'Đã xác minh' : 'Chưa rõ';
+    const evStatus = entry => {
+      const st = normalizeStatus(entry && entry.status);
+      return statuses.includes(st) ? st : 'Chưa rõ';
+    };
     const evidenceRaw = { productionSubs: {} };
     partner.forEach(([k]) => {
       if (k === 'production') {
-        const allVerified = production.every(([sk]) => e[sk] && e[sk].status === 'Đã xác minh');
-        evidenceRaw[k] = { status: allVerified ? 'Đã xác minh' : 'Chưa rõ', note: '' };
+        const allVerified = production.every(([sk]) => e[sk] && normalizeStatus(e[sk].status) === 'Đã xác minh');
+        const allNA = production.every(([sk]) => e[sk] && normalizeStatus(e[sk].status) === 'N/A');
+        evidenceRaw[k] = { status: allVerified ? 'Đã xác minh' : allNA ? 'N/A' : 'Chưa rõ', note: '' };
       } else {
         evidenceRaw[k] = { status: evStatus(e[k]), note: String((e[k] && e[k].note) || '') };
       }
@@ -341,7 +372,7 @@
       completenessTotal: (m.scoredWeight + pr.scoredWeight) / 200,
       decisionBlockedReason: final === null ? 'Thiếu Market hoặc Prototype nên chưa tính được Final' : !enough ? 'Completeness của Market/Prototype chưa đạt 80% nên chưa áp nhãn quyết định' : null};
   }
-  const api = {market,prototype,partner,production,gates,statuses,valid,evidence,score,game,company,version:'workbook-2026-10-28-v1',marketAuto,marketVersion,percentileRank,percentileToScore5,cpiBandFor,uaBandScore,marketVersion2,quartileScore5,marketSuggest,gameV2,validV2};
+  const api = {market,prototype,partner,production,gates,statuses,scorableStatuses,normalizeStatus,valid,evidence,score,game,company,version:'workbook-2026-10-28-v1',marketAuto,marketVersion,percentileRank,percentileToScore5,cpiBandFor,uaBandScore,marketVersion2,quartileScore5,marketSuggest,gameV2,validV2};
   root.PublishingScore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

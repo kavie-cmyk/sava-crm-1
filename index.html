@@ -714,7 +714,9 @@ const PE_GATES = window.PartnerEval.GATES.map(_peTuple);
 const PE_PILLARS = window.PartnerEval.PILLARS.map(_peTuple);
 const PE_PROD_SUBS = window.PartnerEval.PROD_SUBS.map(_peTuple);
 const PE_GATE_STATUSES = ["Đạt", "Không đạt", "Chưa xác minh"];
-const PE_EVIDENCE_STATUSES = ["Đã xác minh", "Thiếu", "Chưa rõ"];
+/* Thang trạng thái xác minh HỢP NHẤT: lấy thẳng từ hằng chung ở shared.js
+   (PartnerEval.EVIDENCE_STATUSES) — trang này không giữ bản sao riêng. */
+const PE_EVIDENCE_STATUSES = window.PartnerEval.EVIDENCE_STATUSES;
 const PE_EVIDENCE_TOTAL = 11; /* 7 pillar + 4 ô con Production */
 function peScoreOrNull(v) {
   if (v === "" || v === null || v === undefined) return null;

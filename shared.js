@@ -68,8 +68,22 @@ const PARTNER_GATES = [["legal", "Pháp lý / Hợp đồng"], ["ip", "Quyền s
 const PARTNER_PILLARS = [["track", "Track Record", 10], ["team", "Năng lực Team", 15], ["production", "Production & Execution", 15], ["data", "Data & Tech", 10], ["collaboration", "Hợp tác", 15], ["strategy", "Strategic Fit", 15], ["pipeline", "Tiềm năng Long-term", 10]];
 const PARTNER_PROD_SUBS = [["capacity", "Capacity"], ["cadence", "Cadence"], ["milestone", "Milestone"], ["liveops", "LiveOps"]];
 const PARTNER_GATE_STATUSES = ["Đạt", "Không đạt", "Chưa xác minh"];
-const PARTNER_EVIDENCE_STATUSES = ["Đã xác minh", "Thiếu", "Chưa rõ"];
-const PARTNER_EVIDENCE_TOTAL = 11; /* 7 pillar + 4 ô con Production */
+/* === Thang trạng thái xác minh evidence HỢP NHẤT (đợt hợp nhất taxonomy) ===
+   HẰNG DUY NHẤT cho trạng thái xác minh evidence trên toàn CRM: dùng cho
+   Partner (kho sava_crm_shared_v1, c.partnerEval) lẫn các entry đánh giá phía
+   Publishing (kho sava_publishing_v1, qua PublishingScore.statuses đọc từ đây
+   khi chạy trong trình duyệt). Thứ tự = tiến độ xác minh tăng dần, cộng trạng
+   thái đặc biệt "N/A" (không áp dụng) ở cuối.
+   - Nhãn cũ "Partner cung cấp" (chiều trạng thái) đã ĐỔI TÊN thành
+     "Đối tác đã gửi": normalizeEvidenceStatus() đổi nhãn khi đọc/ghi ở cả hai
+     kho nên dữ liệu lưu cũ tự chuyển, không còn nhãn cũ trong UI.
+   - Coverage CHỈ tính "Đã xác minh" (như trước); mục "N/A" bị LOẠI khỏi mẫu
+     số coverage thay vì tính như chưa xác minh như trước. */
+const EVIDENCE_STATUSES = ["Thiếu", "Chưa rõ", "Đã trao đổi", "Đối tác đã gửi", "Đã xác minh", "N/A"];
+const PARTNER_EVIDENCE_STATUSES = EVIDENCE_STATUSES;
+function normalizeEvidenceStatus(v) { return v === "Partner cung cấp" ? "Đối tác đã gửi" : v; }
+if (typeof window !== "undefined") { window.EVIDENCE_STATUSES = EVIDENCE_STATUSES; window.normalizeEvidenceStatus = normalizeEvidenceStatus; }
+const PARTNER_EVIDENCE_TOTAL = 11; /* 7 pillar + 4 ô con Production (mẫu số tối đa; "N/A" bị trừ ra khi tính coverage) */
 function partnerRound1(n) { return Math.round((n + Number.EPSILON) * 10) / 10; }
 function partnerScoreOrNull(v) {
   if (v === "" || v === null || v === undefined) return null;
@@ -99,7 +113,10 @@ function partnerEvalNormalize(raw) {
   PARTNER_PILLARS.forEach(([k]) => {
     const e = evIn[k];
     if (e && typeof e === "object") {
-      if (PARTNER_EVIDENCE_STATUSES.includes(e.status)) out.evidence[k].status = e.status;
+      /* Đổi nhãn trạng thái cũ "Partner cung cấp" -> "Đối tác đã gửi" khi nạp;
+         các nấc giữa của thang hợp nhất đi qua NGUYÊN VẸN (không ép phẳng). */
+      const st = normalizeEvidenceStatus(e.status);
+      if (PARTNER_EVIDENCE_STATUSES.includes(st)) out.evidence[k].status = st;
       out.evidence[k].note = String(e.note || "");
     }
   });
@@ -107,7 +124,8 @@ function partnerEvalNormalize(raw) {
   PARTNER_PROD_SUBS.forEach(([k]) => {
     const e = subsIn[k];
     if (e && typeof e === "object") {
-      if (PARTNER_EVIDENCE_STATUSES.includes(e.status)) out.evidence.productionSubs[k].status = e.status;
+      const st = normalizeEvidenceStatus(e.status);
+      if (PARTNER_EVIDENCE_STATUSES.includes(st)) out.evidence.productionSubs[k].status = st;
       out.evidence.productionSubs[k].note = String(e.note || "");
     }
   });
@@ -124,10 +142,14 @@ function partnerEvalCompute(raw) {
   const ev = partnerEvalNormalize(raw);
   const hs = PARTNER_GATES.map(([k]) => (ev.hardGate && ev.hardGate[k] && ev.hardGate[k].status) || "Chưa xác minh");
   const hardGate = hs.includes("Không đạt") ? "KHÔNG ĐẠT" : hs.every(s => s === "Đạt") ? "ĐẠT" : "CHỜ XÁC MINH";
-  let verified = 0;
-  PARTNER_PILLARS.forEach(([k]) => { if (ev.evidence && ev.evidence[k] && ev.evidence[k].status === "Đã xác minh") verified++; });
-  PARTNER_PROD_SUBS.forEach(([k]) => { if (ev.evidence && ev.evidence.productionSubs && ev.evidence.productionSubs[k] && ev.evidence.productionSubs[k].status === "Đã xác minh") verified++; });
-  const coverage = { verified, total: PARTNER_EVIDENCE_TOTAL, pct: partnerRound1(verified / PARTNER_EVIDENCE_TOTAL * 100) };
+  let verified = 0, excludedNA = 0;
+  PARTNER_PILLARS.forEach(([k]) => { const st = ev.evidence && ev.evidence[k] && ev.evidence[k].status; if (st === "Đã xác minh") verified++; else if (st === "N/A") excludedNA++; });
+  PARTNER_PROD_SUBS.forEach(([k]) => { const st = ev.evidence && ev.evidence.productionSubs && ev.evidence.productionSubs[k] && ev.evidence.productionSubs[k].status; if (st === "Đã xác minh") verified++; else if (st === "N/A") excludedNA++; });
+  /* Mẫu số coverage = 11 mục TRỪ các mục "N/A" (không áp dụng). Không còn mục
+     áp dụng nào (toàn bộ N/A) -> pct 0. Khi không có mục N/A nào, total vẫn 11
+     và pct y hệt cách tính trước hợp nhất. */
+  const coverageTotal = PARTNER_EVIDENCE_TOTAL - excludedNA;
+  const coverage = { verified, total: coverageTotal, totalItems: PARTNER_EVIDENCE_TOTAL, excludedNA, pct: coverageTotal > 0 ? partnerRound1(verified / coverageTotal * 100) : 0 };
   const confidence = coverage.pct >= 90 ? "Cao" : coverage.pct >= 60 ? "Trung bình" : "Thấp";
   const evidenceGate = coverage.pct >= 80 ? "ĐẠT" : "CHƯA ĐẠT";
   const vals = PARTNER_PILLARS.map(([k]) => partnerScoreOrNull(ev.scores ? ev.scores[k] : null));
@@ -147,7 +169,7 @@ function partnerEvalCompute(raw) {
   });
   return { hardGate, coverage, confidence, evidenceGate, partnerFit, classification, conclusion, strongest, weakest, dealFit: ev.dealFit, scores: ev.scores, productionScore: ev.scores.production };
 }
-if (typeof window !== "undefined") { window.PartnerEval = { GATES: PARTNER_GATES, PILLARS: PARTNER_PILLARS, PROD_SUBS: PARTNER_PROD_SUBS, empty: partnerEvalEmpty, normalize: partnerEvalNormalize, compute: partnerEvalCompute }; }
+if (typeof window !== "undefined") { window.PartnerEval = { GATES: PARTNER_GATES, PILLARS: PARTNER_PILLARS, PROD_SUBS: PARTNER_PROD_SUBS, EVIDENCE_STATUSES, EVIDENCE_TOTAL: PARTNER_EVIDENCE_TOTAL, normalizeStatus: normalizeEvidenceStatus, empty: partnerEvalEmpty, normalize: partnerEvalNormalize, compute: partnerEvalCompute }; }
 /* Tiêu chí MKT chấm game — khác bộ tiêu chí thẩm định của BD */
 const MKT_CRITERIA = [
   ["market", "Tiềm năng thị trường (độ lớn + đang hot?)"],
@@ -265,6 +287,18 @@ function migrateState(s) {
   }
   if (Array.isArray(s.deals)) s.deals.forEach(d => { if (d && typeof d === "object") { delete d.pubos; delete d.pubosPending; } });
   if (Array.isArray(s.games)) s.games.forEach(g => { if (g && typeof g === "object") delete g.pubos; });
+  /* Hợp nhất taxonomy evidence: đổi nhãn trạng thái lưu trữ cũ
+     "Partner cung cấp" -> "Đối tác đã gửi" ngay trên c.partnerEval (kho CRM)
+     mỗi lần migrateState chạy (đọc/ghi) — idempotent, chỉ đụng đúng field
+     status của evidence pillar + ô con Production. Kho Publishing
+     (sava_publishing_v1) được đổi nhãn ở publishing.js read()/normalizeRevision. */
+  if (Array.isArray(s.companies)) s.companies.forEach(c => {
+    const evd = c && typeof c === "object" && c.partnerEval && typeof c.partnerEval === "object" ? c.partnerEval.evidence : null;
+    if (!evd || typeof evd !== "object") return;
+    Object.values(evd).forEach(e => { if (e && typeof e === "object" && typeof e.status === "string") e.status = normalizeEvidenceStatus(e.status); });
+    const subs = evd.productionSubs;
+    if (subs && typeof subs === "object") Object.values(subs).forEach(e => { if (e && typeof e === "object" && typeof e.status === "string") e.status = normalizeEvidenceStatus(e.status); });
+  });
   if (!Array.isArray(s.companies)) s.companies = [];
   if (!Array.isArray(s.deals)) s.deals = [];
   if (!Array.isArray(s.leads)) s.leads = [];
