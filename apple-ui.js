@@ -75,7 +75,6 @@
       if (el === drawer) window.closeDrawer();
       else if (el.id === 'modal') window.closeAdd();
       else if (el.id === 'editModal') window.closeEdit();
-      else if (el.id === 'pubosModal') window.PubOS?.closeConnectModal();
       else el.classList.remove('on');
     }
 

@@ -95,13 +95,16 @@ publisher capability without a separate approved rubric.
 `sava_publishing_v1` stores assessments and market updates separately from
 `sava_crm_shared_v1`, so legacy CRM saves cannot erase assessments. Browser tabs
 on the same origin share it; different devices/users do not. No test writes are
-sent to Supabase. Existing `pubos.js` behavior is unchanged.
+sent to Supabase. `pubos.js` was removed on 2026-10-28: the CRM is now
+standalone, with no connection to the old Publishing OS, and the internal
+publishing module in this repo is the sole source for Publishing assessments.
 
 Role-based page controls are workflow separation, **not server authorization**.
 The page explains this. No claim is made that Supabase RLS or BD/MKT account
 roles have been installed. Real multi-device collaboration still requires access
 to the correct Supabase project, migrations, role mapping, server policies and a
-data migration. New results are not automatically pushed to the old Publishing OS.
+data migration. Results stay in this CRM and are not pushed to the old
+Publishing OS (that connection was removed on 2026-10-28, see above).
 
 ## Validation
 

@@ -1,7 +1,8 @@
 /* Sava Meta CRM — dữ liệu + hàm dùng chung cho cả 2 giao diện (BD & MKT).
    Hai trang cùng origin nên dùng chung 1 kho localStorage:
    BD tạo game/deal -> MKT thấy game chờ đánh giá -> MKT chấm -> BD thấy kết quả.
-   Khi nối Supabase, chỉ cần thay loadState/storeState bằng gọi API, cấu trúc dữ liệu giữ nguyên. */
+   Kết nối Publishing OS cũ (pubos.js) đã gỡ ngày 28/10/2026 — CRM hiện độc lập trên localStorage.
+   Nếu sau này nối backend, chỉ cần thay loadState/storeState bằng gọi API, cấu trúc dữ liệu giữ nguyên. */
 const STORE_KEY = "sava_crm_shared_v1";
 const GAME_LINES = ["game_studio", "publishing"];
 function isGameDeal(d) { return GAME_LINES.includes(d.line); }
@@ -111,6 +112,12 @@ function seed() { return {
    đã chủ động gỡ công ty (vd xóa công ty) nên KHÔNG tự tạo lại công ty. */
 function migrateState(s) {
   if (!s || typeof s !== "object") return seed();
+  /* Strip di sản Publishing OS (pubos.js đã gỡ 28/10/2026): chỉ xóa đúng các key
+     pubos/pubosPending trên deal, pubos trên game và pubosWithdrawals ở state gốc.
+     Chạy mỗi lần load qua migrateState — idempotent, không đụng dữ liệu khác. */
+  delete s.pubosWithdrawals;
+  if (Array.isArray(s.deals)) s.deals.forEach(d => { if (d && typeof d === "object") { delete d.pubos; delete d.pubosPending; } });
+  if (Array.isArray(s.games)) s.games.forEach(g => { if (g && typeof g === "object") delete g.pubos; });
   if (!Array.isArray(s.companies)) s.companies = [];
   if (!Array.isArray(s.deals)) s.deals = [];
   if (!Array.isArray(s.leads)) s.leads = [];

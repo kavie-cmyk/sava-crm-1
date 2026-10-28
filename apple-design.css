@@ -36,10 +36,6 @@ button:disabled { cursor: default; }
 .nav button.on { color: #08768a; background: #ffffffed; box-shadow: 0 2px 6px #18313806; font-weight: 650; }
 .nav button.on::before { content: ''; position: absolute; width: 3px; height: 18px; background: #07869b; left: -3px; border-radius: 4px; }
 .nav button.on svg { stroke-width: 2; }
-#pubosBox { margin: 26px 4px 20px; padding: 14px 10px !important; border: 1px solid #dce2e6 !important; border-radius: 11px; background: #ffffff45; }
-#pubosBox > div { color: #5f6b76 !important; font-size: .7rem !important; overflow-wrap: anywhere; }
-#pubosBox > div:first-child b { display: block; color: #36424b; font-size: .75rem; margin-bottom: 3px; }
-#pubosBox > button { min-height: 36px; width: 100%; background: #e2f0f3 !important; color: #076f82 !important; border: 1px solid #c8e0e5 !important; border-radius: 8px !important; padding: 7px 8px !important; }
 .side .foot { padding: 0 8px; font-size: .7rem; line-height: 1.6; color: #737c86; }
 .side .foot a { display: flex !important; align-items: center; gap: 8px; min-height: 40px; font-weight: 550 !important; padding: 8px 0 !important; background: transparent !important; color: #586570 !important; font-size: .71rem !important; line-height: 1.5; text-decoration: none; }
 .side .foot a:hover { color: #08768a !important; }

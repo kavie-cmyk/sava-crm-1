@@ -21,7 +21,7 @@ game BD mang về xuất hiện trong hàng chờ của MKT; MKT chấm xong, BD
 
 Prototype tương tác được (kéo-thả pipeline, chuyển stage, chuyển lead thành deal,
 sửa term + link HĐ, chấm điểm game) với **dữ liệu mẫu**, chưa nối backend.
-Thiết kế bản thật (Supabase Free): xem thư mục tài liệu đi kèm ngoài repo —
+CRM hiện độc lập, chưa nối backend (kết nối Publishing OS cũ qua `pubos.js` đã gỡ ngày 28/10/2026; đánh giá Publishing tích hợp ngay trong CRM). Thiết kế bản thật dự kiến (Supabase Free, chưa triển khai): xem thư mục tài liệu đi kèm ngoài repo —
 `CRM-PHAC-THAO.md`, `schema.sql`, `schema-v02-addon.sql`, `schema-v03-addon.sql`.
 
 ## Chạy thử
