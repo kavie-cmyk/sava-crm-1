@@ -1,11 +1,16 @@
-/* Partner Eval (khung Partner gắn vào hồ sơ công ty, drawer trong index.html).
-   Sau hợp nhất, khối PARTNER EVAL trong index.html chỉ DELEGATE sang
-   window.PartnerEval — implementation Partner DUY NHẤT nằm ở shared.js.
-   Harness vì vậy nạp THẬT shared.js vào một vm context (window trỏ về chính
-   context đó để shared.js gắn window.PartnerEval như trong trình duyệt) rồi
-   mới trích logic/UI từ index.html và chạy với window.PartnerEval THẬT đó —
-   không stub số liệu/logic Partner giả. Smoke UI vẫn dùng stub tối thiểu cho
-   esc/ownerSel/memberName/S/LINES (hàm môi trường của trang, không phải logic Partner). */
+/* Partner Eval (khung Partner cho hồ sơ công ty).
+   Sau hợp nhất + tách giao diện đánh giá:
+   - Implementation Partner DUY NHẤT là window.PartnerEval trong shared.js;
+     index.html chỉ còn các delegate pe* (khối PARTNER EVAL LOGIC) phục vụ
+     nhãn/one-pager, KHÔNG còn form chấm Partner (peSummaryHTML /
+     partnerEvalSection / savePartnerEval và mọi id pe_* đã gỡ có chủ đích).
+   - Bề mặt BD (badge, khối tóm tắt drawer, one-pager) đọc dữ liệu canonical
+     qua PublishingBridge.partnerSummary() — test smoke UI bên dưới stub đúng
+     1 điểm chạm đó (PublishingBridge) bằng tóm tắt suy từ peCompute THẬT,
+     còn mọi logic Partner vẫn chạy trên shared.js thật.
+   - Migration c.partnerEval -> request kind=company được kiểm ở mức hàm:
+     nạp publishing-bridge.js THẬT vào vm (localStorage stub) và gọi
+     migratePartnerLegacy() trực tiếp. */
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
@@ -31,18 +36,30 @@ const uiCode = extract('/* === PARTNER EVAL UI START === */', '/* === PARTNER EV
 const escStub = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const SStub = { members: [{ id: 'mai', name: 'Mai', role: 'MKT', active: true }], deals: [], games: [] };
 const memberNameStub = (s, id) => { const m = (s.members || []).find(x => x.id === id); return m ? m.name : '—'; };
-const ownerSelStub = (id, cur) => `<select id="${id}"><option value="">— Chưa gán —</option>${cur ? `<option value="${cur}" selected>${cur}</option>` : ''}</select>`;
-const LINESStub = { publishing: { name: 'Publishing', color: '#0ea5e9' } };
+const fmtStampStub = v => v || '—';
+const fmtNum1Stub = n => (n === null || n === undefined || !Number.isFinite(Number(n))) ? '—' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
+const isStudioCompanyStub = c => !!(c && c.roles && c.roles.publishing) && !/publisher/i.test(c.type || '');
+const compStub = id => SStub.companies ? SStub.companies.find(c => c.id === id) : undefined;
+
+/* Tóm tắt canonical stub cho UI: hình dạng đúng partnerSummary() của bridge,
+   số liệu suy từ peCompute THẬT trên fixture chuẩn (xem makeEval bên dưới).
+   `bridgeSummary` được gán sau khi peCompute sẵn sàng (hoist qua biến let). */
+let bridgeSummary = null;
+const bridgeStub = { partnerSummary: () => bridgeSummary };
+
 /* window được truyền vào là window THẬT chứa PartnerEval vừa nạp từ shared.js;
    khối logic trích từ index.html delegate sang đó (đúng như runtime trình duyệt:
-   shared.js nạp trước script inline của index.html). */
-const api = new Function('esc', 'ownerSel', 'memberName', 'S', 'LINES', 'window',
+   shared.js nạp trước script inline của index.html). Khối UI chỉ đọc qua
+   window.PublishingBridge.partnerSummary (điểm chạm canonical duy nhất). */
+const api = new Function('esc', 'memberName', 'S', 'LINES', 'window', 'isStudioCompany', 'fmtStamp', 'fmtNum1', 'comp',
   logicCode + '\n' + uiCode +
   /* Khối logic hợp nhất chỉ còn export peEmptyEval/peNormalize/peCompute (+ hằng PE_*);
      các helper rời peHardGate/peCoverage/peConfidence/peEvidenceGate/pePartnerFit/peClassify
-     của bản cũ không còn tồn tại — mọi khẳng định bên dưới đi qua peCompute THẬT. */
-  '\n;return {PE_GATES,PE_PILLARS,PE_PROD_SUBS,PE_EVIDENCE_TOTAL,peEmptyEval,peNormalize,peCompute,peSummaryHTML,partnerEvalSection,partnerEvalBadge,partnerPagerHTML};'
-)(escStub, ownerSelStub, memberNameStub, SStub, LINESStub, { PartnerEval: realPartnerEval });
+     của bản cũ không còn tồn tại — mọi khẳng định bên dưới đi qua peCompute THẬT.
+     Khối UI nay export partnerEvalBadge/partnerSummaryBlockHTML/partnerPagerHTML
+     (chỉ đọc canonical); form chấm peSummaryHTML/partnerEvalSection đã gỡ. */
+  '\n;return {PE_GATES,PE_PILLARS,PE_PROD_SUBS,PE_EVIDENCE_TOTAL,peEmptyEval,peNormalize,peCompute,partnerEvalBadge,partnerSummaryBlockHTML,partnerPagerHTML};'
+)(escStub, memberNameStub, SStub, { publishing: { name: 'Publishing', color: '#0ea5e9' } }, { PartnerEval: realPartnerEval, PublishingBridge: bridgeStub }, isStudioCompanyStub, fmtStampStub, fmtNum1Stub, compStub);
 const { peCompute } = api;
 /* Mảng PE_* sinh từ vm context của shared.js mang prototype của realm đó ->
    deepStrictEqual ở các test dưới fail oan ("same structure but not reference-equal").
@@ -64,6 +81,21 @@ function makeEval({ gateStatus = 'Đạt', failGate = null, verifiedCount = 11, 
   ev.scores = { ...scores };
   ev.dealFit = dealFit;
   return ev;
+}
+
+/* Tóm tắt canonical tương đương fixture chuẩn, theo đúng hình dạng bridge:
+   computed mang partnerFit/classification/conclusion/hardGate/coveragePct/
+   confidence/evidenceGate/dealFit như adapter PublishingScore.company trả. */
+{
+  const c = peCompute(makeEval());
+  bridgeSummary = {
+    exists: true, requestId: 'REV-test', status: 'Hoàn tất', versions: 2,
+    computed: { partnerFit: c.partnerFit, classification: c.classification, conclusion: c.conclusion, hardGate: c.hardGate, coveragePct: c.coverage.pct, confidence: c.confidence, evidenceGate: c.evidenceGate, dealFit: c.dealFit },
+    dealFit: c.dealFit, pillars: { ...FIXTURE_SCORES },
+    strongest: c.strongest, weakest: c.weakest,
+    strengths: '', risks: 'Team mỏng, phụ thuộc 2 dev chính', weak: 'Team mỏng, phụ thuộc 2 dev chính',
+    next: 'Theo dõi capacity trong project hiện tại', reviewer: 'mai', date: '2026-11-01', current: null,
+  };
 }
 
 test('nhãn 6 cổng Hard Gate + 7 pillar + 4 ô con Production khớp khung gốc', () => {
@@ -159,41 +191,79 @@ test('peNormalize chịu được dữ liệu thiếu / hỏng', () => {
   assert.equal(n.hardGate.legal.status, 'Chưa xác minh');
 });
 
-test('smoke UI: section drawer + badge + one-pager render đúng khung', () => {
-  const company = { id: 'cx', name: 'Studio Kiểm Chứng', type: 'Game studio', contact: 'An — Founder', phone: '090x', roles: { publishing: 'Game studio' }, partnerEval: makeEval({}) };
-  company.partnerEval.notesWeak = 'Team mỏng, phụ thuộc 2 dev chính';
-  company.partnerEval.nextAction = 'Theo dõi capacity trong project hiện tại';
-  company.partnerEval.reviewer = 'mai';
-  company.partnerEval.reviewDate = '2026-11-01';
-  const section = api.partnerEvalSection(company);
-  for (const needle of ['Đánh giá Partner', 'Pháp lý / Hợp đồng', 'Tính liên tục của team', 'Uy tín / Compliance',
-    'id="pe_gate_legal_s"', 'id="pe_ev_track_s"', 'id="pe_ev_sub_capacity_s"', 'id="pe_ev_sub_liveops_s"',
-    'id="pe_sc_track"', 'id="pe_dealfit"', 'id="pe_weak"', 'id="pe_next"', 'id="pe_date"', 'id="pe_reviewer"',
-    'Lưu đánh giá Partner', 'One-pager quyết định', '11 mục', '80%', 'KHÔNG vào tổng']) {
-    assert.ok(section.includes(needle), 'section thiếu: ' + needle);
-  }
-  assert.match(section, /Partner Fit: 75\.0 \/ 100/);
-  assert.match(section, /Kết luận: Đạt/);
+test('smoke UI canonical: badge + tóm tắt drawer + one-pager đọc qua PublishingBridge.partnerSummary', () => {
+  const company = { id: 'cx', name: 'Studio Kiểm Chứng', type: 'Game studio', contact: 'An — Founder', phone: '090x', roles: { publishing: 'Game studio' } };
   const badge = api.partnerEvalBadge(company);
   assert.match(badge, /Partner Fit 75\.0 · Đạt/);
+  const block = api.partnerSummaryBlockHTML(company);
+  for (const needle of ['Đánh giá Partner', 'Partner Fit: <b>75.0/100</b>', 'Kết luận: <b>Đạt</b>', 'Hard Gate: ĐẠT', 'Evidence: 100%',
+    'publishing.html?tab=reviews&amp;kind=company&amp;id=cx', 'One-pager quyết định']) {
+    assert.ok(block.includes(needle), 'khối tóm tắt thiếu: ' + needle);
+  }
+  /* Drawer công ty KHÔNG còn form chấm Partner: không input/select/textarea, không id pe_* */
+  assert.ok(!/<input|<select|<textarea/i.test(block), 'khối tóm tắt còn ô nhập form Partner');
+  assert.ok(!/pe_/.test(block), 'khối tóm tắt còn tham chiếu pe_*');
   const pager = api.partnerPagerHTML(company);
-  for (const needle of ['One-pager quyết định', 'Studio Kiểm Chứng', 'Hard Gate', 'Evidence Coverage', '100%', 'Minimum Evidence Gate',
+  for (const needle of ['One-pager quyết định', 'Studio Kiểm Chứng', 'Hard Gate', 'Evidence Coverage', '100%', '11/11 mục đã xác minh', 'Minimum Evidence Gate',
     'Track Record · 10%', 'Tiềm năng Long-term · 10%', 'Điểm mạnh', 'Năng lực Team', 'Team mỏng, phụ thuộc 2 dev chính',
     'Theo dõi capacity trong project hiện tại', 'Kết luận cuối: Đạt', 'Mai', '2026-11-01']) {
     assert.ok(pager.includes(needle), 'one-pager thiếu: ' + needle);
   }
-  /* Chưa đánh giá: badge rỗng, section báo chưa đánh giá; công ty ngoài Publishing không có section */
-  const fresh = { id: 'cy', name: 'Studio Chưa Chấm', type: 'Game studio', contact: '—', roles: { publishing: 'Game studio' } };
-  assert.equal(api.partnerEvalBadge(fresh), '');
-  assert.match(api.partnerEvalSection(fresh), /Chưa đánh giá partner/);
-  assert.equal(api.partnerEvalSection({ id: 'cz', name: 'DN AI', roles: { ai: 'Khách hàng' } }), '');
+  assert.match(pager, />75\.0</);
+  /* Công ty ngoài Publishing (không đủ điều kiện studio): không badge, không khối tóm tắt */
+  assert.equal(api.partnerEvalBadge({ id: 'cz', name: 'DN AI', roles: { ai: 'Khách hàng' } }), '');
+  assert.equal(api.partnerSummaryBlockHTML({ id: 'cz', name: 'DN AI', roles: { ai: 'Khách hàng' } }), '');
+});
+
+test('migration Partner legacy ở mức hàm: bridge thật chuyển c.partnerEval thành revision canonical, chạy 2 lần không nhân đôi', () => {
+  /* Môi trường vm tối thiểu cho publishing-bridge.js: localStorage stub +
+     addEventListener stub; document vắng mặt nên bridge bỏ qua nhánh DOM. */
+  const store = new Map();
+  const localStorageStub = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)); },
+    removeItem: k => { store.delete(k); },
+  };
+  const bCtx = vm.createContext({ console, localStorage: localStorageStub, addEventListener: () => {} });
+  bCtx.window = bCtx;
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared.js'), 'utf8'), bCtx, { filename: 'shared.js' });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'publishing-score.js'), 'utf8'), bCtx, { filename: 'publishing-score.js' });
+  const crmState = {
+    members: [], deals: [], games: [], leads: [], tasks: [], activities: [],
+    companies: [{ id: 'cmig', name: 'Studio Migration', type: 'Game studio', roles: { publishing: 'Game studio' }, contact: 'An', phone: '', last: '', partnerEval: makeEval({}) }],
+  };
+  bCtx.S = crmState;
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'publishing-bridge.js'), 'utf8'), bCtx, { filename: 'publishing-bridge.js' });
+  const bridge = bCtx.window.PublishingBridge;
+  assert.ok(bridge && typeof bridge.migratePartnerLegacy === 'function', 'bridge không phơi migratePartnerLegacy');
+  const r1 = bridge.migratePartnerLegacy();
+  assert.equal(r1.migrated, 1);
+  const pub = JSON.parse(store.get('sava_publishing_v1'));
+  const reqs = pub.requests.filter(r => r.kind === 'company' && r.entityId === 'cmig');
+  assert.equal(reqs.length, 1);
+  assert.equal(reqs[0].revisions.length, 1);
+  assert.equal(reqs[0].current.migratedFrom, 'bd-partnerEval');
+  /* Số canonical sau migration phải khớp fixture chuẩn qua adapter thật */
+  const computed = bCtx.window.PublishingScore.company(reqs[0].current);
+  assert.equal(computed.total, 75.0);
+  assert.equal(computed.conclusion, 'Đạt');
+  assert.equal(crmState.companies[0].partnerEvalMigrated, true);
+  /* Chạy lại: cờ đã đặt -> không thêm revision, không thêm request */
+  const r2 = bridge.migratePartnerLegacy();
+  assert.equal(r2.migrated, 0);
+  const pub2 = JSON.parse(store.get('sava_publishing_v1'));
+  assert.equal(pub2.requests.filter(r => r.kind === 'company' && r.entityId === 'cmig').length, 1);
+  assert.equal(pub2.requests[0].revisions.length, 1);
 });
 
 test('tích hợp tĩnh vào index.html + cú pháp mọi script inline', () => {
-  assert.ok(html.includes('${partnerEvalSection(c)}'), 'openCompany chưa gắn section Partner');
+  assert.ok(html.includes('${partnerSummaryBlockHTML(c)}'), 'openCompany chưa gắn khối tóm tắt Partner canonical');
   assert.ok(html.includes('partnerEvalBadge(c)'), 'vCompanies chưa gắn badge Partner');
   assert.ok(html.includes('id="partnerPager"'), 'thiếu modal one-pager');
-  assert.ok(html.includes('function savePartnerEval'), 'thiếu hàm lưu Partner Eval');
+  /* Form chấm Partner cũ đã gỡ có chủ đích — không được quay lại */
+  assert.ok(!html.includes('partnerEvalSection'), 'partnerEvalSection (đã gỡ) vẫn còn trong index.html');
+  assert.ok(!html.includes('function savePartnerEval'), 'savePartnerEval (đã gỡ) vẫn còn trong index.html');
+  assert.ok(!/id="pe_/.test(html), 'vẫn còn id pe_* trong index.html');
   const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(s => s.trim());
   assert.ok(blocks.length >= 2, 'không trích được script inline');
   blocks.forEach((code, i) => {
