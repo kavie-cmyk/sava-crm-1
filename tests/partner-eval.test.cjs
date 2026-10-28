@@ -90,7 +90,7 @@ function makeEval({ gateStatus = 'Đạt', failGate = null, verifiedCount = 11, 
   const c = peCompute(makeEval());
   bridgeSummary = {
     exists: true, requestId: 'REV-test', status: 'Hoàn tất', versions: 2,
-    computed: { partnerFit: c.partnerFit, classification: c.classification, conclusion: c.conclusion, hardGate: c.hardGate, coveragePct: c.coverage.pct, confidence: c.confidence, evidenceGate: c.evidenceGate, dealFit: c.dealFit },
+    computed: { partnerFit: c.partnerFit, classification: c.classification, conclusion: c.conclusion, hardGate: c.hardGate, coveragePct: c.coverage.pct, coverage: { verified: c.coverage.verified, total: c.coverage.total, excludedNA: c.coverage.excludedNA, pct: c.coverage.pct }, confidence: c.confidence, evidenceGate: c.evidenceGate, dealFit: c.dealFit },
     dealFit: c.dealFit, pillars: { ...FIXTURE_SCORES },
     strongest: c.strongest, weakest: c.weakest,
     strengths: '', risks: 'Team mỏng, phụ thuộc 2 dev chính', weak: 'Team mỏng, phụ thuộc 2 dev chính',
@@ -213,6 +213,41 @@ test('smoke UI canonical: badge + tóm tắt drawer + one-pager đọc qua Publi
   /* Công ty ngoài Publishing (không đủ điều kiện studio): không badge, không khối tóm tắt */
   assert.equal(api.partnerEvalBadge({ id: 'cz', name: 'DN AI', roles: { ai: 'Khách hàng' } }), '');
   assert.equal(api.partnerSummaryBlockHTML({ id: 'cz', name: 'DN AI', roles: { ai: 'Khách hàng' } }), '');
+});
+
+test('B1 (đợt 3): one-pager dùng số đếm evidence TRỰC TIẾP (verified/total/excludedNA) — 5 verified + 6 N/A in "5/5", không suy ngược từ % thành "11/11"', () => {
+  const company = { id: 'cx', name: 'Studio Kiểm Chứng', type: 'Game studio', contact: 'An — Founder', phone: '090x', roles: { publishing: 'Game studio' } };
+  const savedSummary = bridgeSummary;
+  try {
+    /* Fixture: coveragePct vẫn 100% (5/5 mục áp dụng) nhưng chỉ 5 verified và 6 mục N/A.
+       Bản cũ suy ngược Math.round(100*11/100) = 11 -> in sai "11/11". */
+    const ev = makeEval({});
+    const items = [...api.PE_PILLARS.map(([k]) => ev.evidence[k]), ...api.PE_PROD_SUBS.map(([k]) => ev.evidence.productionSubs[k])];
+    items.forEach((t, i) => { t.status = i < 5 ? 'Đã xác minh' : 'N/A'; });
+    const c = peCompute(ev);
+    assert.equal(c.coverage.verified, 5); assert.equal(c.coverage.total, 5); assert.equal(c.coverage.excludedNA, 6); assert.equal(c.coverage.pct, 100);
+    bridgeSummary = {
+      exists: true, requestId: 'REV-b1', status: 'Hoàn tất', versions: 1,
+      computed: { partnerFit: c.partnerFit, classification: c.classification, conclusion: c.conclusion, hardGate: c.hardGate, coveragePct: c.coverage.pct, coverage: { verified: c.coverage.verified, total: c.coverage.total, excludedNA: c.coverage.excludedNA, pct: c.coverage.pct }, confidence: c.confidence, evidenceGate: c.evidenceGate, dealFit: c.dealFit },
+      dealFit: c.dealFit, pillars: { ...FIXTURE_SCORES },
+      strongest: c.strongest, weakest: c.weakest, strengths: '', risks: '', weak: '', next: '', reviewer: 'mai', date: '2026-11-01', current: null,
+    };
+    const pager = api.partnerPagerHTML(company);
+    assert.ok(pager.includes('5/5 mục đã xác minh'), 'one-pager phải in "5/5 mục đã xác minh", nhận được: ' + pager.slice(pager.indexOf('Evidence Coverage'), pager.indexOf('Evidence Coverage') + 220));
+    assert.ok(pager.includes('6 mục N/A'), 'one-pager phải ghi chú 6 mục N/A');
+    assert.ok(!pager.includes('11/11'), 'one-pager không được còn "11/11" suy ngược từ phần trăm');
+    /* Đường đếm thẳng từ entries canonical (partnerSummary().current) khi computed không mang object coverage:
+       6 pillar trực tiếp + production suy từ 4 ô con + 4 ô con — dựng entries với 5 verified + 6 N/A tương đương. */
+    const entries = {};
+    ['track', 'team', 'data', 'collaboration', 'strategy'].forEach(k => { entries[k] = { status: 'Đã xác minh', note: '', source: '' }; });
+    entries.pipeline = { status: 'N/A', note: '', source: '' };
+    ['capacity', 'cadence', 'milestone', 'liveops'].forEach(k => { entries[k] = { status: 'N/A', note: '', source: '' }; });
+    /* production pillar: 4 ô con đều N/A -> N/A (mục thứ 6 bị loại) — tổng: 5 verified, 6 N/A, mẫu số 5 */
+    bridgeSummary = { ...bridgeSummary, computed: { ...bridgeSummary.computed, coverage: undefined }, current: { entries } };
+    const pager2 = api.partnerPagerHTML(company);
+    assert.ok(pager2.includes('5/5 mục đã xác minh'), 'đếm từ entries canonical phải ra "5/5 mục đã xác minh"');
+    assert.ok(!pager2.includes('11/11'));
+  } finally { bridgeSummary = savedSummary; }
 });
 
 test('migration Partner legacy ở mức hàm: bridge thật chuyển c.partnerEval thành revision canonical, chạy 2 lần không nhân đôi', () => {

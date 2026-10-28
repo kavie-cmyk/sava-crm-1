@@ -8,8 +8,11 @@
   const $ = s => document.querySelector(s);
   const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const num = (v,d=0) => typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString('en-US',{maximumFractionDigits:d}) : '—';
-  const pct = v => typeof v === 'number' ? num(v*100,1)+'%' : '—';
-  const usd = v => typeof v === 'number' ? '$'+num(v,2) : '—';
+  /* D7 (đợt 3): NaN / thiếu dữ liệu -> "—" nhất quán; bản cũ để lọt "—%"
+     và "$—" vì NaN vẫn là typeof 'number' rồi num() trả "—" sau khi đã
+     cộng thêm ký hiệu % / $. */
+  const pct = v => typeof v === 'number' && Number.isFinite(v) ? num(v*100,1)+'%' : '—';
+  const usd = v => typeof v === 'number' && Number.isFinite(v) ? '$'+num(v,2) : '—';
   const stamp = v => v ? new Date(v).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}) : '';
   const uuid = () => crypto.randomUUID();
   const REVIEW_STATUSES = ['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'];
@@ -685,6 +688,13 @@
     const orphanHTML = orphan ? `<p class="mk-alert" role="alert">Hồ sơ này đã được gỡ khỏi CRM — chế độ chỉ xem. Không lưu thêm phiên bản đánh giá được; bạn vẫn có thể xóa yêu cầu này.</p>` : '';
     const navHTML=isCompany?companyNavHTML(r,s,store.requests):(en?`<section class="section"><p><a href="index.html?open=game&amp;id=${encodeURIComponent(r.entityId)}">← Hồ sơ game trong CRM</a></p></section>`:'');
     const intakeHTML=role==='mkt'?intakeDisplayHTML(r):intakeSummaryHTML(r);
+    /* C7 (đợt 3, sửa hẹp đúng chỗ này): ghi chú BD của game (g.bdNote trong
+       CRM) hiển thị trong review game để MKT đọc được khi đánh giá — nhãn rõ
+       "Ghi chú BD", đặt ngay dưới khu vực thông tin game/intake. Đây là
+       bdNote của HỒ SƠ GAME, khác bdComment của từng revision (D5 vẫn ẩn
+       bdComment khỏi MKT như cũ). */
+    const bdNoteHTML = (r.kind === 'game' && en && String(en.bdNote || '').trim())
+      ? `<section class="section"><h3>Ghi chú BD (từ hồ sơ game trong CRM)</h3><p class="text-break">${esc(en.bdNote)}</p></section>` : '';
     const criteriaItems=professionalKeys.map(([k,t,w],i)=>`${!isCompany&&i===F.market.length?'<h3 class="section">Prototype Score · 6 tiêu chí</h3>':''}${criterion(k,t,w,e[k],role==='mkt')}`).join('');
     const qualityBlock=isCompany?'':role==='mkt'?`<section class="section"><div class="fields">${field('quality','Evidence Quality 1–5',a.quality??'','number','min="1" max="5" step="1"')}</div></section>`:`<p class="mut">Evidence Quality: ${num(a.quality)}/5</p>`;
     let professionalSection;
@@ -722,7 +732,7 @@
       const histComment = role === 'mkt' ? (hh.comment || '') : (hh.comment || hh.bdComment || '');
       return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(hh.at))} · ${esc(displayName(hh.reviewer))} (${esc((hh.role||'').toUpperCase())}) · ${esc(hh.status||'')}</summary><p>${esc(histRec)} · ${num(histVal,1)}/100 · build ${esc(hh.build||'')}${!isCompany&&effH&&effH.type==='legacy'?' · Khung workbook (cũ)':''}</p>${v2HistLine}<p class="text-break">${esc(histComment)}</p><p class="text-break">${esc(hh.conditions||'')}</p>${entriesHTML}<p class="source-text">Gate: ${esc(gateLine)}</p></details>`;
     }).join('');
-    showDialog(head(dialogTitle)+`<form id="reviewForm"><div class="dialog-body">${companySub}${orphanHTML}<div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(headlineRec)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p><p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${navHTML}${intakeHTML}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&eff.type==='legacy'&&r.revisions.length?' Phiên bản hiện tại là Khung workbook (cũ) — chưa có Market Score v2.':''}${!isCompany&&eff.type==='stale'?' Điểm v2 thuộc mechanic cũ — chờ chấm lại.':''}${!isCompany&&eff.type==='v2-insufficient'?' Điểm v2 chưa đủ dữ liệu (completeness &lt; 80%) — Final hiển thị "—" cho tới khi đủ dữ liệu.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét của MKT':'Ghi chú bổ sung của BD',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
+    showDialog(head(dialogTitle)+`<form id="reviewForm"><div class="dialog-body">${companySub}${orphanHTML}<div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(headlineRec)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p><p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${navHTML}${intakeHTML}${bdNoteHTML}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&eff.type==='legacy'&&r.revisions.length?' Phiên bản hiện tại là Khung workbook (cũ) — chưa có Market Score v2.':''}${!isCompany&&eff.type==='stale'?' Điểm v2 thuộc mechanic cũ — chờ chấm lại.':''}${!isCompany&&eff.type==='v2-insufficient'?' Điểm v2 chưa đủ dữ liệu (completeness &lt; 80%) — Final hiển thị "—" cho tới khi đủ dữ liệu.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét của MKT':'Ghi chú bổ sung của BD',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
       ${professionalSection}
       ${evidenceSection}${dealSection}
       <section class="section"><h3>${isCompany?'6 Hard Gate · xác minh BD':'Hard Gate · xác minh BD'}</h3><p class="mut">Gate độc lập điểm số. Đạt phải có căn cứ; chưa xác minh giữ Chưa xác minh.</p>${isCompany?F.gates.map(([k,t])=>{const g=a.gates?.[k]||{};return role==='bd'?`<details class="criterion"><summary><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></summary><div class="fields">${select('g_'+k,'Trạng thái',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],g.value||'PENDING')}${field('gu_'+k,'Nguồn / ngày',g.source||'')}${area('gn_'+k,'Bằng chứng xác minh',g.note||'')}</div></details>`:`<div class="weight-row"><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></div>`;}).join(''):role==='bd'?`<div class="fields">${select('gate','Hard Gate',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],a.gate||'PENDING')}${field('gateSource','Nguồn / ngày xác minh',a.gateSource||'')}${area('gateNote','Bằng chứng / blocker / điều kiện Đạt',a.gateNote||'')}</div>`:`<p class="mut">${esc(gateLabel(a.gate||'PENDING'))}</p>`}</section>
