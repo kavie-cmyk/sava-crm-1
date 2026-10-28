@@ -6,6 +6,14 @@
 const STORE_KEY = "sava_crm_shared_v1";
 const GAME_LINES = ["game_studio", "publishing"];
 function isGameDeal(d) { return GAME_LINES.includes(d.line); }
+/* Điều kiện studio THỐNG NHẤT (N11): công ty có vai trò ở mảng Publishing VÀ
+   loại hình không phải Publisher. Mọi bề mặt Partner (drawer công ty, badge,
+   bridge company summary) đều dùng đúng hàm này.
+   Ghi chú: phía publishing.js nên dùng cùng hàm này nếu nạp được shared.js
+   (nó được phơi qua window.isStudioCompany ở dưới) thay cho bản sao isStudio
+   riêng trong publishing.js. */
+function isStudioCompany(c) { return !!(c && c.roles && c.roles.publishing) && !/publisher/i.test(c.type || ""); }
+if (typeof window !== "undefined") { window.isStudioCompany = isStudioCompany; }
 
 const LINES = {
   game_studio: { name: "Game Studio", color: "#22c55e", target: "Publisher", desc: "Tìm publisher cho game của Sava",
@@ -263,6 +271,28 @@ function migrateState(s) {
   if (!Array.isArray(s.games)) s.games = [];
   if (!Array.isArray(s.tasks)) s.tasks = [];
   if (!Array.isArray(s.activities)) s.activities = [];
+  /* N10: lọc phần tử KHÔNG phải object (null, chuỗi rác, số...) khỏi mọi mảng
+     dữ liệu — một phần tử hỏng không được làm crash các vòng lặp phía sau.
+     Phần tử bị loại được ĐẾM và đặt cờ cảnh báo qua window.CRM_LOAD_ISSUE
+     (type "sanitized", kèm số lượng) để index.html hiện banner; nếu đã có cờ
+     "corrupt" từ loadState thì không ghi đè, chỉ bổ sung số đếm riêng. */
+  let droppedNonObjects = 0;
+  ["companies", "games", "deals", "leads", "tasks", "activities", "members"].forEach(k => {
+    if (Array.isArray(s[k])) {
+      const before = s[k].length;
+      s[k] = s[k].filter(x => !!x && typeof x === "object");
+      droppedNonObjects += before - s[k].length;
+    }
+  });
+  if (droppedNonObjects > 0) {
+    try {
+      const w = (typeof window !== "undefined" && window) || (typeof globalThis !== "undefined" ? globalThis : null);
+      if (w) {
+        if (!w.CRM_LOAD_ISSUE) w.CRM_LOAD_ISSUE = { type: "sanitized", dropped: droppedNonObjects, at: new Date().toISOString() };
+        w.CRM_SANITIZED_DROPPED = droppedNonObjects;
+      }
+    } catch (e) {}
+  }
   /* N2: mọi company phải có roles là object (drawer/section đọc c.roles.*). */
   s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object")) c.roles = {}; });
   (s.deals || []).forEach(d => { if (!Array.isArray(d.leads)) d.leads = []; });
