@@ -22,6 +22,31 @@ const LINES = {
     fields: [["use_case","Loại ứng dụng"],["platform_target","Nền tảng đích"],["expected_users","Người dùng đồng thời dự kiến"],["hardware_needed","Nhu cầu phần cứng"],["concept_url","Link concept / prototype"]] },
 };
 const USERS = { zac: "Zac", linh: "Linh (BD)", tuan: "Tuấn (BD)", mai: "Mai (MKT)" };
+/* Thành viên: danh sách gán việc THẬT nằm ở S.members ({id, name, role, active}).
+   USERS ở trên chỉ còn là hằng dự phòng (fallback tên cho id cũ) + nguồn khởi tạo members.
+   Tên hiển thị rút gọn + vai trò mặc định khi khởi tạo từ USERS: */
+const MEMBER_DEFAULTS = { zac: ["Zac", "Admin"], linh: ["Linh", "BD"], tuan: ["Tuấn", "BD"], mai: ["Mai", "MKT"] };
+function defaultMembers() {
+  return Object.keys(USERS).map(id => {
+    const d = MEMBER_DEFAULTS[id];
+    return { id, name: d ? d[0] : String(USERS[id]).split(" (")[0], role: d ? d[1] : "Khác", active: true };
+  });
+}
+function isValidMembers(m) {
+  return Array.isArray(m) && m.every(x => x && typeof x === "object" && typeof x.id === "string" && x.id !== "" && typeof x.name === "string");
+}
+/* Helper dùng chung (cả trang BD lẫn module Publishing đọc qua window):
+   memberList(s) -> mảng members (rỗng nếu state chưa có);
+   memberName(s, id) -> tên hiển thị: members trước, fallback USERS[id], rồi chính id; id rỗng -> "—". */
+function memberList(s) { return (s && Array.isArray(s.members)) ? s.members : []; }
+function memberName(s, id) {
+  if (id === undefined || id === null || id === "") return "—";
+  const m = memberList(s).find(x => x.id === id);
+  if (m && m.name) return m.name;
+  if (Object.prototype.hasOwnProperty.call(USERS, id)) return USERS[id];
+  return String(id);
+}
+if (typeof window !== "undefined") { window.memberList = memberList; window.memberName = memberName; window.defaultMembers = defaultMembers; }
 /* Tiêu chí MKT chấm game — khác bộ tiêu chí thẩm định của BD */
 const MKT_CRITERIA = [
   ["market", "Tiềm năng thị trường (độ lớn + đang hot?)"],
@@ -32,6 +57,7 @@ const MKT_CRITERIA = [
 ];
 
 function seed() { return {
+  members: defaultMembers(),
   companies: [
     {id:"c1", name:"Hanbit Publishing (mẫu)", type:"Publisher", roles:{game_studio:"Publisher"}, contact:"Ms. Yoon — Acquisitions", phone:"+82 ...", last:"Hôm qua"},
     {id:"c2", name:"PlayNest Global (mẫu)", type:"Publisher", roles:{game_studio:"Publisher"}, contact:"Mr. Park — BD", phone:"+82 ...", last:"3 ngày trước"},
@@ -116,6 +142,11 @@ function migrateState(s) {
      pubos/pubosPending trên deal, pubos trên game và pubosWithdrawals ở state gốc.
      Chạy mỗi lần load qua migrateState — idempotent, không đụng dữ liệu khác. */
   delete s.pubosWithdrawals;
+  /* Thành viên (S.members): nếu chưa có / không phải mảng hợp lệ -> khởi tạo từ USERS
+     (id = key USERS để owner/assignee/who cũ khớp nguyên vẹn). Idempotent: members
+     đã hợp lệ thì GIỮ NGUYÊN, chỉ chuẩn hoá role/active thiếu — không nhân đôi, không ghi đè. */
+  if (!isValidMembers(s.members)) { s.members = defaultMembers(); }
+  else s.members.forEach(m => { if (!["BD", "MKT", "Admin", "Khác"].includes(m.role)) m.role = "Khác"; if (typeof m.active !== "boolean") m.active = true; });
   if (Array.isArray(s.deals)) s.deals.forEach(d => { if (d && typeof d === "object") { delete d.pubos; delete d.pubosPending; } });
   if (Array.isArray(s.games)) s.games.forEach(g => { if (g && typeof g === "object") delete g.pubos; });
   if (!Array.isArray(s.companies)) s.companies = [];

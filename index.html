@@ -120,7 +120,9 @@
 <button data-view="companies" class=""><i data-icon="company"></i><span>Khách hàng</span></button>
 <button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
-<button data-view="tasks" class=""><i data-icon="check"></i><span>Công việc</span></button></nav>
+<button data-view="tasks" class=""><i data-icon="check"></i><span>Công việc</span></button>
+<button data-view="tasksByMember" class=""><i data-icon="team"></i><span>Việc theo người</span></button>
+<button data-view="members" class=""><i data-icon="company"></i><span>Thành viên</span></button></nav>
   <a href="publishing.html" class="role-link" style="margin:12px 15px;display:block;padding:10px">Game & Publishing · Thị trường →</a>
   <div class="foot">
     <a href="mkt.html"><i data-icon="game"></i>Company & Game · Marketing<i data-icon="arrow"></i></a>
@@ -150,7 +152,9 @@
 <button data-view="companies" class="" aria-label="Khách hàng"><i data-icon="company"></i><span>Khách hàng</span></button>
 <button data-view="games" class="" aria-label="Games"><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class="" aria-label="Leads"><i data-icon="inbox"></i><span>Leads</span></button>
-<button data-view="tasks" class="" aria-label="Công việc"><i data-icon="check"></i><span>Công việc</span></button></nav>
+<button data-view="tasks" class="" aria-label="Công việc"><i data-icon="check"></i><span>Công việc</span></button>
+<button data-view="tasksByMember" class="" aria-label="Việc theo người"><i data-icon="team"></i><span>Việc theo người</span></button>
+<button data-view="members" class="" aria-label="Thành viên"><i data-icon="company"></i><span>Thành viên</span></button></nav>
 
 
 <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
@@ -179,6 +183,8 @@
     <select id="f_cur"><option value="VND">VND</option><option value="USD">USD</option></select>
     <label>Stage bắt đầu</label>
     <select id="f_stage"></select>
+    <label>Người phụ trách</label>
+    <div id="f_ownerWrap"></div>
     <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end">
       <button class="btn ghost" onclick="closeAdd()">Hủy</button>
       <button class="btn" onclick="saveDeal()">Lưu deal</button>
@@ -265,11 +271,11 @@ document.getElementById("search").addEventListener("input", e => { query = e.tar
 function render() {
   lineTabs();
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === curView));
-  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", tasks:"Công việc" };
-  const descriptions = { dash:"Theo dõi cơ hội, đối tác và công việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", tasks:"Những việc cần theo dõi và hoàn thành của team." };
+  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", tasks:"Công việc", tasksByMember:"Việc theo người", members:"Thành viên" };
+  const descriptions = { dash:"Theo dõi cơ hội, đối tác và công việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và công việc." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
-  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, tasks:vTasks })[curView]();
+  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers })[curView]();
 }
 
 function pipelineValue(ds) {
@@ -307,13 +313,30 @@ function vDash() {
   const activityIcons = {Meeting:'meeting',Note:'note',Call:'call',Email:'mail',Demo:'cube'};
   const activities = S.activities.filter(a=>(curLine==='all'||(S.deals.find(x=>x.id===a.deal)||{}).line===curLine)&&(!query||(a.text+' '+(S.deals.find(x=>x.id===a.deal)||{}).title).toLowerCase().includes(query))).slice(0,4).map(a=>{
     const d = S.deals.find(x=>x.id===a.deal);
-    return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${d?d.title:a.type}</strong><p>${a.text}</p><div class="when">${a.type} · ${USERS[a.who]} · ${a.when}</div></div></div>`;
+    return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${d?d.title:a.type}</strong><p>${a.text}</p><div class="when">${a.type} · ${memberName(S, a.who)} · ${a.when}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
   document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả công việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>`;
 }
+/* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ (YYYY-MM-DD)
+   -> quá hạn khi dueDate < hôm nay (giờ local, so chuỗi cùng định dạng); không có
+   dueDate hợp lệ -> dùng cờ t.overdue cũ (dữ liệu mẫu "Hôm nay"/"Tuần trước"...). */
+function todayStr() { const n = new Date(); return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-" + String(n.getDate()).padStart(2, "0"); }
+function isValidDateStr(v) {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+function isOverdue(t) {
+  if (!t || t.done) return false;
+  if (isValidDateStr(t.dueDate)) return t.dueDate < todayStr();
+  return !!t.overdue;
+}
 function taskRow(t) {
   const d = S.deals.find(x => x.id === t.deal);
-  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`onclick="openDeal('${d.id}')"`:''}>${t.title}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}');return false">${d.title}</a><br>`:''}${USERS[t.assignee]} · <span class="${t.overdue&&!t.done?'overdue':''}">${t.due}${t.overdue&&!t.done?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+  const od = isOverdue(t);
+  const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
+  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`onclick="openDeal('${d.id}')"`:''}>${t.title}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}');return false">${d.title}</a><br>`:''}${memberName(S, t.assignee)} · <span class="${od?'overdue':''}">${dueLabel}${od?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
 
@@ -328,7 +351,7 @@ function vBoard() {
     const cards = ds.map(d => `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t">${d.title}</div><div class="c">${comp(d.company).name}${d.game?" · 🎮 "+game(d.game).title:""}</div>
       <div class="a">${isGame(d) ? "🤝 " + (d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
-      <div class="meta"><span>👤 ${USERS[d.owner]}</span><span>📅 ${d.due}</span><span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`).join("");
+      <div class="meta"><span>👤 ${memberName(S, d.owner)}</span><span>📅 ${d.due}</span><span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`).join("");
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
       <h4>${s[1]} <span class="pill" style="background:${L.color}">${ds.length}</span></h4><div class="sum">${sum||"—"} · xác suất ${s[2]}%</div>${cards||'<div class="mut" style="padding:4px 2px">Kéo deal vào đây</div>'}</div>`;
   }).join("");
@@ -390,7 +413,7 @@ function convertLead(id) {
     const nc = { id:"c"+Date.now(), name:l.name, type:LINES[l.line].target, roles:{ [l.line]:LINES[l.line].target }, contact:l.person || "—", phone:"", last:"Vừa tạo" };
     S.companies.push(nc); companyId = nc.id; l.company = nc.id;
   }
-  const nd = { id:"d"+Date.now(), line:l.line, title:(leadCompany(l) ? leadCompany(l).name : l.name)+" — cơ hội mới", company:companyId, leads:[l.id], stage:firstStage, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
+  const nd = { id:"d"+Date.now(), line:l.line, title:(leadCompany(l) ? leadCompany(l).name : l.name)+" — cơ hội mới", company:companyId, leads:[l.id], stage:firstStage, owner:defaultOwnerId(), due:"2026-11-20", idle:0, custom:{} };
   if (GAME_LINES.includes(l.line)) { nd.term = { rev_share:"Chưa đề xuất", advance:"—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" }; nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" }; }
   else { nd.amount = 0; nd.cur = "VND"; }
   S.deals.push(nd);
@@ -400,7 +423,83 @@ function convertLead(id) {
 
 function vTasks() {
   const list = S.tasks.filter(t => !query || t.title.toLowerCase().includes(query)).map(taskRow).join("");
-  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (3 người)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành công việc.</div></div>`;
+  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành công việc.</div></div>`;
+}
+
+/* ===== Việc theo người (admin): gom task theo assignee + lọc trạng thái ===== */
+let taskMemberFilter = "all";
+function setTaskMemberFilter(v) { taskMemberFilter = v; render(); }
+function vTasksByMember() {
+  const f = taskMemberFilter;
+  const matchFilter = t => f === "all" || (f === "open" && !t.done) || (f === "overdue" && isOverdue(t)) || (f === "done" && t.done);
+  const members = memberList(S);
+  const memberIds = new Set(members.map(m => m.id));
+  /* Nhóm: member đang hoạt động -> member đã ngừng nhưng còn task -> Chưa gán */
+  const groups = [];
+  members.filter(m => m.active).forEach(m => groups.push({ key: m.id, name: m.name, inactive: false, tasks: S.tasks.filter(t => t.assignee === m.id) }));
+  members.filter(m => !m.active).forEach(m => { const ts = S.tasks.filter(t => t.assignee === m.id); if (ts.length) groups.push({ key: m.id, name: m.name, inactive: true, tasks: ts }); });
+  groups.push({ key: "__none__", name: "Chưa gán", inactive: false, tasks: S.tasks.filter(t => !t.assignee || !memberIds.has(t.assignee)) });
+  /* Tổng quan nhanh */
+  const openTasks = S.tasks.filter(t => !t.done);
+  const overdueCount = S.tasks.filter(t => isOverdue(t)).length;
+  let busiest = null;
+  groups.forEach(g => { const n = g.tasks.filter(t => !t.done).length; if (n > 0 && (!busiest || n > busiest.n)) busiest = { name: g.name, n }; });
+  const overview = `<div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+    <div class="kpi"><div class="k">Tổng việc đang mở</div><div class="v">${openTasks.length}</div><div class="s">Trên tổng ${S.tasks.length} việc</div></div>
+    <div class="kpi"><div class="k">Tổng việc quá hạn</div><div class="v">${overdueCount}</div><div class="s">Tính động theo hạn ngày (isOverdue)</div></div>
+    <div class="kpi"><div class="k">Người quá tải nhất</div><div class="v" style="font-size:17px">${busiest ? esc(busiest.name) : "—"}</div><div class="s">${busiest ? busiest.n + " việc đang mở" : "Không có việc đang mở"}</div></div>
+  </div>`;
+  const filterBar = `<div class="panel" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="font-size:13.5px">Lọc theo trạng thái:</b>
+    <select onchange="setTaskMemberFilter(this.value)" style="min-width:180px">${[["all", "Tất cả"], ["open", "Đang mở"], ["overdue", "Quá hạn"], ["done", "Đã xong"]].map(([v, t]) => `<option value="${v}" ${f === v ? "selected" : ""}>${t}</option>`).join("")}</select>
+    <span class="mut">Bộ lọc áp lên mọi cột; cột nào trống sau lọc sẽ ẩn.</span></div>`;
+  const cols = groups.map(g => {
+    const shown = g.tasks.filter(t => matchFilter(t) && (!query || t.title.toLowerCase().includes(query)));
+    if (!shown.length) return "";
+    const open = g.tasks.filter(t => !t.done).length, od = g.tasks.filter(t => isOverdue(t)).length, done = g.tasks.filter(t => t.done).length;
+    return `<div class="col" style="min-width:290px;width:290px"><h4>${esc(g.name)}${g.inactive ? ' <span class="pill gray">đã ngừng</span>' : ""}</h4>
+      <div class="sum">Đang mở: <b>${open}</b> · Quá hạn: <b class="${od ? "overdue" : ""}">${od}</b> · Đã xong: <b>${done}</b></div>
+      ${shown.map(taskRow).join("")}</div>`;
+  }).join("");
+  document.getElementById("view").innerHTML = overview + filterBar +
+    (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
+}
+
+/* ===== Thành viên (admin): danh sách phục vụ gán việc — KHÔNG xoá cứng, chỉ ngừng hoạt động ===== */
+function vMembers() {
+  const rows = memberList(S).map(m => {
+    const openTasks = S.tasks.filter(t => t.assignee === m.id && !t.done).length;
+    const dealCount = S.deals.filter(d => d.owner === m.id).length;
+    return `<tr><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td><td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td><button class="btn ghost small" onclick="editMember('${m.id}')">✏️ Sửa</button></td></tr>`;
+  }).join("");
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button></div>
+  <div class="panel"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th><th>Việc đang mở</th><th>Deal phụ trách</th><th></th></tr>${rows || '<tr><td colspan="6" class="mut">Chưa có thành viên nào.</td></tr>'}</table>
+  <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM — chưa phải phân quyền tài khoản máy chủ (ai mở được trang này vẫn thấy toàn bộ dữ liệu). Không có xoá cứng: muốn loại một người khỏi các ô chọn gán việc, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa, nhưng dữ liệu cũ gắn với họ vẫn giữ nguyên).</div></div>`;
+}
+function editMember(id) {
+  const m = id ? memberList(S).find(x => x.id === id) : { name: "", role: "BD", active: true };
+  if (id && !m) return;
+  openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa thành viên" : "👤 Thêm thành viên"}</h3>
+    ${field("Tên thành viên", txt("e_mname", m.name, "VD: An"))}
+    ${field("Vai trò", sel("e_mrole", [["BD", "BD"], ["MKT", "MKT"], ["Admin", "Admin"], ["Khác", "Khác"]], m.role))}
+    <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_mactive" style="width:auto" ${m.active ? "checked" : ""}> Đang hoạt động (hiện trong các ô chọn người phụ trách / người làm)</label>
+    ${formFoot("saveMember", id ? `'${id}'` : "null")}`);
+}
+function saveMember(id) {
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const name = v("e_mname"); if (!name) { toast("Tên thành viên không được để trống"); return; }
+  const role = document.getElementById("e_mrole").value;
+  const active = document.getElementById("e_mactive").checked;
+  if (!Array.isArray(S.members)) S.members = [];
+  if (id) {
+    const m = S.members.find(x => x.id === id); if (!m) return;
+    Object.assign(m, { name, role, active });
+    save(); closeEdit(); render(); toast("Đã lưu thành viên: " + name);
+  } else {
+    let nid = "u" + Date.now().toString(36);
+    while (S.members.some(x => x.id === nid) || USERS[nid]) nid += "x";
+    S.members.push({ id: nid, name, role, active });
+    save(); closeEdit(); render(); toast("Đã thêm thành viên: " + name);
+  }
 }
 
 /* Drawer chi tiết deal */
@@ -410,7 +509,7 @@ function openDeal(id) {
   const L = LINES[d.line], c = comp(d.company), g = d.game ? game(d.game) : null;
   const st = stageOf(d.line, d.stage);
   const fields = L.fields.map(([k, lb]) => `<div class="k">${lb}</div><div>${(d.custom && d.custom[k]) || "—"}</div>`).join("");
-  const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLink('${(a.url || "").replace(/'/g, "")}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
+  const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${memberName(S, a.who)}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLink('${(a.url || "").replace(/'/g, "")}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
   const evalBox = (d.line === "publishing" && g && g.scores) ? `<h3 style="margin:16px 0 6px">📊 Chấm điểm thẩm định game</h3>` + Object.entries(g.scores).map(([k,v]) => `<div class="score"><div class="lb">${k}</div><div class="bar"><i style="width:${v*10}%"></i></div><b>${v}/10</b></div>`).join("") + `<div class="mut" style="margin-top:6px">Kết luận: <b>${g.verdict}</b></div>` : "";
   const attachedLeads = leadsForDeal(d);
   const attachCandidates = S.leads.filter(l => !(Array.isArray(d.leads) && d.leads.includes(l.id)))
@@ -452,7 +551,7 @@ function openDeal(id) {
     <div style="display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap"><button class="btn" onclick="editDeal('${d.id}')">✏️ Sửa thông tin deal</button><button class="btn danger" onclick="deleteDeal('${d.id}')">🗑 Xóa deal</button></div>
     <div class="kv">
       ${valueRows}
-      <div class="k">Người phụ trách</div><div>${USERS[d.owner]}</div>
+      <div class="k">Người phụ trách</div><div>${memberName(S, d.owner)}</div>
       <div class="k">Ngày dự kiến chốt</div><div>${d.due}</div>
       <div class="k">Đầu mối phía đối tác</div><div>${c.contact}</div>
       ${fields}
@@ -467,7 +566,7 @@ function openDeal(id) {
       <b style="font-size:13.5px">➕ Thêm hoạt động / ghi chú vào deal này</b>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px">
         <select id="na_type">${["Note", "Call", "Email", "Meeting", "Demo", "Zalo", "Messenger"].map(t => `<option>${t}</option>`).join("")}</select>
-        <select id="na_who">${Object.entries(USERS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+        ${ownerSel("na_who", d.owner)}
       </div>
       <textarea id="na_text" placeholder="Nội dung: đã trao đổi gì, kết quả ra sao, bước tiếp theo là gì..." style="margin-top:8px"></textarea>
       <input id="na_url" placeholder="🔗 Dán link đúng cuộc hội thoại đó (URL thread Gmail, link chat Messenger, link file Drive...)" style="width:100%;margin-top:8px">
@@ -492,7 +591,7 @@ function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${d.title}</div>
     <div class="c"><span class="chip" style="background:${LINES[d.line].color}">${LINES[d.line].name}</span> Stage: ${stageOf(d.line, d.stage)[1]}</div>
     <div class="a">${isGame(d) ? "🤝 " + (d.term?.rev_share || "Chưa có term") : money(d.amount, d.cur)}</div>
-    <div class="meta"><span>👤 ${USERS[d.owner]}</span><span>📅 ${d.due}</span></div></div>`;
+    <div class="meta"><span>👤 ${memberName(S, d.owner)}</span><span>📅 ${d.due}</span></div></div>`;
 }
 function openCompany(id) {
   const c = comp(id); if (!c || !c.id) return;
@@ -524,7 +623,7 @@ function openCompany(id) {
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}
     ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${g.emoji} ${g.title}</div><div class="c">${g.genre} · ${g.stage} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div></div>`).join("") : ""}
     ${tasks.length ? `<h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>` + tasks.map(taskRow).join("") : ""}
-    ${acts.length ? `<h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>` + acts.map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${USERS[a.who]}</div></div></div>`).join("") : ""}
+    ${acts.length ? `<h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>` + acts.map(a => `<div class="tl"><div class="ev"><b>${a.type}</b><div>${a.text}</div><div class="when">${a.when} · ${memberName(S, a.who)}</div></div></div>`).join("") : ""}
     <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Bản thật sẽ thêm: nhiều người liên hệ, ghi hoạt động mới, đính link Drive.</div>`);
 }
 function openGame(id) {
@@ -545,7 +644,7 @@ function openGame(id) {
     </div>
     ${scores ? `<h3 style="margin:14px 0 6px">📊 Thẩm định cũ · thang /10</h3>${scores}` : ""}
     ${window.PublishingBridge ? PublishingBridge.summary("game",g.id) : ""}
-    ${g.own==='partner' ? (g.mktEval ? `<h3 style="margin:16px 0 6px">📣 Đánh giá cũ của MKT · thang /10 <span class="mut" style="font-weight:400">(${USERS[g.mktEval.by]} · ${g.mktEval.at})</span></h3>` + MKT_CRITERIA.map(([k,lb]) => `<div class="score"><div class="lb">${lb.split(" (")[0]}</div><div class="bar"><i style="width:${(g.mktEval.scores[k]||0)*10}%; background:#8b5cf6"></i></div><b>${g.mktEval.scores[k]}/10</b></div>`).join("") + `<div style="font-size:13px; margin-top:8px">Kết luận MKT: <b>${g.mktEval.verdict}</b></div><div style="font-size:13px; margin-top:4px">💬 ${g.mktEval.comment}</div>` : "") : ""}
+    ${g.own==='partner' ? (g.mktEval ? `<h3 style="margin:16px 0 6px">📣 Đánh giá cũ của MKT · thang /10 <span class="mut" style="font-weight:400">(${memberName(S, g.mktEval.by)} · ${g.mktEval.at})</span></h3>` + MKT_CRITERIA.map(([k,lb]) => `<div class="score"><div class="lb">${lb.split(" (")[0]}</div><div class="bar"><i style="width:${(g.mktEval.scores[k]||0)*10}%; background:#8b5cf6"></i></div><b>${g.mktEval.scores[k]}/10</b></div>`).join("") + `<div style="font-size:13px; margin-top:8px">Kết luận MKT: <b>${g.mktEval.verdict}</b></div><div style="font-size:13px; margin-top:4px">💬 ${g.mktEval.comment}</div>` : "") : ""}
     <h3 style="margin:16px 0 8px">📋 Deal liên quan (bấm để mở deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
     <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>`);
@@ -591,6 +690,7 @@ function openAdd() {
   const sel = document.getElementById("f_line");
   sel.innerHTML = Object.entries(LINES).map(([k,v]) => `<option value="${k}" ${k===curLine?'selected':''}>${v.name}</option>`).join("");
   fillStages();
+  const ow = document.getElementById("f_ownerWrap"); if (ow) ow.innerHTML = ownerSel("f_owner", defaultOwnerId());
   /* Reset ô game mỗi lần mở form — tránh sót lựa chọn/tên game mới của lần tạo trước */
   const fg = document.getElementById("f_game"); if (fg) fg.value = "";
   const fng = document.getElementById("f_newGame"); if (fng) fng.value = "";
@@ -661,7 +761,7 @@ function saveDeal() {
     S.games.push(ng); gameId = ng.id;
   } else if (gameSel) { const gg = game(gameSel); if (gg) gameId = gg.id; }
   if (line === "publishing" && !gameId) { toast("Deal Publishing bắt buộc gắn 1 game — chọn game của công ty hoặc tạo game mới ngay trong form"); return; }
-  const nd = { id:"d"+Date.now(), line, title, company:c.id, leads:[], stage:document.getElementById("f_stage").value, owner:"zac", due:"2026-11-20", idle:0, custom:{} };
+  const nd = { id:"d"+Date.now(), line, title, company:c.id, leads:[], stage:document.getElementById("f_stage").value, owner:(document.getElementById("f_owner") ? document.getElementById("f_owner").value : defaultOwnerId()), due:"2026-11-20", idle:0, custom:{} };
   if (gameId) nd.game = gameId;
   if (GAME_LINES.includes(line)) {
     const adv = +document.getElementById("f_amount").value||0;
@@ -679,7 +779,28 @@ function closeEdit() { document.getElementById("editModal").classList.remove("on
 function field(label, inner) { return `<label>${label}</label>${inner}`; }
 function txt(id, val, ph) { return `<input id="${id}" value="${esc(val ?? "")}" placeholder="${ph || ""}">`; }
 function sel(id, opts, cur) { return `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${t}</option>`).join("")}</select>`; }
-function ownerSel(id, cur) { return sel(id, Object.entries(USERS), cur); }
+/* Ô chọn người THỐNG NHẤT cho cả app: nguồn là S.members đang active.
+   - Luôn có option đầu value="" nhãn "— Chưa gán —".
+   - cur không nằm trong danh sách (member đã ngừng / id lạ) -> thêm 1 option giữ đúng
+     giá trị đó, nhãn = memberName(S, cur), để mở form không làm mất dữ liệu cũ.
+   - opts.role có -> chỉ liệt kê member vai trò đó; lọc ra rỗng thì fallback toàn bộ active. */
+function ownerSel(id, cur, opts) {
+  let list = memberList(S).filter(m => m.active);
+  if (opts && opts.role) {
+    const byRole = list.filter(m => m.role === opts.role);
+    if (byRole.length) list = byRole;
+  }
+  const options = [["", "— Chưa gán —"], ...list.map(m => [m.id, m.name])];
+  if (cur && !options.some(([v]) => String(v) === String(cur))) options.push([cur, memberName(S, cur)]);
+  return sel(id, options, cur || "");
+}
+/* Người phụ trách mặc định khi tạo deal mới / chuyển lead: ưu tiên 'zac' nếu đang
+   active, không thì member active đầu tiên, cuối cùng mới là 'zac' (id cũ). */
+function defaultOwnerId() {
+  const act = memberList(S).filter(m => m.active);
+  if (act.some(m => m.id === "zac")) return "zac";
+  return act.length ? act[0].id : "zac";
+}
 function formFoot(saveFn, arg) { return `<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button class="btn ghost" onclick="closeEdit()">Hủy</button><button class="btn" onclick="${saveFn}(${arg})">💾 Lưu</button></div>`; }
 
 /* --- Deal --- */
@@ -896,13 +1017,14 @@ function deleteLead(id) {
 
 /* --- Việc (task) --- */
 function editTask(id) {
-  const t = id ? S.tasks.find(x => x.id === id) : { title: "", assignee: "zac", due: "", deal: "", done: false };
+  const t = id ? S.tasks.find(x => x.id === id) : { title: "", assignee: "zac", due: "", dueDate: "", deal: "", done: false };
   if (id && !t) return;
   const dealOpts = [["", "— Không gắn deal —"], ...S.deals.map(d => [d.id, d.title])];
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa việc" : "✅ Thêm việc"}</h3>
     ${field("Nội dung việc", txt("e_ttitle", t.title))}
     ${field("Người làm", ownerSel("e_tassignee", t.assignee))}
-    ${field("Hạn", txt("e_tdue", t.due, "VD: Hôm nay / 2026-11-01"))}
+    ${field("Hạn (dạng chữ — giữ tương thích dữ liệu mẫu)", txt("e_tdue", t.due, "VD: Hôm nay / Tuần này"))}
+    ${field("Hạn ngày (để tính quá hạn tự động — hiển thị ưu tiên hơn hạn chữ)", `<input id="e_tdueDate" type="date" value="${esc(t.dueDate || "")}">`)}
     ${field("Gắn với deal", sel("e_tdeal", dealOpts, t.deal || ""))}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_tdone" style="width:auto" ${t.done ? "checked" : ""}> Đã xong</label>
     ${formFoot("saveTask", id ? `'${id}'` : "null")}`);
@@ -911,7 +1033,7 @@ function saveTask(id) {
   const v = i => (document.getElementById(i)?.value || "").trim();
   const title = v("e_ttitle"); if (!title) { toast("Nội dung việc không được để trống"); return; }
   const done = document.getElementById("e_tdone").checked;
-  const data = { title, assignee: document.getElementById("e_tassignee").value, due: v("e_tdue") || "—", done, overdue: false };
+  const data = { title, assignee: document.getElementById("e_tassignee").value, due: v("e_tdue") || "—", dueDate: v("e_tdueDate"), done, overdue: false };
   const dv = document.getElementById("e_tdeal").value;
   let t;
   if (id) { t = S.tasks.find(x => x.id === id); data.overdue = t.overdue && !done; Object.assign(t, data); if (dv) t.deal = dv; else delete t.deal; }
