@@ -91,7 +91,12 @@
          strongest, weakest, strengths, risks, weak, next, reviewer, date, current }
      - computed = PublishingScore.company(current) (adapter của PartnerEval):
        { partnerFit/total, classification, conclusion, hardGate, coverage (0..1),
-         coveragePct, confidence, minimum, evidenceGate, dealFit, values }.
+         coveragePct, coverageDetail {verified,total,totalItems,excludedNA,pct},
+         confidence, minimum, evidenceGate, dealFit, values }.
+       A7: coverage/coverageDetail của adapter đã tính cả evidence cấp pillar
+       Production (current.productionPillarEvidence) đúng ngữ nghĩa legacy —
+       mọi bề mặt đọc qua đây (badge, tóm tắt drawer, one-pager) dùng cùng
+       một kết quả đó, không nơi nào đếm lại khác đường.
      - pillars: điểm từng pillar đọc từ current.entries theo ĐÚNG quy tắc adapter:
        điểm trực tiếp 1–5; production = TB 4 ô con (đủ cả 4 mới có). */
   const PARTNER_PILLAR_KEYS = ['track', 'team', 'production', 'data', 'collaboration', 'strategy', 'pipeline'];
@@ -353,10 +358,15 @@
     entries.deal = { score: scoreOrNull(ev.dealFit), status: 'Chưa rõ', note: '', source: '' };
     /* A7: evidence CẤP PILLAR Production (status/note của chính pillar, tách
        khỏi 4 ô con) mang theo ở field riêng productionPillarEvidence của
-       revision, và reviewDate mang theo ở field reviewDate. Hai field này
-       KHÔNG tham gia tính coverage/Fit của adapter (adapter suy evidence
-       pillar Production từ 4 ô con như trước) nên số canonical không đổi;
-       đợt 2 hiển thị/đọc hai field này từ revision. */
+       revision, và reviewDate mang theo ở field reviewDate.
+       Cập nhật A7 (chốt 2026-10-29, thay quyết định cũ "không tham gia
+       tính"): adapter PublishingScore.company NAY TÍNH productionPillarEvidence
+       vào coverage đúng ngữ nghĩa legacy — pillar Production là 1 trong 11
+       mục, đếm độc lập với 4 ô con (xem publishing-score.js) — nên ở ca
+       pillar đã xác minh mà ô con chưa đủ, coverage canonical khớp legacy
+       (vd fixture biên 7/11 = 63,6% thay vì 6/11 = 54,5%). Partner Fit
+       không đổi (điểm pillar Production vẫn suy từ điểm 4 ô con như cũ).
+       reviewDate vẫn chỉ được mang theo, không tham gia tính điểm. */
     const productionPillarEvidence = mapEv((ev.evidence || {}).production);
     /* Kết luận có hay chưa quyết định status request: đủ Partner Fit + Hard Gate
        ĐẠT + Evidence Gate ĐẠT thì kết luận là phân loại thật -> "Hoàn tất". */

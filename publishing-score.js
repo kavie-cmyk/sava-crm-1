@@ -109,17 +109,29 @@
        đây là gốc lệch 85.0 vs 85.2 của bản cũ (round composite trước khi tính fit).
      - Evidence coverage chỉ đếm status "Đã xác minh" trên 11 mục (7 pillar +
        4 ô con); entry phụ (history/deal/legalEvidence) không thuộc 11 mục.
-       Evidence của pillar Production suy từ 4 ô con: đủ 4 ô "Đã xác minh"
-       thì pillar Production mới "Đã xác minh".
      - Hard Gate chỉ theo value PASS/FAIL, không còn đòi note+source.
      - (Hợp nhất taxonomy) Trạng thái evidence của entry đi qua NGUYÊN VẸN
        theo thang hợp nhất (kể cả các nấc giữa "Đã trao đổi" / "Đối tác đã
        gửi" / "Chưa rõ" / "N/A") thay vì ép phẳng về "Chưa rõ" như trước;
        nhãn cũ "Partner cung cấp" được normalizeStatus đổi thành
-       "Đối tác đã gửi". Pillar Production (suy từ 4 ô con, không có entry
-       riêng): đủ 4 ô "Đã xác minh" -> "Đã xác minh"; đủ 4 ô "N/A" -> "N/A"
-       (để mẫu số coverage trừ nhất quán với 4 ô con); còn lại "Chưa rõ"
-       như trước. */
+       "Đối tác đã gửi".
+     - (A7, chốt 2026-10-29) Evidence của pillar Production: nếu revision
+       mang field riêng productionPillarEvidence (migration từ legacy giữ
+       lại) — hoặc, dự phòng, entries.production có status — thì dùng ĐÚNG
+       status đó làm evidence của pillar, y hệt PartnerEval.compute trên
+       c.partnerEval: pillar được đếm 1 lần độc lập với 4 ô con (đã xác
+       minh thì +1 vào tử số, "N/A" thì +1 vào số mục loại khỏi mẫu số,
+       các nấc khác chỉ nằm trong mẫu số). KHÔNG cộng dồn với kết quả suy
+       từ ô con nên không bao giờ đếm trùng. Chỉ khi KHÔNG có field pillar
+       nào (đánh giá tạo thẳng ở Publishing, dữ liệu cũ hơn) mới suy từ
+       4 ô con như trước: đủ 4 ô "Đã xác minh" -> "Đã xác minh"; đủ 4 ô
+       "N/A" -> "N/A" (để mẫu số coverage trừ nhất quán với 4 ô con);
+       còn lại "Chưa rõ".
+     - Kết quả trả thêm coverageDetail = object coverage nguyên của
+       PartnerEval ({verified,total,totalItems,excludedNA,pct}) để các bề
+       mặt cần số đếm x/y (one-pager qua partnerEvidenceCounts) dùng đúng
+       cùng một kết quả thay vì tự đếm lại; field coverage (0..1) giữ
+       nguyên cho các nơi đang dùng. */
   function company(a) {
     const src = a && typeof a === 'object' ? a : {};
     const e = src.entries || {};
@@ -137,12 +149,25 @@
       hardGateRaw[k] = { status: v === 'PASS' ? 'Đạt' : v === 'FAIL' ? 'Không đạt' : 'Chưa xác minh', note: String((gv && gv.note) || '') };
     });
     const evStatus = entry => normalizeStatusStrict(entry && entry.status);
+    /* A7: field evidence CẤP PILLAR Production, tách khỏi 4 ô con.
+       Nguồn ưu tiên: src.productionPillarEvidence (field riêng của revision
+       do migration legacyToRevision trong publishing-bridge.js mang theo);
+       dự phòng: entries.production khi nó là entry có status. Có field thì
+       trạng thái của nó là evidence của pillar — đúng ngữ nghĩa legacy,
+       đếm độc lập với 4 ô con ở PartnerEval.compute / fallback. */
+    const pillarRaw = (src.productionPillarEvidence && typeof src.productionPillarEvidence === 'object' && !Array.isArray(src.productionPillarEvidence))
+      ? src.productionPillarEvidence
+      : (e.production && typeof e.production === 'object' && !Array.isArray(e.production) && typeof e.production.status === 'string') ? e.production : null;
     const evidenceRaw = { productionSubs: {} };
     partner.forEach(([k]) => {
       if (k === 'production') {
-        const allVerified = production.every(([sk]) => e[sk] && normalizeStatus(e[sk].status) === 'Đã xác minh');
-        const allNA = production.every(([sk]) => e[sk] && normalizeStatus(e[sk].status) === 'N/A');
-        evidenceRaw[k] = { status: allVerified ? 'Đã xác minh' : allNA ? 'N/A' : 'Chưa rõ', note: '' };
+        if (pillarRaw) {
+          evidenceRaw[k] = { status: evStatus(pillarRaw), note: String(pillarRaw.note || '') };
+        } else {
+          const allVerified = production.every(([sk]) => e[sk] && normalizeStatus(e[sk].status) === 'Đã xác minh');
+          const allNA = production.every(([sk]) => e[sk] && normalizeStatus(e[sk].status) === 'N/A');
+          evidenceRaw[k] = { status: allVerified ? 'Đã xác minh' : allNA ? 'N/A' : 'Chưa rõ', note: '' };
+        }
       } else {
         evidenceRaw[k] = { status: evStatus(e[k]), note: String((e[k] && e[k].note) || '') };
       }
@@ -155,7 +180,7 @@
     production.forEach(([k]) => { if (evidenceRaw.productionSubs[k].status !== 'Đã xác minh') missingSet.add(k); });
     const missing = [...missingSet];
     const partnerFit = res.partnerFit;
-    return { total: partnerFit, composite: res.productionScore, values, coverage: res.coverage.pct / 100, confidence: res.confidence, minimum: res.evidenceGate === 'ĐẠT', missing, hardGate: res.hardGate, classification: res.classification === null ? 'NE — Chưa đủ điểm' : res.classification, recommendation: res.conclusion, dealFit: res.dealFit, partnerFit, evidenceGate: res.evidenceGate, conclusion: res.conclusion, coveragePct: res.coverage.pct };
+    return { total: partnerFit, composite: res.productionScore, values, coverage: res.coverage.pct / 100, coverageDetail: res.coverage, confidence: res.confidence, minimum: res.evidenceGate === 'ĐẠT', missing, hardGate: res.hardGate, classification: res.classification === null ? 'NE — Chưa đủ điểm' : res.classification, recommendation: res.conclusion, dealFit: res.dealFit, partnerFit, evidenceGate: res.evidenceGate, conclusion: res.conclusion, coveragePct: res.coverage.pct };
   }
   /* ---- Market Score TỰ ĐỘNG (pubos-market-v1) — thêm mới, không đổi hàm cũ ----
      Tính thuần từ records theo cấu trúc publishing-data + target (record hoặc id). */

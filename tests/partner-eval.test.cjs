@@ -479,7 +479,7 @@ test('A5: canonical bị xoá -> cờ tự hồi và migrate lại; nhiều requ
   assert.equal(after.requestId, 'LAST'); assert.equal(after.versions, 1);
   assert.equal(after.computed.partnerFit, 75.0);
 });
-test('A6/A7: migration mang production pillar evidence + reviewDate, status lạ về "Chưa rõ" (không nâng "Đã trao đổi"), coverage/Fit không đổi', () => {
+test('A6/A7: migration mang production pillar evidence + reviewDate, status lạ về "Chưa rõ" (không nâng "Đã trao đổi"), Fit không đổi — coverage A7 nay tính cả pillar', () => {
   const ev = makeEval({ verifiedCount: 0 });
   ev.evidence.production = { status: 'Đã xác minh', note: 'Bằng chứng cấp pillar Production' };
   ev.evidence.track.status = 'Trạng thái lạ';
@@ -492,11 +492,18 @@ test('A6/A7: migration mang production pillar evidence + reviewDate, status lạ
   assert.equal(rev.reviewDate, '2026-10-15');
   assert.equal(rev.entries.track.status, 'Chưa rõ');
   assert.equal(rev.entries.deal.status, 'Chưa rõ');
-  /* Adapter suy coverage từ entries như trước: mọi entry đều "Chưa rõ" -> 0%;
-     điểm giữ nguyên fixture -> Fit 75.0 */
+  /* A7 (chốt 2026-10-29, thay khẳng định cũ "coverage 0%"): mọi entry đều
+     "Chưa rõ" nhưng evidence CẤP PILLAR Production đã xác minh được adapter
+     tính như legacy — legacy trên cùng dữ kiện: verified = 1 (chỉ pillar
+     Production) / 11 = 9.1%. Điểm giữ nguyên fixture -> Fit 75.0.
+     Ca này đúng là ca duy nhất được phép đổi số theo quyết định A7:
+     pillar đã xác minh mà 4 ô con chưa xác minh. */
+  assert.equal(peCompute(ev).coverage.pct, 9.1);
   const computed = ctx.window.PublishingScore.company(rev);
   assert.equal(computed.total, 75.0);
-  assert.equal(computed.coveragePct, 0);
+  assert.equal(computed.coveragePct, 9.1);
+  assert.equal(computed.coverageDetail.verified, 1);
+  assert.equal(computed.coverageDetail.total, 11);
 });
 test('B3/B6: bridge gameSummary — v2 không hợp lệ / rỗng thì rơi về legacy; current{market,prototype} không scoresV2 vẫn tính là v2', () => {
   const { ctx, store, bridge } = bridgeCtxFor({ companies: [], games: [{ id: 'gb', title: 'Game B', own: 'partner' }] });

@@ -933,17 +933,24 @@ function partnerSummaryBlockHTML(c) {
     </div>
   </section>`;
 }
-/* B1 (đợt 3): số mục evidence của one-pager lấy TRỰC TIẾP từ số đếm thật —
-   (1) object coverage {verified,total,excludedNA} của PartnerEval nếu kết quả
-   tính mang theo, hoặc (2) đếm thẳng từ entries canonical trong
-   partnerSummary().current theo đúng quy tắc adapter (6 pillar trực tiếp +
-   pillar Production suy từ 4 ô con: đủ 4 "Đã xác minh" mới tính là đã xác
-   minh, đủ 4 "N/A" mới tính N/A; cộng 4 ô con — tổng tối đa 11 mục).
+/* B1 (đợt 3) + A7 (2026-10-29): số mục evidence của one-pager lấy TRỰC TIẾP
+   từ số đếm thật — (1) coverageDetail {verified,total,excludedNA} mà adapter
+   PublishingScore.company trả kèm (A7: cùng object coverage của PartnerEval,
+   là nguồn ưu tiên cao nhất), hoặc object coverage {verified,total,excludedNA}
+   của PartnerEval nếu kết quả tính mang theo, hoặc (2) đếm thẳng từ dữ liệu
+   canonical trong partnerSummary().current theo đúng quy tắc adapter:
+   6 pillar trực tiếp + pillar Production + 4 ô con (tổng tối đa 11 mục), trong
+   đó pillar Production dùng field riêng current.productionPillarEvidence
+   (dự phòng: entries.production có status) khi có — đếm độc lập với 4 ô con
+   đúng ngữ nghĩa legacy — và chỉ khi không có field pillar nào mới suy từ
+   4 ô con (đủ 4 "Đã xác minh" mới tính đã xác minh, đủ 4 "N/A" mới tính N/A).
    TUYỆT ĐỐI không suy ngược từ phần trăm coverage (bản cũ Math.round(pct*11/100)
    biến 5 verified + 6 N/A thành "11/11"). Không có nguồn đếm nào -> trả null
    và one-pager chỉ hiện %, không in tỉ lệ x/y. */
 function partnerEvidenceCounts(ps) {
-  const cov = (ps && ps.computed && ps.computed.coverage && typeof ps.computed.coverage === "object") ? ps.computed.coverage
+  const cov = (ps && ps.computed && ps.computed.coverageDetail && typeof ps.computed.coverageDetail === "object") ? ps.computed.coverageDetail
+    : (ps && ps.computed && ps.computed.coverage && typeof ps.computed.coverage === "object") ? ps.computed.coverage
+    : (ps && ps.coverageDetail && typeof ps.coverageDetail === "object") ? ps.coverageDetail
     : (ps && ps.coverage && typeof ps.coverage === "object") ? ps.coverage : null;
   if (cov && Number.isFinite(Number(cov.verified)) && Number.isFinite(Number(cov.total))) {
     return { verified: Number(cov.verified), total: Number(cov.total), excludedNA: Number.isFinite(Number(cov.excludedNA)) ? Number(cov.excludedNA) : 0 };
@@ -956,7 +963,10 @@ function partnerEvidenceCounts(ps) {
   ["track", "team", "data", "collaboration", "strategy", "pipeline"].forEach(k => countOne(st(e[k])));
   const subs = ["capacity", "cadence", "milestone", "liveops"].map(k => st(e[k]));
   subs.forEach(countOne);
-  countOne(subs.every(s => s === "Đã xác minh") ? "Đã xác minh" : subs.every(s => s === "N/A") ? "N/A" : "Chưa rõ");
+  const pillarRaw = (ps.current.productionPillarEvidence && typeof ps.current.productionPillarEvidence === "object" && !Array.isArray(ps.current.productionPillarEvidence)) ? ps.current.productionPillarEvidence
+    : (e.production && typeof e.production === "object" && !Array.isArray(e.production) && typeof e.production.status === "string") ? e.production : null;
+  if (pillarRaw) countOne(st(pillarRaw));
+  else countOne(subs.every(s => s === "Đã xác minh") ? "Đã xác minh" : subs.every(s => s === "N/A") ? "N/A" : "Chưa rõ");
   return { verified, total: 11 - na, excludedNA: na };
 }
 function partnerPagerHTML(c) {
