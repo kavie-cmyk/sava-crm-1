@@ -237,11 +237,11 @@ function seed() { return {
     {id:"d12", line:"metaverse", title:"Gian hàng sự kiện ảo FreshMart", company:"c6", stage:"discovery", amount:900000000, cur:"VND", owner:"zac", due:"2026-11-14", idle:2, custom:{use_case:"Sự kiện ảo", platform_target:"Web"}},
   ],
   leads: [
-    {id:"l1", name:"Studio Mooncat (mẫu)", company:"c10", person:"Anh Minh — Founder", line:"publishing", source:"Tự gửi qua web", status:"new", note:"Có game idle farm muốn hợp tác phát hành", when:"Hôm nay"},
-    {id:"l2", name:"Publisher SG (mẫu)", company:"c11", person:"Ms. Tan — BD Manager", line:"game_studio", source:"Giới thiệu", status:"contacted", note:"Quan tâm game puzzle, xin pitch deck", when:"Hôm qua"},
-    {id:"l3", name:"Logistics Pro (mẫu)", company:"c12", person:"Anh Hùng — Giám đốc vận hành", line:"ai", source:"Form savameta.com", status:"new", note:"Hỏi giải pháp AI đọc chứng từ", when:"Hôm nay"},
-    {id:"l4", name:"Resort biển (mẫu)", company:"c13", person:"Chị Lan — Giám đốc kinh doanh", line:"metaverse", source:"Facebook", status:"qualified", note:"Muốn tour ảo 360/metaverse cho khách đặt phòng", when:"2 ngày trước"},
-    {id:"l5", name:"Dev indie: Cá (mẫu)", company:"c14", person:"Cá — Solo dev", line:"publishing", source:"Cộng đồng dev", status:"contacted", note:"Game roguelike đang làm, cần publisher", when:"3 ngày trước"},
+    {id:"l1", name:"Nguyễn Tuấn Minh (mẫu)", company:"c10", person:"Anh Minh — Founder", line:"publishing", source:"Tự gửi qua web", status:"new", note:"Có game idle farm muốn hợp tác phát hành", when:"Hôm nay"},
+    {id:"l2", name:"Rachel Tan (mẫu)", company:"c11", person:"Ms. Tan — BD Manager", line:"game_studio", source:"Giới thiệu", status:"contacted", note:"Quan tâm game puzzle, xin pitch deck", when:"Hôm qua"},
+    {id:"l3", name:"Trần Văn Hùng (mẫu)", company:"c12", person:"Anh Hùng — Giám đốc vận hành", line:"ai", source:"Form savameta.com", status:"new", note:"Hỏi giải pháp AI đọc chứng từ", when:"Hôm nay"},
+    {id:"l4", name:"Phạm Ngọc Lan (mẫu)", company:"c13", person:"Chị Lan — Giám đốc kinh doanh", line:"metaverse", source:"Facebook", status:"qualified", note:"Muốn tour ảo 360/metaverse cho khách đặt phòng", when:"2 ngày trước"},
+    {id:"l5", name:"Đỗ Hải Nam (Cá) (mẫu)", company:"c14", person:"Cá — Solo dev", line:"publishing", source:"Cộng đồng dev", status:"contacted", note:"Game roguelike đang làm, cần publisher", when:"3 ngày trước"},
   ],
   tasks: [
     {id:"t1", title:"Gửi bản build Puzzle Cats v0.9.3 cho Hanbit", assignee:"linh", due:"Hôm nay", deal:"d1", done:false, overdue:false},
