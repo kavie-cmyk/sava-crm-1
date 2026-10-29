@@ -386,6 +386,25 @@ function migrateState(s) {
   });
   /* N2 (tiếp): company vừa tạo trong migration lead ở trên cũng phải có roles object. */
   s.companies.forEach(c => { if (c && typeof c === "object" && (!c.roles || typeof c.roles !== "object" || Array.isArray(c.roles))) c.roles = {}; });
+  /* Đổi tên lead mẫu: lead là NGƯỜI đầu mối, không phải công ty. Dữ liệu đã lưu
+     từ seed cũ còn mang tên công ty làm tên lead (l1–l5) -> đổi sang tên người
+     tương ứng trong seed hiện tại. CHỈ đổi khi id thuộc {l1..l5} VÀ name khớp
+     CHÍNH XÁC tên mẫu cũ của đúng lead đó: lead user đã tự sửa tên (không khớp
+     chính xác) không bị đụng; công ty c10–c14 trùng tên cũ GIỮ NGUYÊN (chỉ sửa
+     s.leads). Đặt sau migration gắn lead↔company ở trên để việc tra công ty
+     theo tên cũ không bị ảnh hưởng. Idempotent: chạy lại không đổi gì thêm
+     vì tên mới không nằm trong bảng tên cũ. */
+  const LEAD_SAMPLE_RENAMES = {
+    l1: ["Studio Mooncat (mẫu)", "Nguyễn Tuấn Minh (mẫu)"],
+    l2: ["Publisher SG (mẫu)", "Rachel Tan (mẫu)"],
+    l3: ["Logistics Pro (mẫu)", "Trần Văn Hùng (mẫu)"],
+    l4: ["Resort biển (mẫu)", "Phạm Ngọc Lan (mẫu)"],
+    l5: ["Dev indie: Cá (mẫu)", "Đỗ Hải Nam (Cá) (mẫu)"],
+  };
+  s.leads.forEach(l => {
+    const pair = LEAD_SAMPLE_RENAMES[l.id];
+    if (pair && l.name === pair[0]) l.name = pair[1];
+  });
   return s;
 }
 /* S1a: dữ liệu localStorage hỏng (JSON.parse lỗi hoặc migrateState ném lỗi)

@@ -310,11 +310,13 @@ function leadCompanyName(l) { const c = leadCompany(l); return c ? c.name : "—
 function dealsForLead(leadId) { return S.deals.filter(d => Array.isArray(d.leads) && d.leads.includes(leadId)); }
 function leadsForDeal(d) { if (!d || !Array.isArray(d.leads)) return []; return d.leads.map(id => S.leads.find(l => l.id === id)).filter(Boolean); }
 function leadsForCompany(companyId) { return S.leads.filter(l => l.company === companyId); }
-function leadLabel(l) { return leadCompanyName(l) + (l.person ? " — " + l.person : ""); }
+/* Nhãn chính của lead = TÊN LEAD (người đầu mối); tên công ty chỉ là thông tin phụ. */
+function leadDisplayName(l) { return (l && l.name) ? l.name : leadCompanyName(l); }
+function leadLabel(l) { const nm = leadDisplayName(l); const cn = leadCompanyName(l); return nm + (cn && cn !== nm ? " · " + cn : "") + (l.person ? " — " + l.person : ""); }
 function leadMini(l) {
   const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
-  return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadCompanyName(l))}</div>
-    <div class="c">${l.person ? "👤 " + esc(l.person) + " · " : ""}<span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
+  return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person ? " · 👤 " + esc(l.person) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 function attachLeadToDeal(leadId, dealId) {
@@ -323,7 +325,7 @@ function attachLeadToDeal(leadId, dealId) {
   if (!Array.isArray(d.leads)) d.leads = [];
   if (!d.leads.includes(leadId)) d.leads.push(leadId);
   save(); render();
-  toast("Đã gắn lead " + leadCompanyName(l) + " vào deal: " + d.title);
+  toast("Đã gắn lead " + leadDisplayName(l) + " vào deal: " + d.title);
 }
 function detachLeadFromDeal(leadId, dealId) {
   const d = S.deals.find(x => x.id === dealId); if (!d) return;
@@ -553,11 +555,11 @@ function vLeads() {
     const lc = leadCompany(l);
     const relDeals = dealsForLead(l.id);
     const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
-    return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</b>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
+    return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b><div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Lead (công ty + người đầu mối)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${rows}</table></div>
-  <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div></div>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${rows}</table></div>
+  <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div></div>`;
 }
 function convertLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
@@ -726,9 +728,19 @@ function parseRevShare(str) {
   if (partner === null) partner = nums.length > 1 ? nums[1] : null;
   return { sava, partner };
 }
+/* Trạng thái xem/sửa của khối Term + Hợp đồng trong drawer deal:
+   termEditDealId = id của deal đang ở chế độ SỬA; null = mọi deal ở chế độ XEM
+   (mặc định). openDeal đọc biến này khi render: mở deal khác / đóng drawer thì
+   reset về xem; các lần render lại cùng deal (chuyển stage, gắn/gỡ lead...)
+   giữ nguyên chế độ hiện tại. saveTermContract chỉ thoát chế độ sửa khi lưu
+   THÀNH CÔNG — validate chặn (return sớm kèm toast) thì vẫn ở lại chế độ sửa. */
+let termEditDealId = null;
+function startTermEdit(id) { termEditDealId = id; openDeal(id); }
+function cancelTermEdit(id) { termEditDealId = null; openDeal(id); }
 /* Drawer chi tiết deal */
 function openDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
+  if (termEditDealId && termEditDealId !== id) termEditDealId = null;
   drawerCtx = { type: "deal", id };
   const L = lineDefOrFallback(d.line, d.stage), c = comp(d.company), g = d.game ? game(d.game) : null;
   const st = stagePairSafe(d.line, d.stage);
@@ -757,8 +769,29 @@ function openDeal(id) {
   const t = d.term || {}, ct = d.contract || {};
   const revParsed = parseRevShare(t.rev_share);
   const advNum = (t.advance_num === undefined || t.advance_num === null) ? "" : String(t.advance_num);
-  const termBox = isGame(d) ? `
-    <h3 style="margin:16px 0 4px">🤝 Điều khoản (Term) — sửa trực tiếp</h3>
+  const advDisplay = t.advance || (advNum !== "" ? advNum + " " + (t.advance_cur || "VND") : "");
+  const termViewBox = `
+    <h3 style="margin:16px 0 4px">🤝 Điều khoản (Term)</h3>
+    <div class="mut" style="margin-bottom:8px">Deal game tính theo rev share, không có giá trị hợp đồng cố định.</div>
+    <div class="kv">
+      <div class="k">Rev share</div><div>${esc(t.rev_share || "—")}</div>
+      <div class="k">Advance</div><div>${esc(advDisplay || "—")}</div>
+      <div class="k">Lãnh thổ</div><div>${esc(t.territories || "—")}</div>
+      <div class="k">Thời hạn</div><div>${esc(t.duration || "—")}</div>
+      <div class="k">Độc quyền</div><div>${esc(t.exclusivity || "—")}</div>
+      <div class="k">Cam kết marketing</div><div>${esc(t.marketing || "—")}</div>
+      <div class="k">Thanh toán</div><div>${esc(t.payment || "—")}</div>
+    </div>
+    <h3 style="margin:14px 0 4px">📄 Hợp đồng</h3>
+    <div class="kv">
+      <div class="k">Trạng thái</div><div>${esc(ct.status || "—")}</div>
+      <div class="k">Số HĐ</div><div>${esc(ct.no || "—")}</div>
+      <div class="k">Ngày ký</div><div>${esc(ct.signed || "—")}</div>
+      <div class="k">Link HĐ</div><div>${ct.url ? esc(ct.url) + `<div style="margin-top:5px"><a href="#" onclick="toast('Bản mẫu: link này sẽ mở file HĐ trên Drive ở bản thật'); return false">📂 Mở hợp đồng ↗</a></div>` : "—"}</div>
+    </div>
+    <button class="btn" onclick="startTermEdit('${d.id}')">✏️ Sửa term + hợp đồng</button>`;
+  const termEditBox = `
+    <h3 style="margin:16px 0 4px">🤝 Điều khoản (Term) — đang sửa</h3>
     <div class="mut" style="margin-bottom:8px">Deal game tính theo rev share, không có giá trị hợp đồng cố định.</div>
     <div class="kv">
       <div class="k">Rev share (%)</div><div><div style="display:flex;gap:8px;align-items:center"><label class="mut">Sava</label><input id="t_rev_sava" type="number" min="0" max="100" step="0.5" style="flex:1" value="${esc(revParsed ? (revParsed.sava ?? "") : "")}" placeholder="%"><label class="mut">Partner</label><input id="t_rev_partner" type="number" min="0" max="100" step="0.5" style="flex:1" value="${esc(revParsed ? (revParsed.partner ?? "") : "")}" placeholder="%"></div><input type="hidden" id="t_rev_old" value="${esc(t.rev_share || '')}">${!revParsed && t.rev_share ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(t.rev_share)} — điền đủ cả 2 ô % để thay thế</div>` : `<div class="mut" style="margin-top:4px">Hiện tại: ${esc(t.rev_share || "—")} · Chỉ ghi đè khi điền đủ cả 2 ô %.</div>`}</div>
@@ -776,7 +809,8 @@ function openDeal(id) {
       <div class="k">Ngày ký</div><div><input id="c_signed" type="date" style="width:100%" value="${esc(ct.signed||'')}"></div>
       <div class="k">Link HĐ</div><div><input id="c_url" style="width:100%" value="${esc(ct.url||'')}" placeholder="Dán link Google Drive của HĐ / term sheet">${ct.url?`<div style="margin-top:5px"><a href="#" onclick="toast('Bản mẫu: link này sẽ mở file HĐ trên Drive ở bản thật'); return false">📂 Mở hợp đồng ↗</a></div>`:""}</div>
     </div>
-    <button class="btn" onclick="saveTermContract('${d.id}')">💾 Lưu term + hợp đồng</button>` : "";
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="saveTermContract('${d.id}')">💾 Lưu term + hợp đồng</button><button class="btn ghost" onclick="cancelTermEdit('${d.id}')">Hủy</button></div>`;
+  const termBox = isGame(d) ? (termEditDealId === d.id ? termEditBox : termViewBox) : "";
   /* D7: deal thiếu amount (không phải số hữu hạn) -> "giá trị có trọng số" hiện
      "—", không còn $0 / 0tr ₫ giả từ (d.amount||0). */
   const hasAmt = typeof d.amount === "number" && Number.isFinite(d.amount);
@@ -814,7 +848,7 @@ function openDeal(id) {
       <div class="mut" style="margin-top:5px">Cách lấy link: <b>Gmail</b> — mở đúng email đó, copy địa chỉ trên thanh trình duyệt; <b>Messenger</b> — mở đúng cuộc chat trên messenger.com, copy địa chỉ. Mỗi hoạt động chỉ ghim đúng 1 cuộc hội thoại vào đúng deal này, không kéo cả hộp thư.</div>
       <button class="btn" style="margin-top:9px" onclick="addActivity('${d.id}')">+ Thêm vào timeline</button>
     </div>
-    <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng sửa trực tiếp ở khối trên, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>`;
+    <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng bấm nút ✏️ Sửa ở khối trên để sửa, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>`;
   document.getElementById("drawer").classList.add("on");
   document.getElementById("scrim").classList.add("on");
 }
@@ -853,10 +887,14 @@ function saveTermContract(id) {
   else { term.advance = v("t_adv_old") || oldTerm.advance || ""; }
   d.term = term;
   d.contract = { status:v("c_status"), no:v("c_no"), signed:v("c_signed"), url:v("c_url") };
+  /* Lưu THÀNH CÔNG mới thoát chế độ sửa -> quay về dạng xem ngay. Mọi đường
+     validate ở trên đều return sớm TRƯỚC điểm này nên khi bị chặn, termEditDealId
+     vẫn giữ nguyên và form sửa vẫn mở để user sửa tiếp. */
+  termEditDealId = null;
   save(); openDeal(id); render(); toast("Đã lưu term + link hợp đồng cho: " + d.title);
 }
-function closeDrawer() { drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
-function showDrawer(html) { document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); }
+function closeDrawer() { termEditDealId = null; drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
+function showDrawer(html) { /* Drawer khác (công ty/game/lead/member) thay drawer deal -> thoát chế độ sửa Term. openDeal không đi qua hàm này nên không bị ảnh hưởng. */ termEditDealId = null; document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); }
 function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${esc(d.title)}</div>
     <div class="c"><span class="chip" style="background:${lineColor(d.line)}">${esc(lineName(d.line))}</span> Stage: ${esc(stagePairSafe(d.line, d.stage)[1])}</div>
@@ -1132,7 +1170,7 @@ function openLead(id) {
   const attachDeals = S.deals.filter(d => !(Array.isArray(d.leads) && d.leads.includes(l.id)));
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>
-    <h2>📥 ${esc(lc ? lc.name : l.name)}</h2><div class="mut">${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}</div>
+    <h2>📥 ${esc(leadDisplayName(l))}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}</div>
     <div class="kv">
       <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
       <div class="k">Người đầu mối</div><div>${esc(l.person || "—")}</div>
@@ -1854,7 +1892,7 @@ function editLead(id, presetCompanyId) {
     S.companies.map(c => `<option value="${esc(c.id)}" ${c.id === curCompId ? "selected" : ""}>${esc(c.name)}</option>`).join("") +
     `<option value="__new__">＋ Tạo công ty mới…</option>`;
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa lead" : "📥 Thêm lead"}</h3>
-    ${field("Tên lead / tổ chức", txt("e_lname", l.name))}
+    ${field("Tên lead (người đầu mối)", txt("e_lname", l.name))}
     ${field("Công ty", `<select id="e_lcompany" onchange="toggleLeadNewCompany()">${compOpts}</select><div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
     ${field("Người đầu mối", txt("e_lperson", l.person || "", "VD: Anh Minh — Founder"))}
     ${field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), presetLine || l.line))}
