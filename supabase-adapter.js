@@ -251,7 +251,16 @@
     arr('deal_contracts').forEach(x => { if (x && x.deal_id) contractsByDeal[x.deal_id] = x; });
     arr('deal_leads').forEach(x => { if (x && x.deal_id) { (leadsByDeal[x.deal_id] = leadsByDeal[x.deal_id] || []).push(x.lead_id); } });
 
-    const state = { members: [], companies: [], games: [], deals: [], leads: [], tasks: [], activities: [] };
+    /* Hình dạng state PHẢI khớp đúng hình dạng chuẩn của app (emptyState()
+       trong shared.js, gồm cả khoá `verticals` ở cuối): migrateState() bổ
+       sung `verticals: []` mỗi lần loadState() chạy và loadState() ghi lại
+       cache vô điều kiện — nếu rows->state thiếu khoá này, cache sau khi
+       trang nạp không bao giờ trùng dữ liệu máy chủ, cờ `changed` của
+       loadAll() bật ở MỌI lần nạp và cổng auth tải lại trang vô hạn (sự cố
+       vòng lặp reload 30/10/2026). `verticals` không có cột máy chủ riêng:
+       danh sách ngành sống lại từ deal.vertical qua legacy_extra (xem
+       shared.js), nên ở đây luôn là mảng rỗng như emptyState(). */
+    const state = { members: [], companies: [], games: [], deals: [], leads: [], tasks: [], activities: [], verticals: [] };
     arr('members').forEach(m => {
       const o = { id: m.id, name: m.name, role: m.role, active: !!m.active };
       state.members.push(mergeExtras(o, m));

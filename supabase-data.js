@@ -74,6 +74,30 @@
     } catch (e) { return new Set(); }
   }
   function rawSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  /* So sánh cache cũ với state máy chủ theo NỘI DUNG (deep-equal trên bản
+     đã parse), KHÔNG theo chuỗi JSON thô: app tự ghi lại cache qua lớp
+     migrate (loadState/storeState trong shared.js, read/write trong
+     publishing.js) nên thứ tự khoá/định dạng chuỗi có thể khác mà nội dung
+     vẫn là đúng dữ liệu máy chủ. So chuỗi thô khiến `changed` bật ở mọi
+     lần nạp -> cổng auth tải lại trang vô hạn (sự cố 30/10/2026).
+     Hai khoá _crmRev/_crmTab là siêu dữ liệu guard nhiều tab THUẦN cục bộ
+     (save() trong index.html ghi; adapter không bao giờ đưa lên máy chủ)
+     nên bị loại khỏi phép so ở cả hai phía. */
+  function parseCachedState(raw) {
+    if (raw === null || raw === undefined) return undefined;
+    try { const v = JSON.parse(raw); return (v && typeof v === 'object' && !Array.isArray(v)) ? v : undefined; } catch (e) { return undefined; }
+  }
+  function canonicalForCompare(state) {
+    const c = A.clone(state);
+    if (c && typeof c === 'object') { delete c._crmRev; delete c._crmTab; }
+    return c;
+  }
+  function cacheDiffers(priorRaw, newState) {
+    if (priorRaw === null || priorRaw === undefined) return true;
+    const prior = parseCachedState(priorRaw);
+    if (prior === undefined) return priorRaw !== JSON.stringify(newState);
+    return !A.deepEqual(canonicalForCompare(prior), canonicalForCompare(newState));
+  }
   function backupOnce(key, backupKey) {
     try {
       const raw = localStorage.getItem(key);
@@ -123,16 +147,19 @@
     backupOnce(CRM_KEY, CRM_BACKUP_KEY);
     backupOnce(PUB_KEY, PUB_BACKUP_KEY);
     /* `changed`: nội dung cache TRƯỚC khi ghi đè có khác dữ liệu máy chủ
-       vừa nạp không (so chuỗi JSON). Tầng auth dùng cờ này để BẮT BUỘC tải
-       lại trang khi cache đã đổi — nhờ vậy state trong bộ nhớ mà trang đã
-       parse từ cache cũ (kể cả dữ liệu mẫu/test cũ) bị loại bỏ hoàn toàn
-       trước khi đồng bộ ghi được bật, không còn đường nào để save() sau đó
-       ghi đè cache máy chủ bằng bản cũ rồi diff-sync đẩy ngược lên. */
+       vừa nạp không (so theo NỘI DUNG đã parse — xem cacheDiffers; so
+       chuỗi JSON thô từng khiến changed luôn true và auth tải lại trang
+       vô hạn). Tầng auth dùng cờ này để tải lại trang TỐI ĐA 1 lần cho
+       mỗi phiên bản dữ liệu máy chủ khi cache đã đổi — nhờ vậy state
+       trong bộ nhớ mà trang đã parse từ cache cũ (kể cả dữ liệu mẫu/test
+       cũ) bị loại bỏ hoàn toàn trước khi đồng bộ ghi được bật, không còn
+       đường nào để save() sau đó ghi đè cache máy chủ bằng bản cũ rồi
+       diff-sync đẩy ngược lên. */
     let priorCrm = null, priorPub = null;
     try { priorCrm = localStorage.getItem(CRM_KEY); } catch (e) {}
     try { priorPub = localStorage.getItem(PUB_KEY); } catch (e) {}
     const crmJson = JSON.stringify(crmState), pubJson = JSON.stringify(pubState);
-    const changed = priorCrm !== crmJson || priorPub !== pubJson;
+    const changed = cacheDiffers(priorCrm, crmState) || cacheDiffers(priorPub, pubState);
     rawSet(CRM_KEY, crmJson);
     rawSet(PUB_KEY, pubJson);
     crmSnap = A.clone(crmState); pubSnap = A.clone(pubState);

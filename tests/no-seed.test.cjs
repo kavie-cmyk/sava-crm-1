@@ -140,7 +140,8 @@ test('tĩnh: production không còn seed mẫu / nút reset / đường import u
   assert.ok(!/\.upsert\(/.test(imp), 'import.html còn lời gọi upsert');
   assert.ok(!imp.includes('async function chunked'), 'import.html còn khối thực thi nạp');
   const auth = read('supabase-auth.js');
-  assert.ok(auth.includes('changed || prevHash !== hash'), 'auth chưa bắt buộc tải lại khi cache bị loadAll thay đổi');
+  assert.ok(auth.includes('changed && prevHash !== hash'), 'auth phải tải lại tối đa 1 lần cho mỗi hash khi cache bị loadAll thay đổi (điều kiện changed && prevHash !== hash)');
+  assert.ok(!auth.includes('changed || prevHash !== hash'), 'điều kiện OR cũ gây vòng lặp reload vô hạn (sự cố 30/10/2026) không được quay lại');
 });
 
 test('seed()/emptyState()/loadState() với kho rỗng -> trạng thái TRỐNG, không bản ghi mẫu', () => {

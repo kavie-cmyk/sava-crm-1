@@ -12,12 +12,13 @@
          chuyển về mkt.html kèm thông báo); BD/Admin mở mkt.html thì
          chuyển về index.html kèm thông báo.
    - Sau khi vai hợp lệ: SavaData.loadAll() nạp dữ liệu Supabase vào cache.
-     Nếu dữ liệu khác bản đang hiển thị (hash khác lần mở trước trong cùng
-     phiên trình duyệt) HOẶC loadAll vừa thay nội dung cache (cache cũ
-     khác dữ liệu máy chủ) -> nạp lại trang 1 lần để app render từ dữ
-     liệu máy chủ và loại bỏ hẳn state cũ còn trong bộ nhớ (đường hồi
-     sinh dữ liệu mẫu/test duy nhất qua save() + diff-sync); trùng cả
-     hai -> mở khoá ngay. Mất kết nối khi nạp -> mở app bằng cache
+     Nếu loadAll vừa thay nội dung cache (cache cũ khác dữ liệu máy chủ
+     theo nội dung) VÀ phiên này chưa từng nạp lại trang cho đúng phiên
+     bản dữ liệu đó (hash) -> nạp lại trang đúng 1 lần để app render từ
+     dữ liệu máy chủ và loại bỏ hẳn state cũ còn trong bộ nhớ (đường hồi
+     sinh dữ liệu mẫu/test duy nhất qua save() + diff-sync); các trường
+     hợp còn lại (cache đã là dữ liệu máy chủ, hoặc đã nạp lại cho hash
+     này rồi) -> mở khoá ngay, không nạp lại nữa. Mất kết nối khi nạp -> mở app bằng cache
      trên máy kèm banner cảnh báo, đồng bộ ghi bị TẮT (tránh đẩy dữ liệu
      cũ lên khi chưa có snapshot từ server).
    - Session hết hạn/mất giữa chừng (onAuthStateChange SIGNED_OUT) ->
@@ -462,19 +463,32 @@
         const { hash, changed } = await window.SavaData.loadAll();
         let prevHash = null;
         try { prevHash = sessionStorage.getItem('sava_boot_hash'); } catch (e) {}
-        /* Tải lại trang khi (a) hash khác lần mở trước trong phiên, HOẶC
-           (b) loadAll vừa phải THAY nội dung cache (changed) — trường hợp
-           (b) là chặn cứng đường hồi sinh dữ liệu cũ/mẫu: trang đã parse
-           state trong bộ nhớ từ cache cũ TRƯỚC khi loadAll ghi đè cache
-           bằng dữ liệu máy chủ; nếu mở khoá luôn mà không tải lại, lần
-           save() đầu tiên sẽ ghi state cũ đó đè lên cache máy chủ và
-           diff-sync đẩy ngược nó lên Supabase như dữ liệu mới. Tải lại
-           khiến state trong bộ nhớ được parse lại từ cache máy chủ. */
-        if (page !== 'import.html' && (changed || prevHash !== hash)) {
+        /* Tải lại trang TỐI ĐA 1 LẦN cho mỗi phiên bản dữ liệu máy chủ
+           (hash), và CHỈ khi loadAll vừa phải THAY nội dung cache
+           (changed):
+           - changed + chưa từng tải lại cho đúng hash này: chặn cứng
+             đường hồi sinh dữ liệu cũ/mẫu — trang đã parse state trong
+             bộ nhớ từ cache cũ TRƯỚC khi loadAll ghi đè cache bằng dữ
+             liệu máy chủ; nếu mở khoá luôn, lần save() đầu tiên sẽ ghi
+             state cũ đó đè lên cache máy chủ và diff-sync đẩy ngược nó
+             lên Supabase như dữ liệu mới. Đánh dấu hash TRƯỚC khi tải
+             lại, đồng bộ ghi CHƯA được bật ở lần mở này.
+           - changed + ĐÃ tải lại cho đúng hash này: state trong bộ nhớ
+             của lần mở hiện tại đã được parse từ chính cache máy chủ mà
+             lần loadAll trước ghi — phần khác biệt còn lại chỉ là lớp
+             migrate của app chạy trên dữ liệu máy chủ, trong bộ nhớ
+             không còn bản ghi cũ/mẫu nào để đẩy ngược. Mở khoá và bật
+             đồng bộ luôn; tải lại nữa sẽ thành vòng lặp vô hạn (đây
+             chính là sự cố 30/10/2026: changed bị tính bằng so chuỗi
+             JSON thô nên luôn true dù cache đã là dữ liệu máy chủ).
+           - Không changed: bộ nhớ đã là dữ liệu máy chủ — không tải
+             lại, kể cả khi hash khác lần mở trước (phiên/tab mới). */
+        if (page !== 'import.html' && changed && prevHash !== hash) {
           try { sessionStorage.setItem('sava_boot_hash', hash); } catch (e) {}
           location.reload();
           return;
         }
+        try { sessionStorage.setItem('sava_boot_hash', hash); } catch (e) {}
         window.SavaData.setEnabled(true);
       } catch (e) {
         /* Offline / lỗi nạp: mở app từ cache trên máy, TẮT đồng bộ ghi
