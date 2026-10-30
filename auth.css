@@ -1,0 +1,47 @@
+/* Sava Meta CRM — cổng đăng nhập (Giai đoạn 2b).
+   <html class="sava-locked">: ẩn TOÀN BỘ app, chỉ hiện #savaAuthRoot
+   (màn hình đăng nhập / chặn quyền). Auth mở khoá bằng cách gỡ class này
+   sau khi có phiên đăng nhập hợp lệ + dữ liệu Supabase đã nạp xong. */
+html.sava-locked body > *:not(#savaAuthRoot) { display: none !important; }
+#savaAuthRoot { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+html.sava-locked #savaAuthRoot {
+  position: fixed; inset: 0; z-index: 10000; overflow-y: auto;
+  background: #f1f5f9; display: flex; align-items: flex-start; justify-content: center;
+  padding: 48px 16px 32px;
+}
+.sava-auth-card {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 16px;
+  padding: 28px 26px; width: 400px; max-width: 94vw;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .08);
+}
+.sava-auth-brand { font-weight: 800; font-size: 15px; letter-spacing: .04em; color: #0f172a; }
+.sava-auth-brand b { color: #2563eb; }
+.sava-auth-card h1 { font-size: 21px; margin: 10px 0 4px; color: #0f172a; }
+.sava-auth-sub { font-size: 13.5px; color: #64748b; margin: 0 0 14px; line-height: 1.5; }
+.sava-auth-card label { display: block; font-size: 12.5px; color: #64748b; margin: 12px 0 4px; }
+.sava-auth-card input {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; font-size: 14.5px;
+  border: 1px solid #e2e8f0; border-radius: 9px;
+}
+.sava-auth-card button[type="submit"], .sava-auth-logout {
+  margin-top: 18px; width: 100%; padding: 11px 14px; font-size: 14.5px; font-weight: 700;
+  background: #2563eb; color: #fff; border: none; border-radius: 9px; cursor: pointer;
+}
+.sava-auth-logout { background: #fff; color: #0f172a; border: 1px solid #e2e8f0 !important; }
+.sava-auth-error { color: #dc2626; font-size: 13.5px; margin-top: 12px; min-height: 18px; line-height: 1.45; }
+.sava-auth-status { color: #64748b; font-size: 13px; margin-top: 10px; min-height: 16px; }
+.sava-hidden { display: none !important; }
+/* Thanh người dùng sau đăng nhập — nhất quán cả 3 trang */
+#savaUserBar {
+  position: fixed; top: 10px; right: 12px; z-index: 9000;
+  display: flex; align-items: center; gap: 10px;
+  background: #0f172a; color: #e2e8f0; border-radius: 999px;
+  padding: 6px 8px 6px 14px; font-size: 13px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .25);
+}
+#savaUserBar button {
+  background: #1e293b; color: #fff; border: 1px solid #334155;
+  padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+}
+html.sava-locked #savaUserBar { display: none !important; }
+@media (max-width: 640px) { #savaUserBar { top: 8px; right: 8px; font-size: 12px; } }

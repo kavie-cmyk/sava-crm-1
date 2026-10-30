@@ -118,8 +118,39 @@
 </style>
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
+<link rel="stylesheet" href="auth.css">
+<script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="supabase-client.js"></script>
+<script src="supabase-adapter.js"></script>
+<script src="supabase-data.js"></script>
+<script src="supabase-auth.js"></script>
 </head>
 <body>
+<div id="savaAuthRoot">
+  <div class="sava-auth-card" id="savaLoginCard">
+    <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
+    <h1>Đăng nhập CRM</h1>
+    <p class="sava-auth-sub">Dùng tài khoản được cấp cho team Sava Meta. Chưa có tài khoản? Liên hệ quản trị (Zac) — hệ thống không có đăng ký tự do.</p>
+    <form id="savaLoginForm">
+      <label for="savaEmail">Email</label>
+      <input id="savaEmail" type="email" autocomplete="username" required>
+      <label for="savaPassword">Mật khẩu</label>
+      <input id="savaPassword" type="password" autocomplete="current-password" required>
+      <div class="sava-auth-error" id="savaLoginError" role="alert"></div>
+      <button type="submit">Đăng nhập</button>
+    </form>
+    <p class="sava-auth-status" id="savaAuthStatus">Đang kiểm tra phiên đăng nhập…</p>
+  </div>
+  <div class="sava-auth-card sava-hidden" id="savaBlockedCard">
+    <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
+    <h1>Chưa truy cập được</h1>
+    <p class="sava-auth-sub" id="savaBlockedMsg"></p>
+    <button type="button" class="sava-auth-logout" id="savaBlockedLogout">Đăng xuất</button>
+  </div>
+  <div id="savaUserBar" class="sava-hidden"><span id="savaUserInfo"></span><button type="button" id="savaLogoutBtn">Đăng xuất</button></div>
+</div>
+
 <aside class="side" id="workspaceSide" aria-label="Không gian làm việc">
   <a class="brand" href="index.html" aria-label="Sava Meta CRM — Tổng quan">
   <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="m7 22 7-14h5l-7 14H7Z" fill="#12869b"/><path d="m16 22 7-14h3l-7 14h-3Z" fill="#75b7c3"/><path d="M7 25h18" stroke="#12869b" stroke-width="1.5" stroke-linecap="round"/></svg></span>
@@ -150,8 +181,8 @@
     <div class="header-actions"><a class="role-link" href="mkt.html">Giao diện Marketing<i data-icon="arrow"></i></a><span class="avatar" aria-label="Giao diện Business Development">BD</span></div>
   </header>
   <details class="prototype-note">
-    <summary><span class="status-dot" aria-hidden="true"></span><b>Bản dùng thử</b><span class="note-secondary">Dữ liệu CRM mẫu · Lưu trên trình duyệt</span><span class="note-more">Thông tin dữ liệu<i data-icon="chevron"></i></span></summary>
-    <p>Dữ liệu CRM là dữ liệu mẫu, không phải khách hàng thật, và được lưu trong trình duyệt. Giao diện BD và Marketing dùng chung dữ liệu trên cùng trình duyệt. Marketing xem/cập nhật thị trường, đánh giá năng lực studio và từng game trong phân hệ Game & Publishing. Kết quả đánh giá mới chưa đồng bộ máy chủ.</p>
+    <summary><span class="status-dot" aria-hidden="true"></span><b>Bản dùng thử</b><span class="note-secondary">Dữ liệu CRM trên Supabase · Đăng nhập theo vai</span><span class="note-more">Thông tin dữ liệu<i data-icon="chevron"></i></span></summary>
+    <p>Dữ liệu CRM lưu trên Supabase — đăng nhập bắt buộc và phân quyền Admin/BD/MKT ở máy chủ; trình duyệt chỉ giữ bản cache gương, bản gốc localStorage trước khi nối Supabase được giữ làm sao lưu trên máy. Marketing xem/cập nhật thị trường, đánh giá năng lực studio và từng game trong phân hệ Game &amp; Publishing.</p>
   </details>
   <div class="toolbar">
     <div class="page-heading"><h1 id="viewTitle">Tổng quan</h1><p class="page-description" id="viewDescription">Theo dõi cơ hội, đối tác và công việc của team.</p></div>

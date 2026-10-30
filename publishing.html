@@ -4,12 +4,42 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Game & Publishing · Sava Meta CRM</title><meta name="theme-color" content="#f5f6f8">
   <link rel="stylesheet" href="publishing.css">
+<link rel="stylesheet" href="auth.css">
+<script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="supabase-client.js"></script>
+<script src="supabase-adapter.js"></script>
+<script src="supabase-data.js"></script>
+<script src="supabase-auth.js"></script>
 </head>
 <body data-role="bd">
+<div id="savaAuthRoot">
+  <div class="sava-auth-card" id="savaLoginCard">
+    <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
+    <h1>Đăng nhập CRM</h1>
+    <p class="sava-auth-sub">Dùng tài khoản được cấp cho team Sava Meta. Chưa có tài khoản? Liên hệ quản trị (Zac) — hệ thống không có đăng ký tự do.</p>
+    <form id="savaLoginForm">
+      <label for="savaEmail">Email</label>
+      <input id="savaEmail" type="email" autocomplete="username" required>
+      <label for="savaPassword">Mật khẩu</label>
+      <input id="savaPassword" type="password" autocomplete="current-password" required>
+      <div class="sava-auth-error" id="savaLoginError" role="alert"></div>
+      <button type="submit">Đăng nhập</button>
+    </form>
+    <p class="sava-auth-status" id="savaAuthStatus">Đang kiểm tra phiên đăng nhập…</p>
+  </div>
+  <div class="sava-auth-card sava-hidden" id="savaBlockedCard">
+    <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
+    <h1>Chưa truy cập được</h1>
+    <p class="sava-auth-sub" id="savaBlockedMsg"></p>
+    <button type="button" class="sava-auth-logout" id="savaBlockedLogout">Đăng xuất</button>
+  </div>
+  <div id="savaUserBar" class="sava-hidden"><span id="savaUserInfo"></span><button type="button" id="savaLogoutBtn">Đăng xuất</button></div>
+</div>
   <a class="skip" href="#content">Đến nội dung</a>
   <header class="topbar"><a class="brand" href="index.html"><span class="brand-mark">S</span><span>SAVA <b>META</b><small>CRM WORKSPACE</small></span></a><span class="workspace">Game & Publishing</span><nav id="roleNav" aria-label="Không gian làm việc"></nav></header>
   <div class="layout"><aside><p class="eyebrow">GAME & PUBLISHING</p><h1 id="roleTitle">Không gian BD</h1><nav class="navigation" aria-label="Phân hệ Publishing"><button data-tab="market">Phân tích thị trường</button><button data-tab="reviews">Theo dõi đánh giá</button><button data-tab="framework">Khung quyết định</button></nav><div class="side-note">Company và game được liên kết với hồ sơ CRM. Mỗi lần đánh giá giữ riêng bằng chứng và phiên bản.</div></aside>
-  <main id="content" tabindex="-1"><div id="pageHead"></div><details class="storage-note"><summary>Lưu trên trình duyệt · Cùng dữ liệu với BD/MKT trên thiết bị này</summary><p>Phân hệ đánh giá hiện lưu trên cùng trình duyệt và origin với CRM; chưa đồng bộ nhiều thiết bị. Hai giao diện chia thao tác theo nghiệp vụ, chưa phải phân quyền tài khoản phía máy chủ. CRM hiện độc lập; đánh giá Publishing tích hợp ngay trong CRM này, không còn kết nối tới Publishing OS cũ.</p></details><div id="screen"></div></main></div>
+  <main id="content" tabindex="-1"><div id="pageHead"></div><details class="storage-note"><summary>Dữ liệu trên Supabase · Đăng nhập theo tài khoản &amp; vai</summary><p>Dữ liệu đánh giá lưu trên Supabase (đăng nhập bắt buộc, phân quyền Admin/BD/MKT ở máy chủ); trình duyệt chỉ giữ bản cache gương trên máy để app chạy nhanh, bản gốc localStorage trước khi nối Supabase được giữ làm sao lưu. CRM hiện độc lập; đánh giá Publishing tích hợp ngay trong CRM này, không còn kết nối tới Publishing OS cũ.</p></details><div id="screen"></div></main></div>
   <dialog id="editor" aria-labelledby="editorTitle"></dialog><div id="toast" role="status" aria-live="polite"></div>
   <script src="shared.js"></script><script src="publishing-score.js"></script><script src="publishing-bridge.js"></script><script src="publishing-data.js"></script><script src="publishing.js"></script>
 </body></html>
