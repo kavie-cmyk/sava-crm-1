@@ -68,6 +68,24 @@ function loadIndex() {
   const readF = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const store = new Map();
   const ls = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  /* FIXTURE RIÊNG CỦA TEST (tách khỏi seed production đã gỡ 30/10/2026):
+     state CRM tối thiểu mà các test trong file này cần — lead l1 (tên người
+     sau migration), deal d1 có term "Sava 70% / Publisher 30%" + hợp đồng,
+     deal d4 để kiểm tra mở deal khác reset chế độ sửa term. */
+  ls.setItem('sava_crm_shared_v1', JSON.stringify({
+    members: [{ id: 'zac', name: 'Zac', role: 'Admin', active: true }, { id: 'linh', name: 'Linh', role: 'BD', active: true }, { id: 'tuan', name: 'Tuấn', role: 'BD', active: true }, { id: 'mai', name: 'Mai', role: 'MKT', active: true }],
+    companies: [
+      { id: 'c1', name: 'Hanbit Fixture', type: 'Publisher', roles: { game_studio: 'Publisher' }, contact: 'Ms. Yoon', phone: '', last: 'Hôm qua' },
+      { id: 'c10', name: 'Studio Mooncat (mẫu)', type: 'Game studio', roles: { publishing: 'Game studio' }, contact: 'Anh Minh — Founder', phone: '', last: 'Hôm nay' },
+    ],
+    games: [{ id: 'g1', title: 'Puzzle Cats Adventure', own: 'ours', genre: 'Puzzle / Match-3', platform: 'Android, iOS', stage: 'Soft launch ready', emoji: '🐱', desc: 'Game puzzle của Sava.', bdNote: '' }],
+    deals: [
+      { id: 'd1', line: 'game_studio', title: 'Puzzle Cats — chào Hanbit', company: 'c1', game: 'g1', stage: 'evaluating', owner: 'linh', due: '2026-10-30', idle: 6, custom: {}, term: { rev_share: 'Sava 70% / Publisher 30%', advance: '$50.000 (MG)', territories: 'Toàn cầu trừ VN', duration: '5 năm', exclusivity: 'Độc quyền', marketing: 'Publisher cam kết marketing', payment: 'Hàng tháng' }, contract: { status: 'Đang đàm phán term — chưa có HĐ', no: '', signed: '', url: '' } },
+      { id: 'd4', line: 'publishing', title: 'Nhận phát hành Tiny Farm Story', company: 'c10', stage: 'build_eval', owner: 'tuan', due: '2026-10-28', idle: 3, custom: {}, term: { rev_share: 'Studio 50% / Sava 50%', advance: '—', territories: 'VN + SEA', duration: '3 năm', exclusivity: '', marketing: '', payment: '' }, contract: { status: 'Chưa có HĐ', no: '', signed: '', url: '' } },
+    ],
+    leads: [{ id: 'l1', name: 'Nguyễn Tuấn Minh (mẫu)', company: 'c10', person: 'Anh Minh — Founder', line: 'publishing', source: 'Tự gửi qua web', status: 'new', note: 'Có game idle farm muốn hợp tác phát hành', when: 'Hôm nay' }],
+    tasks: [], activities: [],
+  }));
   const makeEl = id => ({ id: id || '', innerHTML: '', textContent: '', value: '', checked: false, style: {}, dataset: {}, children: [], options: [],
     classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     addEventListener() {}, removeEventListener() {}, setAttribute() {}, getAttribute: () => null,

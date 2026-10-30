@@ -31,7 +31,15 @@ const assert=require('node:assert/strict');
  assert.equal(state.marketUpdates[0].audit[0].downloads,0);
  await bd.getByRole('button',{name:'Theo dõi đánh giá',exact:true}).click();
  assert.match(await bd.locator('#screen').innerText(),/Chưa có yêu cầu đánh giá/);
- // Create both requests from the existing CRM seed, not from any workbook record.
+ // Create both requests from a CRM TEST FIXTURE injected by this script
+ // (production no longer seeds CRM data — removed 2026-10-30), not from any workbook record.
+ await bd.evaluate(()=>{
+  localStorage.setItem('sava_crm_shared_v1', JSON.stringify({
+   members:[{id:'zac',name:'Zac',role:'Admin',active:true},{id:'linh',name:'Linh',role:'BD',active:true},{id:'tuan',name:'Tuấn',role:'BD',active:true},{id:'mai',name:'Mai',role:'MKT',active:true}],
+   companies:[{id:'c3',name:'Pixel Ant Studio (mẫu)',type:'Game studio',roles:{publishing:'Game studio'},contact:'An — Founder',phone:'',last:'Hôm nay'}],
+   games:[{id:'g3',title:'Tiny Farm Story',own:'partner',company:'c3',genre:'Farm / Simulation',platform:'Android',stage:'Beta',emoji:'🌾',desc:'Game của Pixel Ant Studio.',bdNote:'BD (Tuấn) mang về: studio 6 người ở Đà Nẵng.',buildUrl:'https://drive.google.com/',trailerUrl:''}],
+   deals:[],leads:[],tasks:[],activities:[]}));
+ });
  for(const [kind,id] of [['game','g3'],['company','c3']]){
   await bd.getByRole('button',{name:'+ Gửi yêu cầu đánh giá'}).click();
   await bd.locator('[name=kind]').selectOption(kind);await bd.locator('[name=entityId]').selectOption(id);

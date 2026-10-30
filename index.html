@@ -185,7 +185,6 @@
   </div>
   <div class="foot">
     <div class="foot-label">Môi trường dùng thử · 3 người</div>
-    <button onclick="resetDemo()"><i data-icon="reset"></i> Đặt lại dữ liệu mẫu</button>
   </div>
 </aside>
 <div class="side-scrim" aria-hidden="true"></div>
@@ -262,7 +261,7 @@
 <script>
 let S = loadState();
 /* Cảnh báo dữ liệu hỏng (S1a, phía UI): shared.js đặt window.CRM_LOAD_ISSUE khi
-   localStorage bị JSON hỏng và loadState buộc phải chạy với dữ liệu mẫu.
+   localStorage bị JSON hỏng và loadState buộc phải chạy tạm với dữ liệu trống.
    Hiển thị banner cố định ở đầu app để người dùng KHÔNG lưu đè lên dữ liệu thật
    trước khi khôi phục từ bản sao lưu. */
 if (typeof window !== "undefined" && window.CRM_LOAD_ISSUE) {
@@ -274,7 +273,7 @@ if (typeof window !== "undefined" && window.CRM_LOAD_ISSUE) {
     __banner.style.cssText = "background:#fef2f2;border:1.5px solid #dc2626;color:#991b1b;border-radius:10px;padding:11px 14px;font-size:13.5px;margin-bottom:14px;line-height:1.55";
     __banner.textContent = __issue.type === "sanitized"
       ? "⚠️ Đã loại " + (__issue.dropped || 0) + " phần tử dữ liệu hỏng (không phải hồ sơ hợp lệ) khi tải dữ liệu. Các hồ sơ còn lại vẫn nguyên vẹn; hãy kiểm tra lại danh sách trước khi lưu tiếp."
-      : "⚠️ Dữ liệu đã lưu bị hỏng — hệ thống đang chạy với DỮ LIỆU MẪU. Bản gốc đã được sao lưu ở khóa “" + (__issue.backupKey || "(không rõ)") + "”. Hãy liên hệ quản trị / khôi phục từ bản sao lưu TRƯỚC KHI lưu dữ liệu mới, tránh ghi đè mất dữ liệu thật.";
+      : "⚠️ Dữ liệu đã lưu trên máy này bị hỏng — hệ thống đang chạy tạm với dữ liệu TRỐNG (không tự nạp dữ liệu mẫu). Bản gốc đã được sao lưu ở khóa “" + (__issue.backupKey || "(không rõ)") + "”. Dữ liệu thật nằm trên máy chủ Supabase và sẽ được nạp lại khi đăng nhập; hãy liên hệ quản trị nếu cần khôi phục từ bản sao lưu.";
     const __main = document.querySelector(".main");
     if (__main) __main.insertBefore(__banner, __main.firstChild);
   } catch (e) {}
@@ -346,7 +345,6 @@ function save() {
   S._crmTab = CRM_TAB_ID;
   storeState(S);
 }
-function resetDemo() { S = seed(); save(); render(); toast("Đã reset dữ liệu mẫu"); }
 function comp(id) { return S.companies.find(c => c.id === id) || {id:"", name:"—", type:"", contact:"—", phone:""}; }
 /* --- Mô hình Lead–Company–Deal ---
    lead.company: id công ty (1 công ty có nhiều lead); lead.person: người đầu mối.

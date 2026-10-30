@@ -32,7 +32,7 @@ test('cú pháp: publishing.js + mọi script inline của index.html đều par
 });
 
 test('A10: save() có revision guard — đọc rev đã lưu trước khi ghi, chặn khi tab khác mới hơn', () => {
-  const saveFn = section(html, 'function save() {', 'function resetDemo()');
+  const saveFn = section(html, 'function save() {', 'function comp(');
   assert.ok(saveFn.includes('crmStale'), 'save() phải kiểm crmStale');
   assert.ok(saveFn.indexOf('crmRawRev') > -1 && saveFn.indexOf('crmRawRev') < saveFn.indexOf('storeState(S)'), 'phải đọc rev TRƯỚC khi storeState');
   assert.ok(saveFn.includes('info.rev > crmRev') && saveFn.includes('CRM_TAB_ID'), 'guard phải so rev + tab id');
@@ -189,6 +189,23 @@ function loadIndex() {
   const readF = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const store = new Map();
   const ls = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  /* FIXTURE RIÊNG CỦA TEST (tách khỏi seed production đã gỡ 30/10/2026):
+     nạp sẵn 1 state CRM tối thiểu vào localStorage để loadState() của trang
+     đọc fixture này thay cho dữ liệu mẫu production trước đây. */
+  ls.setItem('sava_crm_shared_v1', JSON.stringify({
+    members: [{ id: 'zac', name: 'Zac', role: 'Admin', active: true }, { id: 'linh', name: 'Linh', role: 'BD', active: true }, { id: 'tuan', name: 'Tuấn', role: 'BD', active: true }, { id: 'mai', name: 'Mai', role: 'MKT', active: true }],
+    companies: [
+      { id: 'c1', name: 'Hanbit Fixture', type: 'Publisher', roles: { game_studio: 'Publisher' }, contact: 'Ms. Yoon', phone: '', last: 'Hôm qua' },
+      { id: 'c3', name: 'Pixel Ant Studio', type: 'Game studio', roles: { publishing: 'Game studio' }, contact: 'An — Founder', phone: '', last: 'Hôm nay' },
+    ],
+    games: [
+      { id: 'g3', title: 'Tiny Farm Story', own: 'partner', company: 'c3', genre: 'Farm / Simulation', platform: 'Android', stage: 'Beta', emoji: '🌾', desc: 'Game của Pixel Ant Studio gửi thẩm định phát hành.', bdNote: 'BD (Tuấn) mang về: studio 6 người ở Đà Nẵng, game đã beta.', buildUrl: 'https://drive.google.com/ (link build mẫu)', trailerUrl: 'https://youtube.com/ (link trailer mẫu)', scores: { Gameplay: 8 }, verdict: 'Đang chấm', mktEval: null },
+    ],
+    deals: [
+      { id: 'dz', line: 'ai', title: 'Deal Fixture Zac', company: 'c1', stage: 'poc', owner: 'zac', due: '', idle: 0, custom: {}, amount: 100, cur: 'VND' },
+    ],
+    leads: [], tasks: [{ id: 'tz', title: 'Việc Fixture', assignee: 'zac', due: 'Hôm nay', deal: 'dz', done: false, overdue: false }], activities: [],
+  }));
   const makeEl = id => ({ id: id || '', innerHTML: '', textContent: '', value: '', checked: false, style: {}, dataset: {}, children: [], options: [],
     classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
     addEventListener() {}, removeEventListener() {}, setAttribute() {}, getAttribute: () => null,
@@ -275,6 +292,14 @@ test('C7 chức năng: dialog review game (role MKT) hiển thị ghi chú BD t�
   const readF = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const store = new Map();
   const ls = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  /* FIXTURE CRM riêng của test: publishing.js đọc hồ sơ game qua crm()/loadState()
+     — production không còn seed nên harness tự nạp game g3 + công ty c3. */
+  ls.setItem('sava_crm_shared_v1', JSON.stringify({
+    members: [{ id: 'zac', name: 'Zac', role: 'Admin', active: true }, { id: 'linh', name: 'Linh', role: 'BD', active: true }, { id: 'tuan', name: 'Tuấn', role: 'BD', active: true }, { id: 'mai', name: 'Mai', role: 'MKT', active: true }],
+    companies: [{ id: 'c3', name: 'Pixel Ant Studio', type: 'Game studio', roles: { publishing: 'Game studio' }, contact: 'An — Founder', phone: '', last: 'Hôm nay' }],
+    games: [{ id: 'g3', title: 'Tiny Farm Story', own: 'partner', company: 'c3', genre: 'Farm / Simulation', platform: 'Android', stage: 'Beta', emoji: '🌾', desc: 'Game của Pixel Ant Studio.', bdNote: 'BD (Tuấn) mang về: studio 6 người ở Đà Nẵng, game đã beta.', buildUrl: 'https://drive.google.com/ (link build mẫu)', trailerUrl: 'https://youtube.com/ (link trailer mẫu)' }],
+    deals: [], leads: [], tasks: [], activities: [],
+  }));
   ls.setItem('sava_publishing_v1', JSON.stringify({ version: 1, marketUpdates: [], requests: [
     { id: 'REV-G3', kind: 'game', entityId: 'g3', requestedBy: 'tuan', assignee: 'mai', due: '', requestNote: 'Đánh giá Tiny Farm', source: '', build: 'beta', intake: { mechanicId: 'SIM-7', genre: 'Simulation' }, status: 'Đang đánh giá', requestedAt: new Date().toISOString(), current: null, revisions: [], revision: 0 },
   ] }));

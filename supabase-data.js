@@ -122,11 +122,22 @@
        ghi đè cache bằng dữ liệu Supabase. */
     backupOnce(CRM_KEY, CRM_BACKUP_KEY);
     backupOnce(PUB_KEY, PUB_BACKUP_KEY);
-    rawSet(CRM_KEY, JSON.stringify(crmState));
-    rawSet(PUB_KEY, JSON.stringify(pubState));
+    /* `changed`: nội dung cache TRƯỚC khi ghi đè có khác dữ liệu máy chủ
+       vừa nạp không (so chuỗi JSON). Tầng auth dùng cờ này để BẮT BUỘC tải
+       lại trang khi cache đã đổi — nhờ vậy state trong bộ nhớ mà trang đã
+       parse từ cache cũ (kể cả dữ liệu mẫu/test cũ) bị loại bỏ hoàn toàn
+       trước khi đồng bộ ghi được bật, không còn đường nào để save() sau đó
+       ghi đè cache máy chủ bằng bản cũ rồi diff-sync đẩy ngược lên. */
+    let priorCrm = null, priorPub = null;
+    try { priorCrm = localStorage.getItem(CRM_KEY); } catch (e) {}
+    try { priorPub = localStorage.getItem(PUB_KEY); } catch (e) {}
+    const crmJson = JSON.stringify(crmState), pubJson = JSON.stringify(pubState);
+    const changed = priorCrm !== crmJson || priorPub !== pubJson;
+    rawSet(CRM_KEY, crmJson);
+    rawSet(PUB_KEY, pubJson);
     crmSnap = A.clone(crmState); pubSnap = A.clone(pubState);
-    const hash = A.hashStr(JSON.stringify(crmState) + '|' + JSON.stringify(pubState));
-    return { crmState, pubState, hash };
+    const hash = A.hashStr(crmJson + '|' + pubJson);
+    return { crmState, pubState, hash, changed };
   }
 
   /* ---------- Đồng bộ diff ---------- */

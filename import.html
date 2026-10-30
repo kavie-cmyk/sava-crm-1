@@ -65,9 +65,10 @@
   <div id="savaUserBar" class="sava-hidden"><span id="savaUserInfo"></span><button type="button" id="savaLogoutBtn">Đăng xuất</button></div>
 </div>
 <main>
-  <h1>🧰 Nạp dữ liệu localStorage lên Supabase (một lần)</h1>
+  <h1>🧰 Nạp dữ liệu localStorage lên Supabase (một lần) — ĐÃ NGỪNG HOẠT ĐỘNG</h1>
+  <div class="warn" style="background:#fef2f2;border-color:#dc2626;color:#991b1b"><b>⛔ Công cụ này đã ngừng hoạt động từ 30/10/2026.</b> Việc nạp dữ liệu localStorage lên Supabase đã hoàn tất ở giai đoạn chuyển đổi, và máy chủ đã được dọn sạch dữ liệu test theo quyết định của Admin. Để không còn đường nào hồi sinh dữ liệu mẫu/test cũ (kể cả bản sao lưu <code>__pre_supabase_backup</code> trên trình duyệt này) lên máy chủ, nút nạp đã bị vô hiệu hoá vĩnh viễn — trang chỉ còn đọc &amp; phân tích (Bước 1) để đối chiếu khi cần. Dữ liệu mới hãy nhập trực tiếp trong CRM như thao tác thường.</div>
   <p>Trang này đọc 2 kho dữ liệu cũ trên <b>chính trình duyệt này</b> — kho CRM <code>sava_crm_shared_v1</code> và kho Publishing <code>sava_publishing_v1</code> (ưu tiên bản sao lưu <code>__pre_supabase_backup</code> nếu đã có, vì đó là bản gốc trước khi app nối Supabase) — rồi nạp lên Supabase theo đúng mapping trong <code>supabase/MIGRATION.md</code>: giữ nguyên id, tách field nhạy cảm sang bảng private.</p>
-  <div class="warn"><b>Đọc kỹ trước khi nạp:</b> (1) Chạy trang này trên đúng trình duyệt/máy đang chứa dữ liệu thật của team. (2) Xem báo cáo phân tích trước — các <b>request mồ côi</b> (game/company đã bị xoá) sẽ <b>KHÔNG</b> được nạp, chờ Zac chốt riêng. (3) Nạp dùng <b>upsert theo id</b> nên chạy lại không nhân đôi dữ liệu. (4) Dữ liệu localStorage gốc không bị xoá.</div>
+  <div class="warn"><b>Lưu ý lịch sử của công cụ (chỉ còn Bước 1 đọc/phân tích):</b> (1) Chạy trang này trên đúng trình duyệt/máy đang chứa dữ liệu thật của team. (2) Xem báo cáo phân tích trước — các <b>request mồ côi</b> (game/company đã bị xoá) sẽ <b>KHÔNG</b> được nạp, chờ Zac chốt riêng. (3) Nạp dùng <b>upsert theo id</b> nên chạy lại không nhân đôi dữ liệu. (4) Dữ liệu localStorage gốc không bị xoá.</div>
 
   <section class="panel">
     <h2>Bước 1 — Đọc &amp; phân tích dữ liệu trên máy này</h2>
@@ -77,12 +78,12 @@
   </section>
 
   <section class="panel">
-    <h2>Bước 2 — Xác nhận &amp; nạp lên Supabase</h2>
+    <h2>Bước 2 — Xác nhận &amp; nạp lên Supabase (ĐÃ VÔ HIỆU HOÁ)</h2>
     <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.5">
-      <input type="checkbox" id="confirmBox" style="margin-top:3px">
-      <span>Tôi xác nhận đã xem báo cáo ở Bước 1 (gồm danh sách request mồ côi bị loại) và muốn nạp dữ liệu này lên Supabase ngay bây giờ.</span>
+      <input type="checkbox" id="confirmBox" style="margin-top:3px" disabled>
+      <span>Đã vô hiệu hoá — xem banner ngừng hoạt động ở đầu trang. Dữ liệu trên máy này sẽ KHÔNG được nạp lên Supabase nữa.</span>
     </label>
-    <p><button class="btn" id="importBtn" disabled>Nạp lên Supabase</button></p>
+    <p><button class="btn" id="importBtn" disabled title="Công cụ đã ngừng hoạt động">Nạp lên Supabase — ĐÃ NGỪNG HOẠT ĐỘNG</button></p>
     <div id="results"></div>
   </section>
   <p class="mut">Sau khi nạp xong: mở <a href="index.html">CRM BD</a> / <a href="publishing.html">Publishing</a> để kiểm tra dữ liệu, và đối chiếu số lượng theo mục 7 của <code>supabase/MIGRATION.md</code>.</p>
@@ -167,96 +168,15 @@
         orphans.map(r => '<li>' + esc(r.id) + ' · ' + esc(r.kind) + ' · entityId ' + esc(r.entityId) + ' (đã bị xoá khỏi CRM)</li>').join('') + '</ul></div>';
     }
     reportEl.innerHTML = '<h3 style="margin:16px 0 8px">Báo cáo trước khi nạp — số bản ghi theo bảng đích</h3><table><thead><tr><th>Bảng đích</th><th>Số bản ghi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table>' + extra;
-    document.getElementById('importBtn').disabled = !document.getElementById('confirmBox').checked;
+    document.getElementById('importBtn').disabled = true; /* công cụ đã ngừng — nút nạp luôn vô hiệu hoá */
   });
   document.getElementById('confirmBox').addEventListener('change', e => {
-    document.getElementById('importBtn').disabled = !(analysis && e.target.checked);
+    document.getElementById('importBtn').disabled = true; /* công cụ đã ngừng — nút nạp luôn vô hiệu hoá */
   });
 
-  async function chunked(rows, size, fn) {
-    for (let i = 0; i < rows.length; i += size) await fn(rows.slice(i, i + size));
-    if (!rows.length) await fn([]);
-  }
-  document.getElementById('importBtn').addEventListener('click', async () => {
-    if (!analysis) return;
-    const btn = document.getElementById('importBtn');
-    btn.disabled = true; btn.textContent = 'Đang nạp…';
-    const resultsEl = document.getElementById('results');
-    const client = window.savaSupabase();
-    const groups = [];
-    const run = async (name, fn) => {
-      try { const n = await fn(); groups.push({ name, ok: true, n }); }
-      catch (e) { groups.push({ name, ok: false, error: e.message || String(e) }); }
-      resultsEl.innerHTML = '<h3>Kết quả nạp</h3><table><tbody>' + groups.map(g =>
-        '<tr><td>' + esc(g.name) + '</td><td>' + (g.ok ? '<span class="ok">✓ ' + g.n + ' bản ghi</span>' : '<span class="bad">✗ ' + esc(g.error) + '</span>') + '</td></tr>').join('') + '</tbody></table>';
-    };
-    const up = (table, rows, onConflict) => async () => {
-      let n = 0;
-      await chunked(rows, 200, async part => {
-        if (!part.length) return;
-        const { error } = await client.from(table).upsert(part, onConflict ? { onConflict } : undefined);
-        if (error) throw new Error(error.message || error.code);
-        n += part.length;
-      });
-      return n;
-    };
-    const insIgnore = (table, rows, onConflict) => async () => {
-      let n = 0;
-      await chunked(rows, 200, async part => {
-        if (!part.length) return;
-        const { error } = await client.from(table).upsert(part, { onConflict, ignoreDuplicates: true });
-        if (error) throw new Error(error.message || error.code);
-        n += part.length;
-      });
-      return n;
-    };
-    const R = analysis.crmRows, P = analysis.pubRows;
-    await run('members', up('members', R.members));
-    await run('companies', up('companies', R.companies));
-    await run('company_partner_eval_archive', up('company_partner_eval_archive', R.company_partner_eval_archive, 'company_id'));
-    await run('games', up('games', R.games));
-    await run('leads', up('leads', R.leads));
-    await run('deals', up('deals', R.deals));
-    await run('deal_terms', up('deal_terms', R.deal_terms, 'deal_id'));
-    await run('deal_contracts', up('deal_contracts', R.deal_contracts, 'deal_id'));
-    await run('deal_leads (xoá liên kết cũ của các deal này rồi nạp lại)', async () => {
-      const dealIds = [...new Set(R.deal_leads.map(r => r.deal_id))];
-      if (dealIds.length) {
-        const { error } = await client.from('deal_leads').delete().in('deal_id', dealIds);
-        if (error) throw new Error(error.message || error.code);
-      }
-      let n = 0;
-      await chunked(R.deal_leads, 200, async part => {
-        if (!part.length) return;
-        const { error } = await client.from('deal_leads').insert(part);
-        if (error) throw new Error(error.message || error.code);
-        n += part.length;
-      });
-      return n;
-    });
-    await run('tasks', up('tasks', R.tasks));
-    await run('activities', up('activities', R.activities));
-    await run('publishing_requests (chưa gắn con trỏ current)', up('publishing_requests', P.publishing_requests.map(r => ({ ...r, current_revision_no: null }))));
-    await run('publishing_revisions (chỉ thêm mới — bỏ qua nếu đã có)', insIgnore('publishing_revisions', P.publishing_revisions, 'request_id,revision_no'));
-    await run('publishing_revision_private (chỉ thêm mới)', insIgnore('publishing_revision_private', P.publishing_revision_private, 'request_id,revision_no'));
-    await run('publishing_request_intake_private', up('publishing_request_intake_private', P.publishing_request_intake_private, 'request_id'));
-    await run('publishing_requests — gắn current_revision_no', async () => {
-      let n = 0;
-      for (const r of P.publishing_requests) {
-        if (r.current_revision_no === null) continue;
-        const { error } = await client.from('publishing_requests').update({ current_revision_no: r.current_revision_no }).eq('id', r.id);
-        if (error) throw new Error(error.message || error.code);
-        n++;
-      }
-      return n;
-    });
-    await run('market_observations', up('market_observations', P.market_observations));
-    await run('market_observation_audit (chỉ thêm mới)', insIgnore('market_observation_audit', P.market_observation_audit.map(({ legacy_extra, ...rest }) => rest), 'observation_id,seq'));
-    resultsEl.innerHTML += '<p class="mut">Xong. app_state_meta không được ghi qua công cụ này (RLS chỉ cho Admin đọc; việc truy vết đợt nạp xem ở báo cáo này). Đối chiếu số lượng theo MIGRATION.md mục 7 trước khi nghiệm thu.</p>';
-    btn.textContent = 'Đã nạp xong — có thể nạp lại (upsert, không nhân đôi)';
-    btn.disabled = false;
-    try { sessionStorage.removeItem('sava_boot_hash'); } catch (e) {}
-  });
+  /* ĐÃ GỠ đường nạp (30/10/2026): handler upsert dữ liệu localStorage lên
+     Supabase đã bị xoá hẳn cùng nút bấm bị vô hiệu hoá — không còn thao tác
+     nào trên trang này ghi được dữ liệu cũ/mẫu lên máy chủ. */
 })();
 </script>
 </body>

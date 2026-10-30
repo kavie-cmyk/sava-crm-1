@@ -13,10 +13,13 @@
          chuyển về index.html kèm thông báo.
    - Sau khi vai hợp lệ: SavaData.loadAll() nạp dữ liệu Supabase vào cache.
      Nếu dữ liệu khác bản đang hiển thị (hash khác lần mở trước trong cùng
-     phiên trình duyệt) -> nạp lại trang 1 lần để app render từ dữ liệu
-     mới; trùng -> mở khoá ngay. Mất kết nối khi nạp -> mở app bằng cache
+     phiên trình duyệt) HOẶC loadAll vừa thay nội dung cache (cache cũ
+     khác dữ liệu máy chủ) -> nạp lại trang 1 lần để app render từ dữ
+     liệu máy chủ và loại bỏ hẳn state cũ còn trong bộ nhớ (đường hồi
+     sinh dữ liệu mẫu/test duy nhất qua save() + diff-sync); trùng cả
+     hai -> mở khoá ngay. Mất kết nối khi nạp -> mở app bằng cache
      trên máy kèm banner cảnh báo, đồng bộ ghi bị TẮT (tránh đẩy dữ liệu
-     mẫu/dữ liệu cũ lên khi chưa có snapshot từ server).
+     cũ lên khi chưa có snapshot từ server).
    - Session hết hạn/mất giữa chừng (onAuthStateChange SIGNED_OUT) ->
      khoá lại về màn hình đăng nhập.
    - Sau đăng nhập, #savaUserBar hiện tên + vai + nút Đăng xuất ở cả 3 trang.
@@ -456,10 +459,18 @@
       window.SavaData.installHook();
       setStatus('Đang tải dữ liệu từ Supabase…');
       try {
-        const { hash } = await window.SavaData.loadAll();
+        const { hash, changed } = await window.SavaData.loadAll();
         let prevHash = null;
         try { prevHash = sessionStorage.getItem('sava_boot_hash'); } catch (e) {}
-        if (page !== 'import.html' && prevHash !== hash) {
+        /* Tải lại trang khi (a) hash khác lần mở trước trong phiên, HOẶC
+           (b) loadAll vừa phải THAY nội dung cache (changed) — trường hợp
+           (b) là chặn cứng đường hồi sinh dữ liệu cũ/mẫu: trang đã parse
+           state trong bộ nhớ từ cache cũ TRƯỚC khi loadAll ghi đè cache
+           bằng dữ liệu máy chủ; nếu mở khoá luôn mà không tải lại, lần
+           save() đầu tiên sẽ ghi state cũ đó đè lên cache máy chủ và
+           diff-sync đẩy ngược nó lên Supabase như dữ liệu mới. Tải lại
+           khiến state trong bộ nhớ được parse lại từ cache máy chủ. */
+        if (page !== 'import.html' && (changed || prevHash !== hash)) {
           try { sessionStorage.setItem('sava_boot_hash', hash); } catch (e) {}
           location.reload();
           return;
