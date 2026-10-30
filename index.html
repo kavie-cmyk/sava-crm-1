@@ -694,10 +694,16 @@ function vTasksByMember() {
     (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
 }
 
-/* ===== Thành viên: danh sách phục vụ gán việc — KHÔNG xoá cứng, chỉ ngừng hoạt động =====
+/* ===== Thành viên: danh sách phục vụ gán việc + xoá thành viên (chỉ Admin) =====
    Phân quyền TÀI KHOẢN (chỉ khi người đang đăng nhập là Admin): thêm cột
    "Tài khoản" + nút Mời thành viên / Gửi lại lời mời / Thu hồi quyền /
-   Kích hoạt lại. Mọi thao tác máy chủ đi qua helper chung
+   Kích hoạt lại / Xoá thành viên. Xoá thành viên (deleteMember ở dưới):
+   CHỈ Admin, không xoá chính mình, và CHẶN khi thành viên còn bất kỳ
+   tham chiếu nghiệp vụ nào (xem memberReferences) — trường hợp đó hướng
+   người dùng sang Ngừng hoạt động. Khi không còn tham chiếu: tài khoản
+   (nếu có) được xoá trước qua Edge Function (action delete_member),
+   sau đó dòng members được xoá qua save()/diff-sync như mọi sửa đổi
+   khác. Mọi thao tác máy chủ đi qua helper chung
    SavaAuth.callMemberAdmin (supabase-auth.js) -> Edge Function
    invite-member; function tự kiểm tra vai Admin ở server (lớp chặn
    chính), UI ở đây chỉ ẩn/hiện. BD/vai khác KHÔNG thấy khối này.
@@ -739,6 +745,7 @@ async function refreshMemberAccounts() {
 }
 function vMembers() {
   const admin = isAdminViewer();
+  const me = authCurrentUser();
   if (admin && memberProfiles === null && !memberAcctLoading) refreshMemberAccounts();
   const rows = memberList(S).map(m => {
     const openTasks = S.tasks.filter(t => t.assignee === m.id && !t.done).length;
@@ -750,6 +757,10 @@ function vMembers() {
       if (fnSt === "invited") actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); resendMemberInvite('${m.id}')">↻ Gửi lại lời mời</button>`;
       if (memberHasAccount(m) && m.active) actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); revokeMemberAccess('${m.id}')">🚫 Thu hồi quyền</button>`;
       if (memberHasAccount(m) && !m.active) actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); unrevokeMemberAccess('${m.id}')">✅ Kích hoạt lại</button>`;
+      /* Xoá thành viên: chỉ Admin thấy, và KHÔNG hiện trên dòng của chính
+         Admin đang đăng nhập (không tự xoá mình — deleteMember cũng chặn
+         lại ở tầng hàm). */
+      if (!(me && me.memberId === m.id)) actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); deleteMember('${m.id}')">🗑 Xoá thành viên</button>`;
     }
     return `<tr onclick="openMember('${m.id}')" style="cursor:pointer" title="Bấm để xem chi tiết thành viên: việc được giao + deal phụ trách"><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td>${acctCell}<td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td><button class="btn ghost small" onclick="event.stopPropagation(); editMember('${m.id}')">✏️ Sửa</button>${actions}</td></tr>`;
   }).join("");
@@ -758,7 +769,7 @@ function vMembers() {
     : `<div class="mut" style="margin-top:10px"><b>Tài khoản:</b> “Đã mời – chờ đặt mật khẩu” = đã gửi email mời, người nhận chưa bấm liên kết đặt mật khẩu; “Thu hồi quyền” = ngừng hoạt động trong CRM + khoá đăng nhập (kích hoạt lại được); đổi vai trò qua nút ✏️ Sửa.</div>`;
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button>${admin ? ` <button class="btn" onclick="openInviteMember()">✉️ Mời thành viên</button>` : ""}</div>
   <div class="panel"><div class="table-wrap"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th><th></th></tr>${rows || `<tr><td colspan="${admin ? 7 : 6}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
-  <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Không có xoá cứng: muốn loại một người khỏi các ô chọn gán việc, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa, nhưng dữ liệu cũ gắn với họ vẫn giữ nguyên).</div>${fnNote}</div>`;
+  <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Muốn loại một người khỏi các ô chọn gán việc mà vẫn giữ dữ liệu cũ gắn với họ, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa).${admin ? ` Admin có thể <b>Xoá thành viên</b> hẳn — nhưng chỉ khi thành viên không còn dữ liệu nào gắn với họ (deal phụ trách, việc được giao, hoạt động, đánh giá…); còn tham chiếu thì hệ thống chặn xoá và báo rõ đang vướng ở đâu.` : ""}</div>${fnNote}</div>`;
 }
 /* ----- Mời thành viên (chỉ Admin): form theo đúng mẫu openEdit của app ----- */
 function openInviteMember() {
@@ -865,6 +876,110 @@ async function unrevokeMemberAccess(id) {
     refreshMemberAccounts(); render();
   } catch (e) { toast("⚠️ " + ((e && e.message) || "Kích hoạt lại thất bại.")); }
 }
+/* ===== Xoá thành viên (chỉ Admin) =====
+   Tập tham chiếu member id — mọi nơi app lưu member id (đã rà soát toàn
+   repo; bằng chứng: supabase-adapter.js ánh xạ các trường này sang cột
+   *_id ở DB, schema.sql ghi chú cùng các trường đó):
+     Kho CRM (S): deals[].owner (deals.owner_id), tasks[].assignee
+       (tasks.assignee_id), activities[].who (activities.actor_id),
+       games[].mktEval.by (games.mkt_eval JSONB),
+       companies[].partnerEval.reviewer (dữ liệu cũ — bản canonical đã
+       chuyển sang kho Publishing, migration giữ reviewer vào request).
+     Kho Publishing (localStorage "sava_publishing_v1", cùng khóa
+       publishingRequestCount đọc): requests[].requestedBy
+       (requested_by), requests[].assignee (assignee_id),
+       requests[].revisions[].reviewer + requests[].current.reviewer
+       (publishing_revisions.reviewer_id), marketUpdates[].by
+       (market_observations.updated_by) + marketUpdates[].audit[].by
+       (market_observation_audit.by_label).
+     Lead KHÔNG trỏ tới member: lead.person là TÊN TỰ DO của người đầu
+       mối phía đối tác (LEAD_KNOWN trong supabase-adapter.js không có
+       trường member nào) — không tính là tham chiếu.
+     profiles.member_id (FK ON DELETE RESTRICT ở DB) KHÔNG nằm trong
+       state app: xử lý bằng action delete_member của Edge Function
+       (xoá auth user + dòng profiles) TRƯỚC khi xoá dòng members.
+   Còn BẤT KỲ tham chiếu nào -> chặn xoá, báo rõ vướng ở đâu và gợi ý
+   Ngừng hoạt động. Không còn -> xoá tài khoản qua function (khi có tài
+   khoản hoặc chưa rõ trạng thái tài khoản), rồi xoá dòng members bằng
+   save() như mọi sửa đổi khác (diff-sync tự đẩy lệnh xoá lên Supabase);
+   vì mọi ô chọn người đều render từ S.members nên thành viên biến mất
+   khỏi mọi dropdown ngay sau render(). */
+function publishingStateForMemberCheck() {
+  try {
+    const d = JSON.parse(localStorage.getItem("sava_publishing_v1") || "null");
+    return d && typeof d === "object" ? d : null;
+  } catch (e) { return null; }
+}
+function memberReferences(id) {
+  const refs = [];
+  const nDeal = (S.deals || []).filter(d => d && d.owner === id).length;
+  if (nDeal) refs.push(nDeal + " deal đang phụ trách");
+  const nTask = (S.tasks || []).filter(t => t && t.assignee === id).length;
+  if (nTask) refs.push(nTask + " công việc được giao");
+  const nAct = (S.activities || []).filter(a => a && a.who === id).length;
+  if (nAct) refs.push(nAct + " hoạt động đã ghi");
+  const nMkt = (S.games || []).filter(g => g && g.mktEval && g.mktEval.by === id).length;
+  if (nMkt) refs.push(nMkt + " game có điểm MKT lưu trữ do thành viên này chấm");
+  const nPe = (S.companies || []).filter(c => c && c.partnerEval && c.partnerEval.reviewer === id).length;
+  if (nPe) refs.push(nPe + " đánh giá đối tác (dữ liệu cũ) do thành viên này chấm");
+  const pub = publishingStateForMemberCheck();
+  if (pub) {
+    let nReq = 0, nRev = 0;
+    (Array.isArray(pub.requests) ? pub.requests : []).forEach(r => {
+      if (!r || typeof r !== "object") return;
+      if (r.requestedBy === id || r.assignee === id) nReq++;
+      const revs = (Array.isArray(r.revisions) ? r.revisions : []).concat(r.current && typeof r.current === "object" ? [r.current] : []);
+      if (revs.some(rv => rv && rv.reviewer === id)) nRev++;
+    });
+    if (nReq) refs.push(nReq + " yêu cầu đánh giá Publishing (người yêu cầu / người được giao)");
+    if (nRev) refs.push(nRev + " yêu cầu đánh giá Publishing có bản chấm do thành viên này thực hiện");
+    let nObs = 0;
+    (Array.isArray(pub.marketUpdates) ? pub.marketUpdates : []).forEach(u => {
+      if (!u || typeof u !== "object") return;
+      if (u.by === id || (Array.isArray(u.audit) && u.audit.some(a => a && a.by === id))) nObs++;
+    });
+    if (nObs) refs.push(nObs + " quan sát thị trường do thành viên này cập nhật");
+  }
+  return refs;
+}
+async function deleteMember(id) {
+  if (!isAdminViewer()) { toast("Chỉ Admin mới xoá được thành viên."); return; }
+  const m = memberList(S).find(x => x.id === id); if (!m) return;
+  const me = authCurrentUser();
+  if (me && me.memberId === id) { toast("Không thể xoá chính bạn — hãy nhờ một Admin khác."); return; }
+  const refs = memberReferences(id);
+  if (refs.length) {
+    toast("⚠️ Không xoá được " + m.name + " — còn dữ liệu gắn với thành viên này: " + refs.join("; ") + ". Hãy gán lại dữ liệu cho người khác trước, hoặc dùng Ngừng hoạt động (bỏ chọn “Đang hoạt động” khi Sửa thành viên) để ẩn khỏi các ô chọn mà vẫn giữ dữ liệu cũ.");
+    return;
+  }
+  const hasAcct = memberHasAccount(m);
+  if (!confirm("Xoá hẳn thành viên " + m.name + " (" + m.role + ") khỏi CRM?\n\nThao tác này KHÔNG khôi phục được: thành viên sẽ biến mất khỏi danh sách và mọi ô chọn người phụ trách." + (hasAcct ? "\n\nThành viên này ĐÃ CÓ TÀI KHOẢN đăng nhập — tài khoản đăng nhập cũng sẽ bị xoá vĩnh viễn." : ""))) return;
+  /* Thứ tự: xoá TÀI KHOẢN trước (function delete_member xoá auth user +
+     dòng profiles — FK profiles.member_id chặn xoá members khi profile
+     còn tồn tại), thành công mới xoá dòng members qua save()/diff-sync.
+     Member CHẮC CHẮN chưa có tài khoản (đã có dữ kiện từ function hoặc
+     từ profiles đã nạp) thì bỏ qua lời gọi function. Chưa rõ trạng thái
+     tài khoản thì vẫn gọi: function tự kiểm tra profiles phía server,
+     không có tài khoản nó trả ok ngay. Function lỗi -> không xoá gì. */
+  const acctKnown = memberFnStatus !== null || memberProfiles !== null;
+  if (hasAcct || !acctKnown) {
+    if (!window.SavaAuth || typeof window.SavaAuth.callMemberAdmin !== "function") {
+      toast("⚠️ Chưa kết nối được chức năng quản lý tài khoản trên máy chủ — không xoá thành viên lúc này để tránh sót tài khoản. Thử lại sau.");
+      return;
+    }
+    try {
+      await window.SavaAuth.callMemberAdmin({ action: "delete_member", member_id: id });
+    } catch (e) {
+      toast("⚠️ " + ((e && e.message) || "Xoá tài khoản của thành viên thất bại.") + " — Chưa xoá thành viên.");
+      return;
+    }
+  }
+  S.members = S.members.filter(x => x.id !== id);
+  if (memberProfiles) delete memberProfiles[id];
+  if (memberFnStatus) delete memberFnStatus[id];
+  save(); closeDrawer(); render();
+  toast("Đã xoá thành viên: " + m.name);
+}
 /* C17 (đợt 3): chi tiết thành viên — thông tin cơ bản + tóm tắt việc được
    giao và deal phụ trách; việc/deal bấm qua được chi tiết tương ứng (taskRow
    mở deal gắn với việc, dealMini mở drawer deal) theo mẫu sẵn có. */
@@ -886,7 +1001,7 @@ function openMember(id) {
       <div class="k">Việc được giao</div><div><b>${tasks.length}</b> việc — ${openTasks.length} đang mở, ${odTasks.length} quá hạn, ${tasks.length - openTasks.length} đã xong</div>
       <div class="k">Deal phụ trách</div><div><b>${deals.length}</b> deal — ${openDeals.length} đang mở</div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editMember('${m.id}')">✏️ Sửa thành viên</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editMember('${m.id}')">✏️ Sửa thành viên</button>${isAdminViewer() && !(authCurrentUser() && authCurrentUser().memberId === m.id) ? `<button class="btn ghost" onclick="deleteMember('${m.id}')">🗑 Xoá thành viên</button>` : ""}</div>
     <h3 style="margin:18px 0 8px">✅ Việc được giao (${tasks.length})</h3>
     ${tasks.length ? tasks.map(taskRow).join("") : '<div class="mut">Chưa có việc nào được giao cho thành viên này.</div>'}
     <h3 style="margin:18px 0 8px">📋 Deal phụ trách (${deals.length}) — bấm để mở deal</h3>

@@ -43,6 +43,7 @@ ban/gỡ ban tài khoản đăng nhập, và đọc trạng thái user trong `au
 | `revoke` | `{member_id}` | `members.active = false` (chốt chặn chính — RLS dựa vào `active`) + **ban** user qua `updateUserById(id, {ban_duration: '876000h'})` (≈100 năm) để chặn cả đăng nhập. Chặn tự thu hồi chính mình (400). |
 | `unrevoke` | `{member_id}` | Nghịch đảo: `members.active = true` + `ban_duration: 'none'`. |
 | `list_status` | `{}` | Trả `statuses`: map `member_id → {has_account, status, email}`. `status` suy từ `auth.users`: `email_confirmed_at` có giá trị → `active`; chưa có → `invited` (đã mời, chờ đặt mật khẩu); không có profile → `none`. |
+| `delete_member` | `{member_id}` | Xoá **tài khoản** của thành viên để app xoá hẳn thành viên: chỉ Admin đang hoạt động gọi được (cùng cơ chế kiểm Admin như mọi action); tự xoá chính mình → `400`. Member không tồn tại → `404`. Member **có** `profiles` (đã có tài khoản): xoá từng auth user qua admin API (`deleteUser`) rồi xoá dòng `profiles` tương ứng — bắt buộc theo thứ tự này vì `profiles.member_id` có FK `ON DELETE RESTRICT` tới `members`. Member **không có** tài khoản: không gọi auth admin, trả `{ok:true, had_account:false}` để app tự xoá. Function **không** xoá dòng `members` — app xoá dòng đó qua đường save/diff-sync hiện có sau khi action này thành công (app cũng đã chặn xoá khi thành viên còn tham chiếu nghiệp vụ trước khi gọi). Lỗi giữa chừng (xoá auth user / xoá profile thất bại) → `500` kèm `partial:true` và message nói rõ trạng thái, để Admin xử lý thay vì xoá dở dang trong im lặng. |
 
 ## Cách deploy
 

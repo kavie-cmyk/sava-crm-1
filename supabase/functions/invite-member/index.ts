@@ -22,6 +22,16 @@
 //                                     (ban_duration '876000h' ≈ 100 năm)
 //   unrevoke   {member_id}         -> members.active=true + gỡ ban
 //   list_status {}                 -> map member_id -> trạng thái tài khoản
+//   delete_member {member_id}      -> xoá TÀI KHOẢN của member (nếu có):
+//                                     xoá auth user (admin deleteUser) +
+//                                     xoá dòng profiles. KHÔNG xoá dòng
+//                                     members ở đây — app tự xoá qua
+//                                     đường save/diff-sync sau khi action
+//                                     này thành công (và app đã chặn xoá
+//                                     khi member còn tham chiếu nghiệp vụ
+//                                     trước khi gọi). Member chưa có tài
+//                                     khoản -> trả ok ngay (had_account
+//                                     =false), không gọi auth admin.
 //
 // Quy ước response: thành công {ok:true, ...}; lỗi {error:'...'} với
 // HTTP status đúng (400 input sai, 401 chưa/không xác thực được JWT,
@@ -358,6 +368,53 @@ Deno.serve(async (req: Request) => {
         message: targetActive
           ? "Đã kích hoạt lại " + member.name + (profile ? " và gỡ khoá đăng nhập." : " (thành viên chưa có tài khoản).")
           : "Đã thu hồi quyền của " + member.name + ": ngừng hoạt động trong CRM" + (profile ? " và khoá đăng nhập." : " (thành viên chưa có tài khoản)."),
+      });
+    }
+
+    /* ================= delete_member ================= */
+    if (action === "delete_member") {
+      const memberId = typeof body.member_id === "string" ? body.member_id.trim() : "";
+      if (!memberId) return fail(req, 400, "Thiếu member_id.");
+      if (memberId === callerProfile.member_id) {
+        return fail(req, 400, "Không thể xoá thành viên của chính bạn — hãy nhờ một Admin khác.");
+      }
+      const { data: member, error: mErr } = await admin.from("members").select("id,name,role,active").eq("id", memberId).maybeSingle();
+      if (mErr) return fail(req, 500, "Không đọc được thành viên: " + mErr.message);
+      if (!member) return fail(req, 404, "Không tìm thấy thành viên cần xoá.");
+
+      // Mọi dòng profiles gắn với member (thiết kế cho phép 1 member gắn
+      // nhiều auth user — xem schema.sql): xoá TỪNG auth user qua admin
+      // API rồi xoá dòng profiles tương ứng. profiles.member_id có FK
+      // ON DELETE RESTRICT tới members, nên phải dọn profiles TRƯỚC khi
+      // app xoá dòng members qua diff-sync. Dòng members KHÔNG bị xoá ở
+      // đây: app là bên xoá nó sau khi action này trả ok.
+      const { data: profiles, error: pErr } = await admin
+        .from("profiles")
+        .select("id,member_id,email")
+        .eq("member_id", memberId);
+      if (pErr) return fail(req, 500, "Không đọc được hồ sơ tài khoản: " + pErr.message);
+      const linked = profiles || [];
+      for (const p of linked) {
+        const { error: dErr } = await admin.auth.admin.deleteUser(p.id);
+        if (dErr) {
+          return fail(req, 500,
+            "Xoá tài khoản đăng nhập của " + member.name + " thất bại: " + dErr.message +
+            " — hồ sơ tài khoản chưa bị xoá, thành viên vẫn còn nguyên. Thử lại sau.",
+            { partial: true, member_id: memberId });
+        }
+        const { error: dpErr } = await admin.from("profiles").delete().eq("id", p.id);
+        if (dpErr) {
+          return fail(req, 500,
+            "Đã xoá tài khoản đăng nhập của " + member.name + " nhưng xoá hồ sơ (profiles) thất bại: " + dpErr.message +
+            " — hãy xoá dòng profiles của member này (member_id=" + memberId + ") rồi mới xoá thành viên trong app.",
+            { partial: true, member_id: memberId });
+        }
+      }
+      return json(req, {
+        ok: true, member_id: memberId, had_account: linked.length > 0, accounts_deleted: linked.length,
+        message: linked.length
+          ? "Đã xoá tài khoản đăng nhập của " + member.name + ". App sẽ xoá thành viên khỏi danh sách ngay sau đây."
+          : "Thành viên " + member.name + " chưa có tài khoản đăng nhập — app sẽ xoá khỏi danh sách ngay.",
       });
     }
 

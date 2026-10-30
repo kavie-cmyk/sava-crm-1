@@ -25,6 +25,8 @@ test('tĩnh: index.html có bề mặt quản trị tài khoản Admin ở view 
     'resendMemberInvite', 'revokeMemberAccess', 'unrevokeMemberAccess',
     'refreshMemberAccounts', 'memberAccountCell', 'isAdminViewer',
     '✉️ Mời thành viên', '<th>Tài khoản</th>', 'Gửi lại lời mời', 'Thu hồi quyền', 'Kích hoạt lại',
+    /* Xoá thành viên (chỉ Admin): nút + hàm xoá + hàm đếm tham chiếu chặn xoá */
+    'deleteMember', 'memberReferences', '🗑 Xoá thành viên', 'delete_member',
   ]) {
     assert.ok(html.includes(needle), 'index.html thiếu: ' + needle);
   }
@@ -42,13 +44,14 @@ test('tĩnh: Edge Function invite-member tồn tại, không hardcode key, đủ
     'SUPABASE_SERVICE_ROLE_KEY', 'Deno.env.get',
     'inviteUserByEmail', 'resetPasswordForEmail', 'ban_duration', '876000h',
     "action === \"invite\"", "action === \"resend\"", "action === \"revoke\"", "action === \"unrevoke\"", "action === \"list_status\"",
+    "action === \"delete_member\"", 'deleteUser',
     "role !== \"Admin\"", 'kavie-cmyk.github.io',
     'email_confirmed_at',
   ]) {
     assert.ok(src.includes(needle), 'function thiếu: ' + needle);
   }
   const readme = read('supabase/functions/README.md');
-  for (const needle of ['supabase functions deploy invite-member', 'vaegwvawlwpckfkmjzsj', 'api.supabase.com/v1/projects/vaegwvawlwpckfkmjzsj/functions', 'verify_jwt', '401', '403']) {
+  for (const needle of ['supabase functions deploy invite-member', 'vaegwvawlwpckfkmjzsj', 'api.supabase.com/v1/projects/vaegwvawlwpckfkmjzsj/functions', 'verify_jwt', '401', '403', 'delete_member', 'had_account']) {
     assert.ok(readme.includes(needle), 'README functions thiếu: ' + needle);
   }
 });
