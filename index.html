@@ -241,6 +241,10 @@
     <input id="f_amount" type="number" min="0" placeholder="500000000">
     <label>Tiền tệ</label>
     <select id="f_cur"><option value="VND">VND</option><option value="USD">USD</option></select>
+    <div id="f_verticalWrap" style="display:none">
+      <label>Phân khúc ngành (chỉ mảng Metaverse)</label>
+      <div id="f_verticalBox"></div>
+    </div>
     <label>Stage bắt đầu</label>
     <select id="f_stage"></select>
     <label>Người phụ trách</label>
@@ -546,17 +550,17 @@ function vBoard() {
   const note = curLine === "all" ? `<div class="prototype-note" style="padding:11px 14px;margin-bottom:18px">Đang xem <b>Game Studio</b>. Chọn mảng ở trên để đổi pipeline.</div>` : "";
   const L = LINES[line];
   const cols = L.stages.map(s => {
-    const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (!query || (d.title+" "+comp(d.company).name).toLowerCase().includes(query)));
+    const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (line !== "metaverse" || dealMatchesVerticalFilter(d)) && (!query || (d.title+" "+comp(d.company).name).toLowerCase().includes(query)));
     const amt = {}; ds.forEach(d => { if (d.amount) amt[d.cur] = (amt[d.cur]||0)+d.amount; });
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
     const cards = ds.map(d => { const gt = d.game ? game(d.game) : null; return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
-      <div class="t">${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>
+      <div class="t">${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
       <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span><span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
       <h4>${s[1]} <span class="pill" style="background:${L.color}">${ds.length}</span></h4><div class="sum">${sum||"—"} · xác suất ${s[2]}%</div>${cards||'<div class="mut" style="padding:4px 2px">Kéo deal vào đây</div>'}</div>`;
   }).join("");
-  document.getElementById("view").innerHTML = note + `<div class="board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động.</div>`;
+  document.getElementById("view").innerHTML = note + (line === "metaverse" ? boardVerticalFilterHTML() : "") + `<div class="board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động.</div>`;
 }
 let dragId = null;
 function drag(e, id) { dragId = id; }
@@ -1156,6 +1160,7 @@ function openDeal(id) {
       <div class="k">Người phụ trách</div><div>${esc(memberName(S, d.owner))}</div>
       <div class="k">Ngày dự kiến chốt</div><div>${esc(d.due || "—")}</div>
       <div class="k">Đầu mối phía đối tác</div><div>${esc(c.contact)}</div>
+      ${d.line === "metaverse" ? `<div class="k">Phân khúc ngành</div><div>${esc(dealVerticalLabel(d))}</div>` : ""}
       ${fields}
     </div>
     ${termBox}
@@ -1225,7 +1230,7 @@ function closeDrawer() { termEditDealId = null; drawerCtx = null; document.getEl
 function showDrawer(html) { /* Drawer khác (công ty/game/lead/member) thay drawer deal -> thoát chế độ sửa Term. openDeal không đi qua hàm này nên không bị ảnh hưởng. */ termEditDealId = null; document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); }
 function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${esc(d.title)}</div>
-    <div class="c"><span class="chip" style="background:${lineColor(d.line)}">${esc(lineName(d.line))}</span> Stage: ${esc(stagePairSafe(d.line, d.stage)[1])}</div>
+    <div class="c"><span class="chip" style="background:${lineColor(d.line)}">${esc(lineName(d.line))}</span> Stage: ${esc(stagePairSafe(d.line, d.stage)[1])}</div>${d.line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
     <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") : money(d.amount, d.cur)}</div>
     <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span></div></div>`;
 }
@@ -1534,6 +1539,8 @@ function openAdd(prefill) {
   pendingDealLeads = null;
   const sel = document.getElementById("f_line");
   sel.innerHTML = Object.entries(LINES).map(([k,v]) => `<option value="${k}" ${k===curLine?'selected':''}>${v.name}</option>`).join("");
+  /* Reset ô phân khúc ngành mỗi lần mở form tạo (tránh sót lựa chọn lần trước) */
+  const fvb = document.getElementById("f_verticalBox"); if (fvb) fvb.innerHTML = "";
   fillStages();
   const ow = document.getElementById("f_ownerWrap"); if (ow) ow.innerHTML = ownerSel("f_owner", defaultOwnerId());
   fillCreateCompanyOptions("");
@@ -1556,6 +1563,17 @@ function fillStages() {
   document.getElementById("f_amount_label").textContent = GAME_LINES.includes(line)
     ? "Advance / MG dự kiến (để trống cũng được — deal game tính theo rev share, term nhập sau trong chi tiết deal)"
     : "Giá trị hợp đồng dự kiến";
+  /* Phân khúc ngành: chỉ hiện khi mảng = Metaverse. */
+  const vw = document.getElementById("f_verticalWrap");
+  if (vw) {
+    const isMeta = line === "metaverse";
+    vw.style.display = isMeta ? "" : "none";
+    if (isMeta) {
+      const curEl = document.getElementById("f_vertical");
+      const cur = curEl && curEl.value !== "__new__" ? curEl.value : "";
+      document.getElementById("f_verticalBox").innerHTML = verticalSelectHTML("f_vertical", cur);
+    }
+  }
   fillDealGames();
 }
 /* Ô chọn game trong form tạo deal: mảng game mới hiện.
@@ -1613,6 +1631,13 @@ function saveDeal() {
   /* S9: số tiền nhập ở form tạo không được âm (áp cho cả amount hợp đồng lẫn advance của deal game). */
   const amtRaw = (document.getElementById("f_amount").value || "").trim();
   if (amtRaw !== "" && Number(amtRaw) < 0) { toast("Giá trị / advance không được là số âm"); return; }
+  /* Phân khúc ngành (chỉ Metaverse): đọc + validate TRƯỚC mọi mutate. */
+  let verticalVal = "";
+  if (line === "metaverse") {
+    const vr = readVerticalForm("f_vertical");
+    if (vr.error) { toast(vr.error); return; }
+    verticalVal = vr.value;
+  }
   /* Công ty resolve theo ID từ select (không tra theo tên). Nhánh "＋ Tạo công ty
      mới…": tên trùng công ty đã có (không phân biệt hoa/thường) -> dùng công ty đó,
      không sinh trùng. Chưa resolve xong thì CHƯA mutate state. */
@@ -1658,6 +1683,7 @@ function saveDeal() {
   } else if (gameSel) { const gg = game(gameSel); if (gg) gameId = gg.id; }
   if (line === "publishing" && !gameId) { toast("Deal Publishing bắt buộc gắn 1 game — chọn game của công ty hoặc tạo game mới ngay trong form"); return; }
   const nd = { id:"d"+Date.now(), line, title, company:c.id, leads:[], stage:document.getElementById("f_stage").value, owner:(document.getElementById("f_owner") ? document.getElementById("f_owner").value : defaultOwnerId()), due:"", idle:0, custom:{} };
+  if (line === "metaverse" && verticalVal) { nd.vertical = verticalVal; ensureVertical(verticalVal); }
   /* N4: deal tạo từ convertLead (prefill) — CHỈ gắn pendingDealLeads + đánh dấu
      lead "converted" khi line VÀ company của deal cuối cùng khớp lead
      (lead.line, lead.company). Lệch -> tạo deal thường, lead giữ nguyên. */
@@ -1730,6 +1756,67 @@ function selLegacy(id, options, cur, emptyLabel) {
   if (curS && !options.includes(curS)) h += `<option value="${esc(curS)}" selected>(dữ liệu cũ) ${esc(curS)}</option>`;
   h += options.map(o => `<option value="${esc(o)}" ${o === curS ? "selected" : ""}>${esc(o)}</option>`).join("");
   return h + `</select>`;
+}
+/* ===== Phân khúc ngành (vertical) — CHỈ deal mảng Metaverse =====
+   Danh sách ngành: metaverseVerticals(S) ở shared.js (4 ngành mặc định +
+   S.verticals do người dùng thêm + ngành đã gán trên deal Metaverse).
+   Select dựng theo ĐÚNG mẫu selLegacy ở trên: ô trống = "Chưa phân ngành";
+   giá trị đã lưu ngoài danh sách -> option "(dữ liệu cũ) <giá trị>" chọn sẵn;
+   cuối danh sách luôn có "＋ Thêm ngành mới…" — chọn mục đó hiện ô nhập tên
+   ngành, ngành mới được đăng ký vào S.verticals (ensureVertical) và gán
+   luôn cho deal khi lưu form (đúng cơ chế thêm-mục-ngay-trong-form mà các
+   ô chọn công ty/game đang dùng với "__new__"). */
+function verticalSelectHTML(id, cur) {
+  const curS = cur === null || cur === undefined ? "" : String(cur);
+  const opts = metaverseVerticals(S);
+  let h = `<select id="${id}" onchange="onVerticalSelectChange('${id}')">`;
+  h += `<option value="" ${curS === "" ? "selected" : ""}>— Chưa phân ngành —</option>`;
+  if (curS && !opts.includes(curS)) h += `<option value="${esc(curS)}" selected>(dữ liệu cũ) ${esc(curS)}</option>`;
+  h += opts.map(o => `<option value="${esc(o)}" ${o === curS ? "selected" : ""}>${esc(o)}</option>`).join("");
+  h += `<option value="__new__">＋ Thêm ngành mới…</option></select>`;
+  h += `<div id="${id}_newWrap" style="display:none; margin-top:6px"><input id="${id}_new" placeholder="Tên ngành mới — sẽ được thêm vào danh sách và gán cho deal khi lưu"></div>`;
+  return h;
+}
+function onVerticalSelectChange(id) {
+  const selEl = document.getElementById(id);
+  const w = document.getElementById(id + "_newWrap");
+  if (w) w.style.display = selEl && selEl.value === "__new__" ? "" : "none";
+}
+/* Đọc trường ngành trong form (prefix = id của select: "f_vertical" /
+   "e_vertical"). Trả {value} ("" = chưa phân ngành) hoặc {error} khi đã
+   chọn "Thêm ngành mới…" mà chưa nhập tên. Không mutate state. */
+function readVerticalForm(prefix) {
+  const selEl = document.getElementById(prefix);
+  if (!selEl) return { value: "" };
+  if (selEl.value === "__new__") {
+    const name = (document.getElementById(prefix + "_new")?.value || "").trim();
+    if (!name) return { error: "Nhập tên ngành mới, hoặc chọn một ngành có sẵn / Chưa phân ngành" };
+    return { value: name, isNew: true };
+  }
+  return { value: selEl.value };
+}
+function ensureVertical(name) {
+  const t = String(name || "").trim();
+  if (!t) return;
+  if (!Array.isArray(S.verticals)) S.verticals = [];
+  if (!metaverseVerticals(S).includes(t)) S.verticals.push(t);
+}
+/* Bộ lọc ngành ở pipeline Metaverse: "" = tất cả ngành,
+   "__unset__" = chỉ deal chưa phân ngành, còn lại = tên ngành. */
+let boardVerticalFilter = "";
+const VERTICAL_UNSET_FILTER = "__unset__";
+function setBoardVerticalFilter(v) { boardVerticalFilter = v; render(); }
+function dealMatchesVerticalFilter(d) {
+  if (!boardVerticalFilter) return true;
+  if (boardVerticalFilter === VERTICAL_UNSET_FILTER) return !(d && typeof d.vertical === "string" && d.vertical.trim());
+  return !!d && typeof d.vertical === "string" && d.vertical.trim() === boardVerticalFilter;
+}
+function boardVerticalFilterHTML() {
+  const opts = metaverseVerticals(S);
+  const cur = boardVerticalFilter;
+  const legacyOpt = cur && cur !== VERTICAL_UNSET_FILTER && !opts.includes(cur)
+    ? `<option value="${esc(cur)}" selected>(dữ liệu cũ) ${esc(cur)}</option>` : "";
+  return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap"><label class="mut" for="boardVerticalFilter" style="font-size:13.5px">Lọc theo phân khúc ngành:</label><select id="boardVerticalFilter" onchange="setBoardVerticalFilter(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13.5px"><option value="" ${cur === "" ? "selected" : ""}>Tất cả ngành</option>${legacyOpt}${opts.map(o => `<option value="${esc(o)}" ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("")}<option value="__unset__" ${cur === VERTICAL_UNSET_FILTER ? "selected" : ""}>Chưa phân ngành</option></select></div>`;
 }
 /* Multi-select dạng checkbox-group dùng chung: lưu dạng chuỗi join ", " như
    dữ liệu hiện tại; token cũ không có trong danh sách vẫn hiện thành checkbox
@@ -1936,6 +2023,9 @@ function fillDealLineFields(d) {
     h += field("Giá trị hợp đồng dự kiến", `<input id="e_amount" type="number" min="0" value="${same ? (d.amount ?? "") : ""}">`);
     h += field("Tiền tệ", sel("e_cur", [["VND", "VND"], ["USD", "USD"]], same ? d.cur : "VND"));
   }
+  if (line === "metaverse") {
+    h += field("Phân khúc ngành", verticalSelectHTML("e_vertical", same ? (d.vertical || "") : ""));
+  }
   h += L.fields.map(([k, lb]) => cfFieldHTML(line, k, lb, same ? (d.custom || {}) : {})).join("");
   document.getElementById("e_lineFields").innerHTML = h;
 }
@@ -1999,6 +2089,16 @@ function saveEditDeal(id) {
   const newCustom = {};
   LINES[line].fields.forEach(([k]) => { const r = cfReadValue(line, k, oldCustom); newCustom[k] = r.value; if (r.extra) Object.assign(newCustom, r.extra); });
   const curVal = !GAME_LINES.includes(line) ? document.getElementById("e_cur").value : null;
+  /* Phân khúc ngành: chỉ đọc khi mảng đích là Metaverse (form chỉ hiện
+     trường này ở Metaverse). Đổi mảng KHỎI Metaverse -> GIỮ NGUYÊN
+     d.vertical trong dữ liệu (không hiển thị ở mảng khác, quay lại
+     Metaverse là thấy lại) — cách ít phá dữ liệu nhất. */
+  let verticalVal = null;
+  if (line === "metaverse") {
+    const vr = readVerticalForm("e_vertical");
+    if (vr.error) { toast(vr.error); return; }
+    verticalVal = vr.value;
+  }
   /* 4) Qua hết validate -> giờ mới mutate: tạo công ty (nếu mới), bổ sung role,
         tạo game mới thuộc công ty (nếu chọn "＋ Tạo game mới…"). */
   let c = targetCompany;
@@ -2011,6 +2111,10 @@ function saveEditDeal(id) {
     S.games.push(ng); gameVal = ng.id;
   }
   d.title = title; d.company = c.id; d.line = line;
+  if (line === "metaverse") {
+    if (verticalVal) { d.vertical = verticalVal; ensureVertical(verticalVal); }
+    else delete d.vertical;
+  }
   d.stage = stageVal;
   d.owner = ownerVal;
   /* C10 (đợt 3): để trống ngày trong form sửa = XÓA ngày dự kiến chốt (không

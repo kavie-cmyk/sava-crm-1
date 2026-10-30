@@ -274,7 +274,8 @@ create trigger games_set_updated_at before update on public.games
 -- 6) DEALS + TERM + CONTRACT + DEAL_LEADS
 -- ----------------------------------------------------------------------------
 -- app: {id, line, title, company?, game?, stage, owner, due, idle, custom,
---       amount?, cur?, term?, contract?, leads[]}
+--       amount?, cur?, term?, contract?, leads[], vertical? (chỉ metaverse —
+--       lưu trong legacy_extra, xem ghi chú vertical bên dưới)}
 -- - company KHÔNG bắt buộc ở tầng dữ liệu: deleteCompany (index.html) gỡ
 --   liên kết (`delete d.company`) nhưng GIỮ deal — nên company_id nullable +
 --   ON DELETE SET NULL như games/leads. Deal mới tạo qua form luôn có công
@@ -297,6 +298,20 @@ create trigger games_set_updated_at before update on public.games
 -- - owner / các cột "người" khác: app lưu member id dạng text nhưng CÓ THỂ là
 --   id cũ không còn trong members (memberName() fallback hiển thị chính id đó)
 --   -> chủ đích KHÔNG đặt FK cho cột người, chỉ index. Xem DESIGN.md.
+-- - vertical (phân khúc ngành, CHỈ deal line='metaverse'; thêm 2026-10-30):
+--   app lưu deal.vertical là chuỗi tên ngành (danh sách mở, mặc định
+--   Sản xuất/Giáo dục/Y tế/Du lịch — METAVERSE_VERTICALS_DEFAULT, shared.js).
+--   CỐ Ý không có cột riêng: field đi qua legacy_extra jsonb của chính bảng
+--   này (adapter extrasOf/mergeExtras) vì (1) bảng deals KHÔNG có CHECK nào
+--   trên legacy_extra nên khoá 'vertical' không vi phạm ràng buộc nhạy cảm
+--   nào (khác companies/publishing_*), (2) app nạp toàn bộ deals rồi lọc
+--   phía client nên không cần query theo cột. KHÔNG cần chạy DDL cho tính
+--   năng này. Nếu sau này cần lọc ở SQL, câu lệnh tương lai (CHƯA chạy,
+--   chỉ ghi lại để tham chiếu):
+--     alter table public.deals add column vertical text
+--       generated always as (legacy_extra->>'vertical') stored;
+--   (khi đó adapter phải bỏ 'vertical' khỏi legacy_extra — xem chú thích
+--   DEAL_KNOWN trong supabase-adapter.js.)
 -- TOÀN BỘ cụm deals bị RLS khoá admin+bd (kể cả activities/tasks liên quan) —
 -- MKT không có bất kỳ policy nào trên các bảng này (policies.sql).
 -- ============================================================================

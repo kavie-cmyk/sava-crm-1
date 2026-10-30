@@ -109,6 +109,13 @@
      ================================================================== */
   const COMPANY_KNOWN = ['id', 'name', 'type', 'roles', 'contact', 'phone', 'last', 'partnerEval', 'partnerEvalMigrated'];
   const GAME_KNOWN = ['id', 'title', 'own', 'company', 'genre', 'platform', 'stage', 'emoji', 'desc', 'bdNote', 'buildUrl', 'trailerUrl', 'scores', 'verdict', 'mktEval'];
+  /* deal.vertical (phân khúc ngành, chỉ deal Metaverse) CỐ Ý không nằm trong
+     DEAL_KNOWN và không có cột riêng: nó đi qua legacy_extra của bảng deals
+     (extrasOf khi ghi / mergeExtras khi đọc) — bảng deals KHÔNG có CHECK nào
+     trên legacy_extra (khác companies/publishing_*) nên khoá 'vertical'
+     không vi phạm ràng buộc nào, và không cần DDL/cột mới trên project thật.
+     Đừng thêm 'vertical' vào DEAL_KNOWN khi chưa có cột deals.vertical thật:
+     extrasOf sẽ làm rơi field và mergeExtras không khôi phục được nữa. */
   const DEAL_KNOWN = ['id', 'line', 'title', 'company', 'game', 'stage', 'owner', 'due', 'idle', 'amount', 'cur', 'custom', 'term', 'contract', 'leads'];
   const TERM_KNOWN = ['rev_share', 'advance', 'advance_num', 'advance_cur', 'territories', 'duration', 'exclusivity', 'marketing', 'payment'];
   const CONTRACT_KNOWN = ['status', 'no', 'signed', 'url'];

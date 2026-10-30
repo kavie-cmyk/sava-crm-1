@@ -29,6 +29,28 @@ const LINES = {
     stages: [["prospect","Tiếp cận",5],["discovery","Khảo sát nhu cầu",15],["concept","Concept / Đề xuất ý tưởng",35],["proto","Demo / Prototype",55],["quote","Báo giá / Đàm phán",75],["won","Ký hợp đồng — Won",100],["lost","Thua — Lost",0]],
     fields: [["use_case","Loại ứng dụng"],["platform_target","Nền tảng đích"],["expected_users","Người dùng đồng thời dự kiến"],["hardware_needed","Nhu cầu phần cứng"],["concept_url","Link concept / prototype"]] },
 };
+/* === Phân khúc ngành (vertical) — CHỈ deal mảng Metaverse ===
+   deal.vertical: tên ngành dạng chuỗi (vd "Sản xuất"); trống/thiếu = chưa
+   phân ngành. Danh sách ngành là danh sách MỞ: khởi đầu 4 ngành dưới đây,
+   người dùng thêm ngành mới ngay trong form deal (lưu vào S.verticals) và
+   ngành đã gán trên bất kỳ deal Metaverse nào cũng tự có mặt trong danh
+   sách — nhờ vậy danh sách sống sót qua đồng bộ Supabase dù S.verticals ở
+   local bị nạp lại từ máy chủ (deal.vertical đi qua deals.legacy_extra,
+   xem supabase-adapter.js). */
+const METAVERSE_VERTICALS_DEFAULT = ["Sản xuất", "Giáo dục", "Y tế", "Du lịch"];
+const METAVERSE_VERTICAL_UNSET = "Chưa phân ngành";
+function metaverseVerticals(s) {
+  const out = [];
+  const push = v => { if (typeof v !== "string") return; const t = v.trim(); if (t && !out.includes(t)) out.push(t); };
+  METAVERSE_VERTICALS_DEFAULT.forEach(push);
+  if (s && Array.isArray(s.verticals)) s.verticals.forEach(push);
+  if (s && Array.isArray(s.deals)) s.deals.forEach(d => { if (d && typeof d === "object" && d.line === "metaverse") push(d.vertical); });
+  return out;
+}
+function dealVerticalLabel(d) {
+  return (d && typeof d.vertical === "string" && d.vertical.trim()) ? d.vertical.trim() : METAVERSE_VERTICAL_UNSET;
+}
+if (typeof window !== "undefined") { window.MetaverseVerticals = { DEFAULTS: METAVERSE_VERTICALS_DEFAULT, UNSET: METAVERSE_VERTICAL_UNSET, list: metaverseVerticals, label: dealVerticalLabel }; }
 const USERS = { zac: "Zac", linh: "Linh (BD)", tuan: "Tuấn (BD)", mai: "Mai (MKT)" };
 /* Thành viên: danh sách gán việc THẬT nằm ở S.members ({id, name, role, active}).
    USERS ở trên chỉ còn là hằng dự phòng (fallback tên cho id cũ) + nguồn khởi tạo members.
@@ -205,6 +227,7 @@ function emptyState() { return {
   leads: [],
   tasks: [],
   activities: [],
+  verticals: [],
 };}
 /* seed() giữ lại như bí danh tương thích ngược cho code/test cũ còn tham
    chiếu — NAY trả trạng thái TRỐNG, tuyệt đối không còn dữ liệu mẫu. */
@@ -271,6 +294,16 @@ function migrateState(s) {
   if (!Array.isArray(s.games)) s.games = [];
   if (!Array.isArray(s.tasks)) s.tasks = [];
   if (!Array.isArray(s.activities)) s.activities = [];
+  /* Danh sách ngành Metaverse do người dùng thêm (S.verticals): chuẩn hoá
+     thành mảng chuỗi đã trim, bỏ trùng, giữ thứ tự; kiểu lạ -> []. Ngành
+     đã gán trên deal vẫn được metaverseVerticals() suy ra kể cả khi mảng
+     này bị mất (vd nạp lại từ Supabase), nên đây chỉ là lớp bổ sung. */
+  if (!Array.isArray(s.verticals)) s.verticals = [];
+  else {
+    const seenV = new Set(); const cleanedV = [];
+    s.verticals.forEach(v => { if (typeof v === "string") { const t = v.trim(); if (t && !seenV.has(t)) { seenV.add(t); cleanedV.push(t); } } });
+    s.verticals = cleanedV;
+  }
   /* N10: lọc phần tử KHÔNG phải object (null, chuỗi rác, số...) khỏi mọi mảng
      dữ liệu — một phần tử hỏng không được làm crash các vòng lặp phía sau.
      Phần tử bị loại được ĐẾM và đặt cờ cảnh báo qua window.CRM_LOAD_ISSUE
