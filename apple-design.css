@@ -49,6 +49,15 @@ button:disabled { cursor: default; }
 .header-actions { display: flex; align-items: center; gap: 15px; }
 .role-link { color: #66727d; font-size: .69rem; text-decoration: none; display: flex; align-items: center; gap: 7px; padding: 7px 0; }
 .role-link:hover { color: var(--acc); }
+.side-nav-cards { display: grid; gap: 8px; margin: 14px 4px 0; }
+.nav-card { display: flex; align-items: center; gap: 9px; padding: 10px; border: 1px solid #dce1e5; border-radius: 11px; background: #ffffff8c; color: var(--txt); text-decoration: none; }
+.nav-card:hover { color: var(--acc); background: #fff; border-color: #c9d5d9; }
+.nav-card-icon { width: 30px; height: 30px; display: grid; place-items: center; color: #087d91; background: var(--accent-soft); border-radius: 8px; flex: 0 0 auto; }
+.nav-card-text { min-width: 0; flex: 1; }
+.nav-card-text strong { display: block; font-size: .76rem; font-weight: 650; line-height: 1.35; color: #2b363f; overflow-wrap: anywhere; }
+.nav-card-text small { display: block; font-size: .64rem; line-height: 1.45; color: var(--mut); margin-top: 2px; overflow-wrap: anywhere; }
+.nav-card > svg { width: 16px; height: 16px; color: #89929b; flex: 0 0 auto; }
+.nav-card:hover > svg { color: var(--acc); }
 .avatar { display: grid; place-items: center; width: 33px; height: 33px; border-radius: 50%; background: #e1eef0; border: 2px solid #fff; color: #276773; font-size: .64rem; font-weight: 700; }
 .menu-toggle { display: none !important; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--mut); }

@@ -552,7 +552,7 @@
   const head = title => `<div class="dialog-head"><h2 id="editorTitle">${esc(title)}</h2><button class="close" data-close aria-label="Đóng">×</button></div>`;
   function render() {
     $('#roleTitle').textContent=role==='mkt'?'Không gian Marketing':'Không gian BD';
-    $('#roleNav').innerHTML=role==='bd'?'<a href="index.html">Về CRM BD</a><a href="mkt.html">Marketing →</a><span class="avatar">BD</span>':'<a href="publishing.html">Thị trường · BD →</a><span class="avatar">MKT</span>';
+    $('#roleNav').innerHTML=role==='bd'?'<a href="index.html">Về CRM BD</a><a href="mkt.html">Trang của Marketing →</a><span class="avatar">BD</span>':'<a href="publishing.html">Thị trường &amp; Đánh giá game →</a><span class="avatar">MKT</span>';
     document.querySelectorAll('[data-tab]').forEach(b=>{b.setAttribute('aria-current',b.dataset.tab===tab?'page':'false');if(b.dataset.tab==='reviews')b.textContent=role==='mkt'?'Hàng chờ đánh giá':'Theo dõi đánh giá';});
     const titles={market:['Phân tích thị trường','Cùng dữ liệu để BD chọn hướng hợp tác và MKT đánh giá sản phẩm.'],reviews:[role==='mkt'?'Đánh giá company & game':'Theo dõi đánh giá','Tách năng lực sản xuất của studio, chất lượng từng game và điều kiện thương mại.'],framework:['Khung quyết định','Trọng số, bằng chứng và điều kiện ra quyết định từ hai workbook.']};
     $('#pageHead').innerHTML=`<p class="eyebrow">SAVA META / GAME & PUBLISHING</p><h2>${titles[tab][0]}</h2><p class="sub">${titles[tab][1]}</p>`;

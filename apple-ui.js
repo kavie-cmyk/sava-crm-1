@@ -4,6 +4,7 @@
   const paths = {
     overview: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
     pipeline: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/>',
+    chart: '<path d="M4 4v16h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/>',
     company: '<path d="M5 21V5l7-2 7 2v16M3 21h18M9 8h.01M15 8h.01M9 12h.01M15 12h.01M10 21v-5h4v5"/>',
     game: '<path d="M8 8h8c3 0 4 2 5 7l.4 2c.4 3-2 4-4 2l-2-2H9l-2 2c-2 2-4.4 1-4-2l.4-2C4 10 5 8 8 8Z"/><path d="M8 11v5M5.5 13.5h5M16 12h.01M18 15h.01"/>',
     inbox: '<path d="M4 4h16l2 12v4H2v-4L4 4Z"/><path d="M2 15h6l2 3h4l2-3h6M9 8h6M10 11h4"/>',
