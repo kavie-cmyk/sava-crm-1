@@ -246,6 +246,38 @@ function emptyState() { return {
    chiếu — NAY trả trạng thái TRỐNG, tuyệt đối không còn dữ liệu mẫu. */
 function seed() { return emptyState(); }
 
+/* === Lead: đầu mối chính của công ty (lead.mainContact) ===
+   Một công ty có nhiều lead (người liên hệ); lead nào được tick là
+   "đầu mối chính" thì mang mainContact = true. Quy tắc MỘT công ty — MỘT
+   đầu mối chính (kiểu radio): tick lead này thì lead đang là main của
+   CÙNG công ty tự bỏ tick; bỏ tick -> công ty tạm không có main (hợp lệ);
+   lead của công ty khác không bao giờ bị đụng. Field đi qua
+   leads.legacy_extra phía Supabase (như lead.phone, CỐ Ý không nằm trong
+   LEAD_KNOWN của adapter) — không cần cột/SQL mới.
+   MAIN_CONTACT_LABEL là chuỗi hiển thị DUY NHẤT toàn app ("★ Đầu mối
+   chính"); publishing.js dùng hằng này thay vì viết lại chuỗi (giữ bất
+   biến tĩnh của đợt bỏ field đầu mối cấp công ty: publishing.js không
+   chứa nhãn cũ "Đầu mối chính" như một field của công ty). */
+const MAIN_CONTACT_LABEL = "★ Đầu mối chính";
+function isMainContact(l) { return !!(l && l.mainContact); }
+/* Thẻ HTML cạnh tên lead (bề mặt index.html dùng class .chip). MỘT kiểu
+   hiển thị duy nhất: mọi bề mặt HTML đều đi qua helper này. */
+function mainContactBadgeHTML(l) {
+  return isMainContact(l) ? ` <span class="chip" style="background:#d97706">${MAIN_CONTACT_LABEL}</span>` : "";
+}
+/* Thực thi radio Ở TẦNG DỮ LIỆU: gọi NGAY SAU khi gán dữ liệu lead trong
+   đường lưu lead (saveLead ở index.html) — mọi đường sửa lead đi qua
+   saveLead đều nhất quán, không phụ thuộc UI. Lead chưa gắn công ty
+   (company rỗng) không thuộc công ty nào nên không radio với ai. */
+function enforceLeadMainContact(leads, lead) {
+  if (!Array.isArray(leads) || !lead || !lead.mainContact) return;
+  const compId = lead.company || "";
+  if (!compId) return;
+  leads.forEach(o => {
+    if (o && o !== lead && o.id !== lead.id && (o.company || "") === compId && o.mainContact) o.mainContact = false;
+  });
+}
+
 /* Migration mô hình Lead–Company–Deal:
    - deal.leads là nguồn sự thật DUY NHẤT cho quan hệ deal↔lead (mảng id lead).
    - lead.company trỏ tới 1 công ty; lead.person là người đầu mối cụ thể.
@@ -419,7 +451,12 @@ function migrateState(s) {
        - line suy từ vai trò theo mảng đầu tiên của công ty (thứ tự LINES),
          không có thì lấy line của deal đầu tiên của công ty, cuối cùng mới
          mặc định "publishing" (mảng có lead phổ biến nhất trong app);
-       - status "new", when = ngày ISO hôm nay.
+       - status "new", when = ngày ISO hôm nay;
+       - mainContact = true (lead này VỐN là đầu mối chính của công ty —
+         nó được sinh ra từ field đầu mối cũ), TRỪ KHI công ty đã có lead
+         main khác rồi: giữ main hiện hữu, lead migrate sinh ra không
+         giành (mainContact = false). Công ty có sẵn lead từ trước mà
+         không qua migration này thì KHÔNG tự đoán main — để user tick.
      Chống trùng + idempotent:
        - Marker RIÊNG TỪNG CÔNG TY c.contactLeadMigrated = true, đặt ngay
          khi công ty đã được xét migration (kể cả khi đã có lead trùng /
@@ -464,12 +501,16 @@ function migrateState(s) {
     if (exists) return;
     const roleLine = Object.keys(LINES).find(k => c.roles && c.roles[k]);
     const dealLine = (s.deals || []).map(d => d && d.company === c.id ? d.line : null).find(x => x && LINES[x]);
+    /* Lead migrate sinh ra vốn là đầu mối chính -> mainContact = true,
+       trừ khi công ty đã có main khác (không giành main hiện hữu). */
+    const companyHasMain = s.leads.some(l => l && l.company === c.id && l.mainContact);
     s.leads.push({
       id: newLeadId(),
       name: contactVal,
       company: c.id,
       person: contactVal,
       phone: String(c.phone || "").trim(),
+      mainContact: !companyHasMain,
       line: roleLine || dealLine || "publishing",
       source: "",
       status: "new",

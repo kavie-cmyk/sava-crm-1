@@ -477,12 +477,16 @@
         /* Đầu mối liên hệ = các Lead của công ty trong CRM HIỆN TẠI (một
            nguồn sự thật duy nhất; field đầu mối riêng của công ty đã bỏ).
            s là state CRM (crm()) nên s.leads là danh sách lead hiện tại;
-           mỗi lead hiện tên + person (nếu khác tên) + SĐT (nếu có). */
+           mỗi lead hiện tên + person (nếu khác tên) + SĐT (nếu có); lead
+           được tick là đầu mối chính của công ty (l.mainContact) kèm nhãn
+           MAIN_CONTACT_LABEL của shared.js — cùng một chuỗi hiển thị với
+           phía CRM, ở dạng text thuần vì hàng này được esc() khi render. */
         const cLeads = (s && Array.isArray(s.leads) ? s.leads : []).filter(l => l && l.company === en.id);
         const leadsText = cLeads.length ? cLeads.map(l => {
           const bits = [String(l.name || '')];
           if (l.person && l.person !== l.name) bits.push(String(l.person));
           if (l.phone) bits.push(String(l.phone));
+          if (l.mainContact) bits.push(MAIN_CONTACT_LABEL);
           return bits.filter(Boolean).join(' · ');
         }).join(' ; ') : '';
         rows = row('Tên công ty (CRM hiện tại)', label(en)) + row('Loại hình', en.type || '') + row('Đầu mối liên hệ — lead của công ty (CRM hiện tại)', leadsText);

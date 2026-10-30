@@ -122,7 +122,13 @@
      Tương tự, lead.phone (SĐT của NGƯỜI liên hệ, do migration đầu mối tạo
      và form lead ghi) CỐ Ý không nằm trong LEAD_KNOWN bên dưới: bảng leads
      không có cột phone, field đi qua legacy_extra của leads khi ghi và
-     được mergeExtras khôi phục khi đọc — không cần DDL. */
+     được mergeExtras khôi phục khi đọc — không cần DDL.
+     Cùng đường đó: lead.mainContact (boolean "đầu mối chính" của công ty,
+     tick ở form lead; quy tắc một-công-ty-một-main do
+     enforceLeadMainContact trong shared.js thực thi ở đường lưu lead)
+     cũng CỐ Ý không nằm trong LEAD_KNOWN: đi qua legacy_extra của leads
+     (extrasOf giữ cả giá trị false), mergeExtras khôi phục khi đọc —
+     không cần cột/SQL mới. */
   const COMPANY_KNOWN = ['id', 'name', 'type', 'roles', 'contact', 'phone', 'last', 'partnerEval', 'partnerEvalMigrated'];
   const GAME_KNOWN = ['id', 'title', 'own', 'company', 'genre', 'platform', 'stage', 'emoji', 'desc', 'bdNote', 'buildUrl', 'trailerUrl', 'scores', 'verdict', 'mktEval'];
   /* deal.vertical (phân khúc ngành, chỉ deal Metaverse) CỐ Ý không nằm trong

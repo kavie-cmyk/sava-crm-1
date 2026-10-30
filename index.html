@@ -368,7 +368,7 @@ function companyLeadsHTML(companyId) {
   const ls = companyId ? leadsForCompany(companyId) : [];
   if (!ls.length) return '<span class="mut">Chưa có lead — thêm lead để có đầu mối liên hệ</span>';
   return ls.map(l => {
-    const bits = [esc(leadDisplayName(l))];
+    const bits = [esc(leadDisplayName(l)) + mainContactBadgeHTML(l)];
     if (l.person && l.person !== l.name) bits.push(esc(l.person));
     if (l.phone) bits.push("📞 " + esc(l.phone));
     return bits.join(" · ");
@@ -379,7 +379,7 @@ function leadDisplayName(l) { return (l && l.name) ? l.name : leadCompanyName(l)
 function leadLabel(l) { const nm = leadDisplayName(l); const cn = leadCompanyName(l); return nm + (cn && cn !== nm ? " · " + cn : "") + (l.person ? " — " + l.person : ""); }
 function leadMini(l) {
   const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
-  return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}</div>
+  return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
     <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person && l.person !== l.name ? " · 👤 " + esc(l.person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
@@ -623,7 +623,7 @@ function vLeads() {
     const lc = leadCompany(l);
     const relDeals = dealsForLead(l.id);
     const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
-    return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b><div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
+    return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
   }).join("");
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${rows}</table></div>
@@ -1114,7 +1114,7 @@ function openDeal(id) {
   const leadsBox = `<h3 style="margin:18px 0 8px">📥 Lead đầu mối</h3>
     <div class="mut" style="margin-bottom:8px">Một deal có thể được tiếp cận qua nhiều lead. Bấm vào lead để mở chi tiết lead.</div>
     ${attachedLeads.map(l => `<div style="margin-bottom:6px">${leadMini(l)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào.</div>'}
-    ${attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="deal_attach_lead" style="flex:1;min-width:220px">${attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)}${l.company === d.company ? " (cùng công ty)" : (l.line === d.line ? " (cùng mảng)" : "")}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào chưa gắn để chọn.</div>'}`;
+    ${attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="deal_attach_lead" style="flex:1;min-width:220px">${attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)}${l.company === d.company ? " (cùng công ty)" : (l.line === d.line ? " (cùng mảng)" : "")}${l.mainContact ? " · " + MAIN_CONTACT_LABEL : ""}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào chưa gắn để chọn.</div>'}`;
   /* D3: stage lạ/thiếu không có trong L.stages -> thêm option dự phòng mang đúng giá trị đã lưu */
   const stageOpts = (L.stages.some(s => s[0] === d.stage) ? "" : `<option value="${esc(d.stage || "")}" selected>${esc(st[1])} (${st[2]}%)</option>`) + L.stages.map(s => `<option value="${s[0]}" ${s[0]===d.stage?'selected':''}>${s[1]} (${s[2]}%)</option>`).join("");
   const t = d.term || {}, ct = d.contract || {};
@@ -1383,7 +1383,7 @@ function partnerPagerHTML(c) {
      (state cũ) -> coi như chưa có lead. */
   const pagerLeads = (Array.isArray(S.leads) ? S.leads : []).filter(l => l && l.company === c.id);
   const pagerLeadsHTML = pagerLeads.length ? pagerLeads.map(l => {
-    const bits = [esc(l.name || "—")];
+    const bits = [esc(l.name || "—") + mainContactBadgeHTML(l)];
     if (l.person && l.person !== l.name) bits.push(esc(l.person));
     if (l.phone) bits.push("📞 " + esc(l.phone));
     return bits.join(" · ");
@@ -1542,7 +1542,7 @@ function openLead(id) {
   const attachDeals = S.deals.filter(d => !(Array.isArray(d.leads) && d.leads.includes(l.id)));
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>
-    <h2>📥 ${esc(leadDisplayName(l))}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}</div>
+    <h2>📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}</div>
     <div class="kv">
       <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
       <div class="k">Người đầu mối</div><div>${esc(l.person || "—")}</div>
@@ -2458,7 +2458,7 @@ function toggleLeadNewCompany() {
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
 }
 function editLead(id, presetCompanyId) {
-  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "publishing", source: "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "" };
+  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "publishing", source: "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", mainContact: false };
   if (id && !l) return;
   const presetComp = presetCompanyId ? comp(presetCompanyId) : null;
   const curCompId = id ? (l.company || "") : (presetComp && presetComp.id ? presetComp.id : (l.company || ""));
@@ -2471,6 +2471,7 @@ function editLead(id, presetCompanyId) {
     ${field("Công ty", `<select id="e_lcompany" onchange="toggleLeadNewCompany()">${compOpts}</select><div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
     ${field("Người đầu mối", txt("e_lperson", l.person || "", "VD: Anh Minh — Founder"))}
     ${field("Điện thoại", txt("e_lphone", l.phone || "", "SĐT của người liên hệ này"))}
+    <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_lmain" style="width:auto" ${l.mainContact ? "checked" : ""}> Đầu mối chính của công ty (mỗi công ty chỉ có một — tick lead này sẽ tự bỏ tick lead đang là đầu mối chính của cùng công ty)</label>
     ${field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), presetLine || l.line))}
     ${field("Nguồn", selLegacy("e_lsource", ["Form savameta.com", "Giới thiệu", "Facebook", "Cộng đồng dev", "Sự kiện", "Chủ động tiếp cận", "Khác"], l.source || "", "— Chưa chọn —"))}
     ${field("Trạng thái", sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"], ["converted", "Đã chuyển đổi"]], l.status) + (l.status === "converted" ? `<div class="mut" style="margin-top:4px">Lead đang ở trạng thái Đã chuyển đổi — đổi về Đạt chuẩn / Đã liên hệ tại đây để khôi phục tay nếu lead không còn deal liên kết (C2; bình thường hệ thống tự hồi về Đạt chuẩn khi deal bị xóa / lead bị gỡ khỏi deal).</div>` : ""))}
@@ -2510,10 +2511,16 @@ function saveLead(id) {
   /* Thời gian: input date -> lưu ISO; để trống khi sửa thì giữ nguyên giá trị cũ
      (kể cả chữ cũ); lead mới để trống -> hôm nay (ISO). */
   const whenVal = v("e_lwhen");
-  const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
+  const mainEl = document.getElementById("e_lmain");
+  const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), mainContact: !!(mainEl && mainEl.checked), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
   let l;
   if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
   else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }
+  /* Radio một-công-ty-một-đầu-mối-chính Ở TẦNG DỮ LIỆU (shared.js): lead
+     này vừa được tick main -> lead main cũ của CÙNG công ty tự bỏ tick
+     ngay trong state trước khi save() ghi xuống — không tạo đường ghi thứ
+     hai, và bỏ tick (mainContact=false) thì helper không đụng ai. */
+  enforceLeadMainContact(S.leads, l);
   save(); closeEdit(); render(); openLead(l.id); toast("Đã lưu lead: " + name);
 }
 function deleteLead(id) {
