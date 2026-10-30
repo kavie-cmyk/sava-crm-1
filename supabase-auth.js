@@ -242,6 +242,81 @@
     } catch (e) {}
   }
 
+  /* ---------- Quản trị tài khoản thành viên (chỉ Admin) ----------
+     Mọi thao tác máy chủ (mời/gửi lại/thu hồi tài khoản) đi qua ĐÚNG MỘT
+     helper callMemberAdmin() gọi Edge Function `invite-member` bằng JWT
+     của phiên hiện tại — không rải fetch ra các trang. Function tự kiểm
+     tra vai Admin ở phía server (lớp chặn chính); UI chỉ ẩn/hiện theo
+     currentUser() để đúng trải nghiệm.
+     accountStatusFor(): ánh xạ trạng thái hiển thị ở view Thành viên —
+     có dữ kiện từ function (list_status) thì dùng trạng thái thật
+     (active/invited/none); function chưa deploy/không gọi được thì rơi
+     về trạng thái suy từ profiles (đã gắn / chưa có tài khoản). */
+  let currentIdentity = null;
+  const MEMBER_FN_PATH = '/functions/v1/invite-member';
+  function memberAdminClient() {
+    if (authClient) return authClient;
+    try { return typeof window !== 'undefined' && typeof window.savaSupabase === 'function' ? window.savaSupabase() : null; } catch (e) { return null; }
+  }
+  function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim()); }
+  function accountStatusFor(hasProfile, fnEntry) {
+    if (fnEntry) {
+      if (fnEntry.status === 'active') return { key: 'active', label: 'Đã có tài khoản' };
+      if (fnEntry.status === 'invited') return { key: 'invited', label: 'Đã mời – chờ đặt mật khẩu' };
+      return { key: 'none', label: 'Chưa có tài khoản' };
+    }
+    return hasProfile
+      ? { key: 'linked', label: 'Đã gắn tài khoản' }
+      : { key: 'none', label: 'Chưa có tài khoản' };
+  }
+  async function callMemberAdmin(payload) {
+    const client = memberAdminClient();
+    if (!client || !client.auth || typeof client.auth.getSession !== 'function') {
+      throw new Error('Chưa sẵn sàng kết nối đăng nhập. Tải lại trang rồi thử lại.');
+    }
+    let session = null;
+    try { const r = await client.auth.getSession(); session = r && r.data ? r.data.session : null; } catch (e) { session = null; }
+    if (!session || !session.access_token) throw new Error('Phiên đăng nhập đã hết hạn. Đăng nhập lại rồi thử.');
+    const cfg = (typeof window !== 'undefined' && window.SavaSupabaseConfig) || null;
+    const baseUrl = (cfg && cfg.SUPABASE_URL) || (typeof window !== 'undefined' && window.SAVA_SUPABASE_URL) || '';
+    const anonKey = (cfg && cfg.SUPABASE_ANON_KEY) || (typeof window !== 'undefined' && window.SAVA_SUPABASE_ANON_KEY) || '';
+    if (!baseUrl) throw new Error('Thiếu cấu hình máy chủ Supabase.');
+    if (typeof fetch !== 'function') throw new Error('Trình duyệt không hỗ trợ gọi máy chủ (fetch).');
+    let res;
+    try {
+      res = await fetch(baseUrl + MEMBER_FN_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': anonKey },
+        body: JSON.stringify(payload || {}),
+      });
+    } catch (e) {
+      throw new Error('Không kết nối được chức năng quản lý tài khoản trên máy chủ. Kiểm tra mạng rồi thử lại.');
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (res.status === 404) {
+      const notDeployed = new Error('Chức năng quản lý tài khoản trên máy chủ chưa được triển khai (thiếu Edge Function invite-member).');
+      notDeployed.status = 404;
+      throw notDeployed;
+    }
+    if (!res.ok || !data || data.ok !== true) {
+      const err = new Error(data && data.error ? String(data.error) : ('Máy chủ trả lỗi ' + res.status + '. Thử lại sau.'));
+      err.status = res.status;
+      if (data) err.data = data;
+      throw err;
+    }
+    return data;
+  }
+  async function fetchMemberProfiles() {
+    const client = memberAdminClient();
+    if (!client || typeof client.from !== 'function') throw new Error('Chưa sẵn sàng kết nối dữ liệu.');
+    const { data, error } = await client.from('profiles').select('id,member_id,email');
+    if (error) throw new Error(error.message || 'Không đọc được hồ sơ tài khoản.');
+    const map = {};
+    (data || []).forEach(p => { if (p && p.member_id && !map[p.member_id]) map[p.member_id] = p; });
+    return map;
+  }
+
   let booted = false;
   async function init() {
     const client = typeof window.savaSupabase === 'function' ? window.savaSupabase() : null;
@@ -266,7 +341,7 @@
         if (eventSession) pendingPasswordSession = eventSession;
         return;
       }
-      if (event === 'SIGNED_OUT' && booted) { booted = false; showLogin('Phiên đăng nhập đã hết hoặc bạn đã đăng xuất. Đăng nhập lại để tiếp tục.'); }
+      if (event === 'SIGNED_OUT' && booted) { booted = false; currentIdentity = null; showLogin('Phiên đăng nhập đã hết hoặc bạn đã đăng xuất. Đăng nhập lại để tiếp tục.'); }
     });
     const doLogout = async () => {
       try { await client.auth.signOut(); } catch (e) {}
@@ -355,6 +430,7 @@
       return;
     }
     const role = member.role === 'Admin' ? 'admin' : member.role === 'BD' ? 'bd' : member.role === 'MKT' ? 'mkt' : 'other';
+    currentIdentity = { memberId: member.id, name: member.name, role, memberRole: member.role, email: profile.email || (session.user && session.user.email) || '' };
     const page = pageName();
     /* Điều hướng theo vai */
     if (role === 'mkt' && page !== 'mkt.html') {
@@ -408,5 +484,5 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
-  if (typeof window !== 'undefined') window.SavaAuth = { _proceed: proceed, _showLogin: showLogin, _showBlocked: showBlocked, _showSetPassword: showSetPassword, _cleanAuthHash: cleanAuthHash, _passwordFlowPending: () => passwordFlowPending, _pendingPasswordKind: () => pendingPasswordKind };
+  if (typeof window !== 'undefined') window.SavaAuth = { _proceed: proceed, _showLogin: showLogin, _showBlocked: showBlocked, _showSetPassword: showSetPassword, _cleanAuthHash: cleanAuthHash, _passwordFlowPending: () => passwordFlowPending, _pendingPasswordKind: () => pendingPasswordKind, currentUser: () => (currentIdentity ? { ...currentIdentity } : null), callMemberAdmin, fetchMemberProfiles, accountStatusFor, isValidEmail };
 })();

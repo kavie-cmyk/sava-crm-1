@@ -696,22 +696,183 @@ function vTasksByMember() {
     (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
 }
 
-/* ===== Thành viên (admin): danh sách phục vụ gán việc — KHÔNG xoá cứng, chỉ ngừng hoạt động ===== */
+/* ===== Thành viên: danh sách phục vụ gán việc — KHÔNG xoá cứng, chỉ ngừng hoạt động =====
+   Phân quyền TÀI KHOẢN (chỉ khi người đang đăng nhập là Admin): thêm cột
+   "Tài khoản" + nút Mời thành viên / Gửi lại lời mời / Thu hồi quyền /
+   Kích hoạt lại. Mọi thao tác máy chủ đi qua helper chung
+   SavaAuth.callMemberAdmin (supabase-auth.js) -> Edge Function
+   invite-member; function tự kiểm tra vai Admin ở server (lớp chặn
+   chính), UI ở đây chỉ ẩn/hiện. BD/vai khác KHÔNG thấy khối này.
+   Trạng thái tài khoản lấy từ function (list_status); function chưa
+   deploy / gọi lỗi -> memberFnUnavailable=true, trạng thái rơi về suy
+   từ profiles (Admin đọc được qua RLS) + ghi chú nhẹ, view vẫn chạy. */
+let memberProfiles = null;        /* {member_id: profile} | null = chưa nạp */
+let memberFnStatus = null;        /* {member_id: {has_account,status,email}} | null = chưa có dữ kiện từ function */
+let memberFnUnavailable = false;  /* function gọi lỗi (chưa deploy / mất mạng) */
+let memberAcctLoading = false;
+function authCurrentUser() { try { return (window.SavaAuth && typeof window.SavaAuth.currentUser === "function") ? window.SavaAuth.currentUser() : null; } catch (e) { return null; } }
+function isAdminViewer() { const u = authCurrentUser(); return !!(u && u.role === "admin"); }
+function memberHasAccount(m) {
+  if (memberFnStatus) return !!(memberFnStatus[m.id] && memberFnStatus[m.id].has_account);
+  return !!(memberProfiles && memberProfiles[m.id]);
+}
+function memberAccountCell(m) {
+  const fnE = memberFnStatus ? (memberFnStatus[m.id] || null) : null;
+  const prof = memberProfiles ? memberProfiles[m.id] : null;
+  const st = (window.SavaAuth && typeof window.SavaAuth.accountStatusFor === "function")
+    ? window.SavaAuth.accountStatusFor(!!prof, fnE)
+    : { key: prof ? "linked" : "none", label: prof ? "Đã gắn tài khoản" : "Chưa có tài khoản" };
+  const color = st.key === "active" ? "#22c55e" : st.key === "invited" ? "#f59e0b" : st.key === "linked" ? "#2563eb" : "#94a3b8";
+  const email = (fnE && fnE.email) || (prof && prof.email) || "";
+  return `<span class="pill" style="background:${color}">${esc(st.label)}</span>${email ? `<div class="mut">${esc(email)}</div>` : ""}`;
+}
+async function refreshMemberAccounts() {
+  if (!isAdminViewer() || memberAcctLoading) return;
+  if (!window.SavaAuth || typeof window.SavaAuth.callMemberAdmin !== "function") return;
+  memberAcctLoading = true;
+  try { memberProfiles = await window.SavaAuth.fetchMemberProfiles(); } catch (e) { if (!memberProfiles) memberProfiles = {}; }
+  try {
+    const r = await window.SavaAuth.callMemberAdmin({ action: "list_status" });
+    memberFnStatus = (r && r.statuses) || {};
+    memberFnUnavailable = false;
+  } catch (e) { memberFnStatus = null; memberFnUnavailable = true; }
+  memberAcctLoading = false;
+  if (curView === "members") render();
+}
 function vMembers() {
+  const admin = isAdminViewer();
+  if (admin && memberProfiles === null && !memberAcctLoading) refreshMemberAccounts();
   const rows = memberList(S).map(m => {
     const openTasks = S.tasks.filter(t => t.assignee === m.id && !t.done).length;
     const dealCount = S.deals.filter(d => d.owner === m.id).length;
-    return `<tr onclick="openMember('${m.id}')" style="cursor:pointer" title="Bấm để xem chi tiết thành viên: việc được giao + deal phụ trách"><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td><td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td><button class="btn ghost small" onclick="event.stopPropagation(); editMember('${m.id}')">✏️ Sửa</button></td></tr>`;
+    let acctCell = "", actions = "";
+    if (admin) {
+      acctCell = `<td>${memberAccountCell(m)}</td>`;
+      const fnSt = memberFnStatus && memberFnStatus[m.id] ? memberFnStatus[m.id].status : null;
+      if (fnSt === "invited") actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); resendMemberInvite('${m.id}')">↻ Gửi lại lời mời</button>`;
+      if (memberHasAccount(m) && m.active) actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); revokeMemberAccess('${m.id}')">🚫 Thu hồi quyền</button>`;
+      if (memberHasAccount(m) && !m.active) actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); unrevokeMemberAccess('${m.id}')">✅ Kích hoạt lại</button>`;
+    }
+    return `<tr onclick="openMember('${m.id}')" style="cursor:pointer" title="Bấm để xem chi tiết thành viên: việc được giao + deal phụ trách"><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td>${acctCell}<td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td><button class="btn ghost small" onclick="event.stopPropagation(); editMember('${m.id}')">✏️ Sửa</button>${actions}</td></tr>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button></div>
-  <div class="panel"><div class="table-wrap"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th><th>Việc đang mở</th><th>Deal phụ trách</th><th></th></tr>${rows || '<tr><td colspan="6" class="mut">Chưa có thành viên nào.</td></tr>'}</table></div>
-  <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM — chưa phải phân quyền tài khoản máy chủ (ai mở được trang này vẫn thấy toàn bộ dữ liệu). Không có xoá cứng: muốn loại một người khỏi các ô chọn gán việc, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa, nhưng dữ liệu cũ gắn với họ vẫn giữ nguyên).</div></div>`;
+  const fnNote = !admin ? "" : memberFnUnavailable
+    ? `<div class="mut" style="margin-top:10px">ℹ️ Chưa kết nối được chức năng quản lý tài khoản trên máy chủ (Edge Function <b>invite-member</b> có thể chưa được triển khai) — cột <b>Tài khoản</b> đang hiển thị trạng thái suy từ hồ sơ đã gắn trong hệ thống. Các thao tác khác vẫn dùng bình thường.</div>`
+    : `<div class="mut" style="margin-top:10px"><b>Tài khoản:</b> “Đã mời – chờ đặt mật khẩu” = đã gửi email mời, người nhận chưa bấm liên kết đặt mật khẩu; “Thu hồi quyền” = ngừng hoạt động trong CRM + khoá đăng nhập (kích hoạt lại được); đổi vai trò qua nút ✏️ Sửa.</div>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button>${admin ? ` <button class="btn" onclick="openInviteMember()">✉️ Mời thành viên</button>` : ""}</div>
+  <div class="panel"><div class="table-wrap"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th><th></th></tr>${rows || `<tr><td colspan="${admin ? 7 : 6}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
+  <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Không có xoá cứng: muốn loại một người khỏi các ô chọn gán việc, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa, nhưng dữ liệu cũ gắn với họ vẫn giữ nguyên).</div>${fnNote}</div>`;
+}
+/* ----- Mời thành viên (chỉ Admin): form theo đúng mẫu openEdit của app ----- */
+function openInviteMember() {
+  if (!isAdminViewer()) { toast("Chỉ Admin mới mời được thành viên."); return; }
+  const free = memberList(S).filter(m => !memberHasAccount(m));
+  openEdit(`<h3 style="font-size:16px">✉️ Mời thành viên vào CRM</h3>
+    ${field("Email người được mời", txt("e_inv_email", "", "ten@congty.com"))}
+    <label>Cách gắn tài khoản</label>
+    <div style="display:flex;flex-direction:column;gap:6px;font-size:13.5px">
+      <label style="display:flex;gap:8px;align-items:center;margin:0;color:var(--txt)"><input type="radio" name="inv_mode" value="existing" style="width:auto" ${free.length ? "checked" : "disabled"} onchange="inviteModeChange()"> Gắn cho thành viên có sẵn (chưa có tài khoản)</label>
+      <label style="display:flex;gap:8px;align-items:center;margin:0;color:var(--txt)"><input type="radio" name="inv_mode" value="new" style="width:auto" ${free.length ? "" : "checked"} onchange="inviteModeChange()"> Tạo thành viên mới rồi mời</label>
+    </div>
+    <div id="inv_existing_box">
+      ${free.length ? field("Thành viên có sẵn", sel("e_inv_member", free.map(m => [m.id, m.name + " (" + m.role + ")"]), free[0].id)) : '<div class="mut" style="margin-top:6px">Mọi thành viên hiện có đều đã gắn tài khoản.</div>'}
+    </div>
+    <div id="inv_new_box" style="display:none">
+      ${field("Tên thành viên mới", txt("e_inv_name", "", "VD: An"))}
+      ${field("Vai trò", sel("e_inv_role", [["BD", "BD"], ["MKT", "MKT"], ["Admin", "Admin"]], "BD"))}
+    </div>
+    <div class="mut" style="margin-top:10px">Người được mời nhận email có liên kết đặt mật khẩu; bấm liên kết đó, đặt mật khẩu là vào được CRM với đúng vai trò của thành viên.</div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button class="btn ghost" onclick="closeEdit()">Hủy</button><button class="btn" id="e_inv_submit" onclick="submitInviteMember()">✉️ Gửi lời mời</button></div>`);
+  inviteModeChange();
+}
+function inviteModeChange() {
+  const mode = document.querySelector('input[name="inv_mode"]:checked')?.value || "new";
+  const ex = document.getElementById("inv_existing_box"), nw = document.getElementById("inv_new_box");
+  if (ex) ex.style.display = mode === "existing" ? "" : "none";
+  if (nw) nw.style.display = mode === "new" ? "" : "none";
+}
+async function reloadCrmFromServer() {
+  /* Nạp lại toàn bộ dữ liệu từ Supabase theo đúng luồng khởi động của
+     auth gate: đặt trước boot hash để reload không lặp lần 2. */
+  try {
+    if (window.SavaData && typeof window.SavaData.loadAll === "function") {
+      const r = await window.SavaData.loadAll();
+      try { sessionStorage.setItem("sava_boot_hash", r.hash); } catch (e) {}
+    }
+  } catch (e) {}
+  location.reload();
+}
+async function submitInviteMember() {
+  const email = (document.getElementById("e_inv_email")?.value || "").trim().toLowerCase();
+  if (!email || !(window.SavaAuth && typeof window.SavaAuth.isValidEmail === "function" && window.SavaAuth.isValidEmail(email))) { toast("Email chưa đúng định dạng — kiểm tra lại email người được mời."); return; }
+  const mode = document.querySelector('input[name="inv_mode"]:checked')?.value || "new";
+  const payload = { action: "invite", email };
+  if (mode === "existing") {
+    const mid = document.getElementById("e_inv_member")?.value || "";
+    if (!mid) { toast("Chưa chọn thành viên có sẵn để gắn tài khoản."); return; }
+    payload.member_id = mid;
+  } else {
+    const name = (document.getElementById("e_inv_name")?.value || "").trim();
+    if (!name) { toast("Tên thành viên mới không được để trống."); return; }
+    payload.name = name;
+    payload.role = document.getElementById("e_inv_role")?.value || "BD";
+  }
+  const btn = document.getElementById("e_inv_submit");
+  if (btn) { btn.disabled = true; btn.textContent = "Đang gửi…"; }
+  try {
+    const r = await window.SavaAuth.callMemberAdmin(payload);
+    closeEdit();
+    toast(r.message || ("Đã gửi lời mời tới " + email));
+    if (r.member_created) { await reloadCrmFromServer(); return; } /* member mới nằm ở server — nạp lại để danh sách khớp */
+    memberFnStatus = null; memberProfiles = null;
+    refreshMemberAccounts();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = "✉️ Gửi lời mời"; }
+    if (e && e.data && e.data.member_created) { memberFnStatus = null; memberProfiles = null; refreshMemberAccounts(); }
+    toast("⚠️ " + ((e && e.message) || "Gửi lời mời thất bại."));
+  }
+}
+async function resendMemberInvite(id) {
+  const m = memberList(S).find(x => x.id === id); if (!m) return;
+  try {
+    const r = await window.SavaAuth.callMemberAdmin({ action: "resend", member_id: id });
+    toast(r.message || "Đã xử lý gửi lại lời mời.");
+    memberFnStatus = null;
+    refreshMemberAccounts();
+  } catch (e) { toast("⚠️ " + ((e && e.message) || "Gửi lại lời mời thất bại.")); }
+}
+/* Thu hồi quyền = function revoke (members.active=false + BAN đăng nhập);
+   kích hoạt lại = function unrevoke (active=true + gỡ ban). Trạng thái
+   active cục bộ được cập nhật + save() ngay để UI và đồng bộ khớp server. */
+async function revokeMemberAccess(id) {
+  const m = memberList(S).find(x => x.id === id); if (!m) return;
+  const me = authCurrentUser();
+  if (me && me.memberId === id) { toast("Không thể thu hồi quyền của chính bạn — hãy nhờ một Admin khác."); return; }
+  if (!confirm("Thu hồi quyền truy cập của " + m.name + "?\n\nThành viên sẽ bị NGỪNG HOẠT ĐỘNG trong CRM (mất quyền xem/sửa dữ liệu ngay ở tầng cơ sở dữ liệu) và bị KHOÁ ĐĂNG NHẬP. Dữ liệu cũ gắn với họ vẫn giữ nguyên, và có thể kích hoạt lại bất cứ lúc nào.")) return;
+  try {
+    const r = await window.SavaAuth.callMemberAdmin({ action: "revoke", member_id: id });
+    const mm = S.members.find(x => x.id === id); if (mm) { mm.active = false; save(); }
+    toast(r.message || ("Đã thu hồi quyền của " + m.name));
+    memberFnStatus = null; memberProfiles = null;
+    refreshMemberAccounts(); render();
+  } catch (e) { toast("⚠️ " + ((e && e.message) || "Thu hồi quyền thất bại.")); }
+}
+async function unrevokeMemberAccess(id) {
+  const m = memberList(S).find(x => x.id === id); if (!m) return;
+  if (!confirm("Kích hoạt lại tài khoản của " + m.name + "?\n\nThành viên sẽ hoạt động lại trong CRM và đăng nhập được như trước.")) return;
+  try {
+    const r = await window.SavaAuth.callMemberAdmin({ action: "unrevoke", member_id: id });
+    const mm = S.members.find(x => x.id === id); if (mm) { mm.active = true; save(); }
+    toast(r.message || ("Đã kích hoạt lại " + m.name));
+    memberFnStatus = null; memberProfiles = null;
+    refreshMemberAccounts(); render();
+  } catch (e) { toast("⚠️ " + ((e && e.message) || "Kích hoạt lại thất bại.")); }
 }
 /* C17 (đợt 3): chi tiết thành viên — thông tin cơ bản + tóm tắt việc được
    giao và deal phụ trách; việc/deal bấm qua được chi tiết tương ứng (taskRow
    mở deal gắn với việc, dealMini mở drawer deal) theo mẫu sẵn có. */
 function openMember(id) {
   const m = memberList(S).find(x => x.id === id); if (!m) return;
+  if (isAdminViewer() && memberProfiles === null && !memberAcctLoading) refreshMemberAccounts();
   drawerCtx = { type: "member", id };
   const tasks = S.tasks.filter(t => t.assignee === id);
   const openTasks = tasks.filter(t => !t.done);
@@ -722,6 +883,7 @@ function openMember(id) {
     <h2>👤 ${esc(m.name)}</h2><div class="mut">${esc(m.id)} · ${m.active ? "Đang hoạt động" : "Đã ngừng hoạt động"}</div>
     <div class="kv">
       <div class="k">Vai trò</div><div><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></div>
+      ${isAdminViewer() ? `<div class="k">Tài khoản</div><div>${memberAccountCell(m)}</div>` : ""}
       <div class="k">Trạng thái</div><div>${m.active ? "Đang hoạt động (hiện trong các ô chọn người phụ trách / người làm)" : "Đã ngừng hoạt động (ẩn khỏi ô chọn, dữ liệu cũ vẫn giữ)"}</div>
       <div class="k">Việc được giao</div><div><b>${tasks.length}</b> việc — ${openTasks.length} đang mở, ${odTasks.length} quá hạn, ${tasks.length - openTasks.length} đã xong</div>
       <div class="k">Deal phụ trách</div><div><b>${deals.length}</b> deal — ${openDeals.length} đang mở</div>
@@ -749,6 +911,12 @@ function saveMember(id) {
   if (memberList(S).some(x => x.id !== id && (x.name || "").trim().toLowerCase() === name.toLowerCase())) { toast("Tên thành viên đã tồn tại: " + name + " — hãy dùng tên khác để tránh gán nhầm"); return; }
   const role = document.getElementById("e_mrole").value;
   const active = document.getElementById("e_mactive").checked;
+  /* Tự khoá quyền: Admin đang đăng nhập mà hạ vai / tắt hoạt động của
+     CHÍNH MÌNH thì phải xác nhận tường minh trước khi lưu. */
+  const me = authCurrentUser();
+  if (id && me && me.memberId === id && me.role === "admin" && (role !== "Admin" || !active)) {
+    if (!confirm("Bạn đang sửa CHÍNH TÀI KHOẢN ADMIN của mình: đổi vai thành \"" + role + "\"" + (!active ? " và tắt Đang hoạt động" : "") + " sẽ khiến bạn mất quyền quản trị (và có thể mất quyền truy cập CRM) ngay khi lưu. Chắc chắn tiếp tục?")) return;
+  }
   if (!Array.isArray(S.members)) S.members = [];
   if (id) {
     const m = S.members.find(x => x.id === id); if (!m) return;
