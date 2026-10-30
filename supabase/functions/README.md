@@ -68,27 +68,24 @@ Cần **Personal Access Token** của chủ project (Supabase Dashboard →
 Account → Access Tokens). Token này là bí mật cá nhân — không dán vào
 chat, không commit.
 
-Endpoint deploy function (tạo mới hoặc cập nhật):
+Endpoint deploy function (tạo mới hoặc cập nhật) — ĐÃ KIỂM CHỨNG THẬT
+ngày 30/10/2026: deploy `invite-member` thành công (HTTP 201, ACTIVE)
+bằng đúng endpoint và định dạng dưới đây:
 
 ```
-POST https://api.supabase.com/v1/projects/vaegwvawlwpckfkmjzsj/functions
+POST https://api.supabase.com/v1/projects/vaegwvawlwpckfkmjzsj/functions/deploy?slug=invite-member
 Authorization: Bearer <PERSONAL_ACCESS_TOKEN>
 ```
 
-Định dạng body hiện hành của Management API cho Edge Functions:
-
 - `Content-Type: multipart/form-data` với:
-  - field `metadata`: JSON string, vd
+  - field `metadata`: JSON string
     `{"name":"invite-member","entrypoint_path":"index.ts","verify_jwt":true}`
-  - các field file: mỗi file nguồn của function là một part (tên part =
-    đường dẫn tương đối, vd `index.ts`) chứa nội dung file.
-- (API cũng chấp nhận biến thể JSON `{slug, name, body, verify_jwt}`
-  dạng "esm" một file cho function đơn giản; với function này chỉ có
-  đúng 1 file `index.ts` nên cả hai cách đều được — multipart là cách
-  tổng quát và là cách CLI dùng.)
+  - field file: part tên là `file` (filename `index.ts`) chứa nội dung
+    file nguồn.
 
-Cập nhật function đã tồn tại: `PATCH` cùng endpoint + `/<function-slug>`
-với định dạng body tương tự.
+Lưu ý: biến thể `POST .../functions` với part file đặt tên theo đường
+dẫn (`index.ts`) trả HTTP 500 — không dùng. Cập nhật function đã có:
+gọi lại chính endpoint `/functions/deploy?slug=...` ở trên.
 
 ## Kiểm tra sống sau deploy
 
