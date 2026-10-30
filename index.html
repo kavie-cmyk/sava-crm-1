@@ -576,7 +576,7 @@ function vCompanies() {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     /* D3: roles có key lạ (không có trong LINES) -> nhãn thô + màu trung tính, không crash */
     const roleChips = Object.entries(c.roles || {}).map(([k,r]) => `<span class="chip" style="background:${lineColor(k)}">${esc(lineName(k))}: ${esc(r)}</span>`).join("");
-    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}</td><td>${roleChips}</td><td>${esc(c.contact)}<div class="mut">${esc(c.phone)}</div></td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td></tr>`;
+    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${esc(c.contact)}<div class="mut">${esc(c.phone)}</div></td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td></tr>`;
   }).join("");
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có khách nào ở mảng này.</td></tr>'}</table></div>
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
@@ -1295,11 +1295,21 @@ function partnerSummaryBlockHTML(c) {
     lines = `<div style="font-size:13.5px">Partner Fit: <b>${fitTxt}</b> · ${esc(cp.classification || "—")} · Kết luận: <b>${esc(cp.conclusion || "—")}</b></div>
     <div class="mut" style="margin-top:4px">Hard Gate: ${esc(cp.hardGate || "—")} · Evidence: ${fmtPctVal(cp.coveragePct)} · Reviewer ${esc(ps.reviewer ? memberName(S, ps.reviewer) : "—")} · ${esc(fmtStamp(ps.date))} · ${ps.versions} phiên bản · Trạng thái: ${esc(ps.status || "—")}</div>`;
   }
+  /* Trạng thái 3 mức + nút Yêu cầu đánh giá: dùng ĐÚNG helper dùng chung
+     PublishingBridge.evalBadge / evalRequestButtonHTML (guard typeof vì bề
+     mặt này phải sống được cả khi bridge chưa có các helper đó). Đã đánh giá
+     xong -> helper trả nút rỗng: chỉ còn nhãn trạng thái (không có khái niệm
+     "tạo request mới" cho bản đã xong; đánh giá lại đi qua nút "Gửi MKT đánh
+     giá lại" trong chính hồ sơ đánh giá ở module Publishing). */
+  const evalLine = B && typeof B.evalBadge === "function" ? `<div style="font-size:13.5px;margin-bottom:6px">Trạng thái đánh giá: ${B.evalBadge("company", c.id)}</div>` : "";
+  const evalBtn = B && typeof B.evalRequestButtonHTML === "function" ? B.evalRequestButtonHTML("company", c.id) : "";
   return `<section style="border:1px solid var(--line);border-radius:12px;padding:14px;margin:16px 0">
     <h3 style="margin:0 0 6px">🧭 Đánh giá Partner</h3>
+    ${evalLine}
     ${lines}
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       <a class="btn" style="text-decoration:none" href="publishing.html?tab=reviews&amp;kind=company&amp;id=${encodeURIComponent(c.id)}">Mở đánh giá Partner →</a>
+      ${evalBtn}
       <button class="btn ghost" onclick="openPartnerPager('${c.id}')">📄 One-pager quyết định</button>
     </div>
   </section>`;
@@ -1429,7 +1439,7 @@ function openCompany(id) {
     <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>
     <h3 style="margin:18px 0 8px">📋 Các deal của công ty này (bấm để xem chi tiết deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}
-    ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${esc(g.emoji || "")} ${esc(g.title)}</div><div class="c">${esc(g.genre || "")} · ${esc(g.stage || "")} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div><div class="c" style="margin-top:3px">📊 ${esc(gameEvalSummaryText(g.id))}</div></div>`).join("") : ""}
+    ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${esc(g.emoji || "")} ${esc(g.title)}</div><div class="c">${esc(g.genre || "")} · ${esc(g.stage || "")} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div><div class="c" style="margin-top:3px">📊 ${esc(gameEvalSummaryText(g.id))}</div><div style="margin-top:4px">${window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? PublishingBridge.evalBadge("game", g.id) : ""}</div></div>`).join("") : ""}
     ${tasks.length ? `<h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>` + tasks.map(taskRow).join("") : ""}
     ${acts.length ? `<h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>` + acts.map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${esc(memberName(S, a.who))}</div></div></div>`).join("") : ""}
     <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Bản thật sẽ thêm: nhiều người liên hệ, ghi hoạt động mới, đính link Drive.</div>`);

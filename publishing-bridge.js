@@ -177,12 +177,12 @@
         || blockHas(c.prototype, ['uaTest','retention','engagement','monetizationTest','gamefeel','tech']);
   }
   function gameSummary(id) {
-    const empty = { exists: false, requestId: null, status: null, versions: 0, v2: null, legacy: null, mechanicMismatch: false, current: null, request: null };
+    const empty = { exists: false, requestId: null, status: null, versions: 0, v2: null, legacy: null, mechanicMismatch: false, mechanicDiverged: false, current: null, request: null };
     const record = findLive('game', id);
     if (!record) return empty;
     const versions = Array.isArray(record.revisions) ? record.revisions.length : 0;
     const cur = record.current && typeof record.current === 'object' ? record.current : null;
-    let v2 = null, legacy = null, mechanicMismatch = false;
+    let v2 = null, legacy = null, mechanicMismatch = false, mechanicDiverged = false;
     const PS = (typeof window !== 'undefined' && window.PublishingScore) || null;
     if (cur && PS) {
       const v2In = v2CandidateOf(cur);
@@ -193,23 +193,143 @@
         try { v2 = PS.gameV2(v2In); } catch { v2 = null; }
         if (v2) {
           /* N13: điểm v2 thuộc mechanic khác mechanic hiện tại của intake ->
-             không dùng quyết định của nó nữa. */
+             không dùng quyết định của nó nữa.
+             NGOẠI LỆ đồng bộ (chốt bổ sung): request ĐÃ HOÀN THÀNH (status
+             request hoặc của revision hiện tại là 'Hoàn tất') là lịch sử đã
+             nộp — mechanic đã chấm được GIỮ NGUYÊN, quyết định KHÔNG bị vô
+             hiệu; khác biệt chỉ được ghi nhận ở mechanicDiverged để bề mặt
+             hiển thị kèm ghi chú, không tính lại điểm im lặng. */
           const savedMech = v2In.fromMechanicId ?? v2In.mechanicId ?? null;
           const curMech = record.intake && typeof record.intake === 'object' ? (record.intake.mechanicId || null) : null;
-          if (savedMech && curMech && savedMech !== curMech) mechanicMismatch = true;
+          if (savedMech && curMech && savedMech !== curMech) {
+            const completed = record.status === 'Hoàn tất' || (cur && cur.status === 'Hoàn tất');
+            if (completed) mechanicDiverged = true; else mechanicMismatch = true;
+          }
         }
       }
       if (!v2 && typeof PS.game === 'function') {
         try { legacy = PS.game(cur); } catch { legacy = null; }
       }
     }
-    return { exists: true, requestId: record.id || null, status: record.status || null, versions, v2, legacy, mechanicMismatch, current: cur, request: record };
+    return { exists: true, requestId: record.id || null, status: record.status || null, versions, v2, legacy, mechanicMismatch, mechanicDiverged, current: cur, request: record };
   }
 
-  function gameBadge(id) {
-    const r = findLive('game', id);
-    return `<span class="pill gray">${esc(r ? 'MKT: ' + r.status : 'Chưa gửi yêu cầu đánh giá')}</span>`;
+  /* ===== Trạng thái đánh giá 3 mức (suy từ dữ kiện thật, KHÔNG cờ thủ công) =====
+     Nguồn sự thật DUY NHẤT cho mọi bề mặt BD (danh sách + drawer, game +
+     company): kho Publishing 'sava_publishing_v1', request theo kind+entityId.
+     Vốn trạng thái request thật (publishing.js REVIEW_STATUSES):
+       'Chờ đánh giá' / 'Đang đánh giá' / 'Chờ bổ sung' / 'Hoàn tất'.
+     KHÔNG có trạng thái huỷ/trả lại riêng trong mô hình thật: "trả lại xin
+     thêm bằng chứng" chính là 'Chờ bổ sung' — vẫn là request ĐANG MỞ.
+     Ánh xạ:
+       - 'done'    "Đã đánh giá": TỒN TẠI một request (không nhất thiết là
+                   request đang mở/canonical cuối mảng) có bản đánh giá
+                   HOÀN THÀNH — xem requestEvalCompleted():
+                   * request.status hoặc một revision có status 'Hoàn tất'; hoặc
+                   * game: revision/current có kết luận HIỆU LỰC — v2 hợp lệ
+                     (hasValidV2) và gameV2().decision != null (đã gồm điều
+                     kiện completeness Market+Prototype >= 80% và Final có),
+                     điểm v2 KHÔNG thuộc mechanic cũ (stale); hoặc legacy
+                     (không có v2 hợp lệ): PublishingScore.game().final != null
+                     và completeness >= 80% (đúng ngưỡng submitReview đòi để
+                     cho 'Hoàn tất' ở nhánh legacy);
+                   * company: revision/current mà adapter
+                     PublishingScore.company() tính được Partner Fit != null
+                     (đủ 7 pillar — đúng điều kiện submitReview đòi để cho
+                     'Hoàn tất' phía company).
+                   Nhờ quét MỌI request của bản ghi, một bản đánh giá hoàn
+                   thành có sẵn từ trước (vd do migration Partner legacy tạo,
+                   hoặc revision ở request cũ) vẫn tính là Đã đánh giá ngay cả
+                   khi đang có một request khác đang mở.
+       - 'waiting' "Đang chờ đánh giá": chưa có bản hoàn thành nào ở trên,
+                   nhưng có ít nhất một request ĐANG MỞ (status !== 'Hoàn tất').
+       - 'none'    "Chưa đánh giá": không có request nào cho bản ghi.
+     Thứ tự ưu tiên: done > waiting > none. */
+  const EVAL_DONE_STATUS = 'Hoàn tất';
+  function isPlainEvalObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function revisionCandidates(r) {
+    const out = [];
+    if (isPlainEvalObj(r && r.current)) out.push(r.current);
+    if (r && Array.isArray(r.revisions)) r.revisions.forEach(h => { if (isPlainEvalObj(h)) out.push(h); });
+    return out;
   }
+  function gameRevisionCompleted(cur, intake) {
+    if (!isPlainEvalObj(cur)) return false;
+    if (cur.status === EVAL_DONE_STATUS) return true;
+    const PS = (typeof window !== 'undefined' && window.PublishingScore) || null;
+    if (!PS) return false;
+    if (v2HasValidScore(cur)) {
+      /* Có v2 hợp lệ thì v2 là khung quyết định: chỉ hoàn thành khi đã ra
+         nhãn quyết định và điểm không thuộc mechanic cũ. */
+      const cand = v2CandidateOf(cur);
+      const savedMech = cand ? (cand.fromMechanicId ?? cand.mechanicId ?? null) : null;
+      const curMech = intake && typeof intake === 'object' ? (intake.mechanicId || null) : null;
+      if (savedMech && curMech && savedMech !== curMech) return false;
+      if (cand && typeof PS.gameV2 === 'function') {
+        try { const res = PS.gameV2(cand); return !!(res && res.decision !== null && res.decision !== undefined); } catch { return false; }
+      }
+      return false;
+    }
+    if (typeof PS.game === 'function') {
+      try { const res = PS.game(cur); return !!(res && res.final !== null && res.final !== undefined && res.completeness >= 0.8); } catch { return false; }
+    }
+    return false;
+  }
+  function companyRevisionCompleted(cur) {
+    if (!isPlainEvalObj(cur)) return false;
+    if (cur.status === EVAL_DONE_STATUS) return true;
+    const PS = (typeof window !== 'undefined' && window.PublishingScore) || null;
+    if (!PS || typeof PS.company !== 'function') return false;
+    try { const res = PS.company(cur); return !!(res && res.partnerFit !== null && res.partnerFit !== undefined); } catch { return false; }
+  }
+  function requestEvalCompleted(r) {
+    if (!isPlainEvalObj(r)) return false;
+    if (r.status === EVAL_DONE_STATUS) return true;
+    return revisionCandidates(r).some(cur => r.kind === 'game' ? gameRevisionCompleted(cur, r.intake) : r.kind === 'company' ? companyRevisionCompleted(cur) : false);
+  }
+  function requestIsOpen(r) { return isPlainEvalObj(r) && r.status !== EVAL_DONE_STATUS; }
+  /* Hàm THUẦN trên danh sách request cho trước (không đọc localStorage,
+     không kiểm entity còn tồn tại) — dùng cho test và là lõi của evalStatus. */
+  function evalStatusFromRequests(kind, id, list) {
+    const matches = (Array.isArray(list) ? list : []).filter(r => isPlainEvalObj(r) && r.kind === kind && r.entityId === id);
+    const none = { state: 'none', label: 'Chưa đánh giá', kind, entityId: id, request: null, requestId: null, openRequest: null, openRequestId: null, completedRequest: null, completedRequestId: null };
+    if (!matches.length) return none;
+    const completed = [...matches].reverse().find(requestEvalCompleted) || null;
+    if (completed) return { state: 'done', label: 'Đã đánh giá', kind, entityId: id, request: completed, requestId: completed.id || null, openRequest: null, openRequestId: null, completedRequest: completed, completedRequestId: completed.id || null };
+    const open = selectRequest(matches.filter(requestIsOpen), kind, id) || null;
+    if (open) return { state: 'waiting', label: 'Đang chờ đánh giá', kind, entityId: id, request: open, requestId: open.id || null, openRequest: open, openRequestId: open.id || null, completedRequest: null, completedRequestId: null };
+    return none;
+  }
+  function evalStatus(kind, id) {
+    if (!entityExists(kind, id)) return evalStatusFromRequests(kind, id, []);
+    return evalStatusFromRequests(kind, id, allRequests());
+  }
+  function evalBadgeForStatus(st) {
+    if (!st || st.state === 'none') return `<span class="pill gray">Chưa đánh giá</span>`;
+    if (st.state === 'done') return `<span class="pill" style="background:#22c55e">Đã đánh giá</span>`;
+    return `<span class="pill" style="background:#f59e0b">Đang chờ đánh giá</span>`;
+  }
+  function evalBadge(kind, id) { return evalBadgeForStatus(evalStatus(kind, id)); }
+  /* Đường mở/tạo request DUY NHẤT phía BD: deep-link publishing.html mà
+     publishing.js đã xử lý sẵn ở khởi tạo trang — có request thì mở đúng
+     request đó (openReview), chưa có thì mở requestForm(kind,id) đã điền
+     sẵn (prefill mechanic từ genre game qua mechanicIdForGame) để BD bổ
+     sung rồi gửi qua submitRequest(). BD KHÔNG ghi kho Publishing ở đây:
+     không có đường ghi thứ hai, tính canonical + chống trùng do chính
+     submitRequest phụ trách (nó tìm request sẵn có trước khi push). */
+  function evalRequestUrl(kind, id) { return `publishing.html?tab=reviews&kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`; }
+  function evalRequestButtonHTML(kind, id) {
+    /* Company: khung Partner chỉ áp cho studio/indie (đúng điều kiện
+       submitRequest + partnerSummary) — công ty không đủ điều kiện thì
+       không hiện nút/trạng thái yêu cầu Partner. */
+    if (kind === 'company') { const c = crmCompany(id); if (c && !isStudio(c)) return ''; }
+    const st = evalStatus(kind, id);
+    if (st.state === 'done') return '';
+    if (st.state === 'waiting') return `<a class="btn" style="text-decoration:none" href="${esc(evalRequestUrl(kind, id))}">Đã yêu cầu — đang chờ</a>`;
+    return `<a class="btn" style="text-decoration:none" href="${esc(evalRequestUrl(kind, id))}">Yêu cầu đánh giá</a>`;
+  }
+  function gameBadge(id) { return evalBadge('game', id); }
+  function companyBadge(id) { return evalBadge('company', id); }
   function summary(kind, id) {
     if (kind === 'company') {
       /* Chỉ hiển thị khi công ty đủ điều kiện studio (N11); không đủ điều kiện -> rỗng. */
@@ -227,7 +347,7 @@
           `<p style="margin:7px 0">Partner Fit: <b>${cp.partnerFit == null ? '—' : fmt1(cp.partnerFit)}/100</b> · ${esc(cp.classification || '—')} · Kết luận: <b>${esc(cp.conclusion || '—')}</b></p>` +
           `<p style="margin:7px 0" class="mut">Hard Gate: ${esc(cp.hardGate || '—')} · Evidence: ${cp.coveragePct == null ? '—' : fmt1(cp.coveragePct)}% · ${ps.versions} phiên bản</p>`;
       }
-      return `<section style="background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:15px;margin:16px 0"><h3 style="margin:0 0 7px">Đánh giá Partner</h3>${result}<a class="btn" style="text-decoration:none;margin-top:9px" href="publishing.html?tab=reviews&amp;kind=company&amp;id=${encodeURIComponent(id)}">Mở đánh giá Partner →</a></section>`;
+      return `<section style="background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:15px;margin:16px 0"><h3 style="margin:0 0 7px">Đánh giá Partner</h3><p style="margin:0 0 7px">Trạng thái đánh giá: ${evalBadge('company', id)}</p>${result}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><a class="btn" style="text-decoration:none" href="publishing.html?tab=reviews&amp;kind=company&amp;id=${encodeURIComponent(id)}">Mở đánh giá Partner →</a>${evalRequestButtonHTML('company', id)}</div></section>`;
     }
     const gs = gameSummary(id);
     let status = 'Chưa gửi yêu cầu đánh giá', result = '';
@@ -248,12 +368,13 @@
         } else {
           result = `<p style="margin:7px 0">${esc(v2.decision)} (Market Score v2) · Final v2 <b>${v2.final == null ? '—' : fmt1(v2.final)}/100</b> · ${revCount} phiên bản</p>`;
         }
+        if (gs.mechanicDiverged) result += `<p style="margin:7px 0">⚠️ Mechanic hiện tại khác mechanic đã chấm — điểm/kết luận trên giữ nguyên theo mechanic đã chấm (bản đã hoàn thành), không tính lại.</p>`;
       } else if (gs.legacy) {
         const res = gs.legacy;
         result = `<p style="margin:7px 0">${esc(res.recommendation)} · <b>${res.final == null ? 'NE' : fmtLegacyFinal(res.final)}/100</b>${legacyThresholdNote(res.final)} · Khung workbook (cũ) · ${revCount} phiên bản</p>`;
       }
     }
-    return `<section style="background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:15px;margin:16px 0"><h3 style="margin:0 0 7px">Đánh giá game · Market Score v2</h3><p style="font-size:13px;margin:0">${esc(status)}</p>${result}<a class="btn" style="text-decoration:none;margin-top:9px" href="publishing.html?tab=reviews&amp;kind=game&amp;id=${encodeURIComponent(id)}">${gs.exists ? 'Xem kết quả / bổ sung BD' : 'Gửi MKT đánh giá'} →</a></section>`;
+    return `<section style="background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:15px;margin:16px 0"><h3 style="margin:0 0 7px">Đánh giá game · Market Score v2</h3><p style="margin:0 0 7px">Trạng thái đánh giá: ${evalBadge('game', id)}</p><p style="font-size:13px;margin:0">${esc(status)}</p>${result}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><a class="btn" style="text-decoration:none" href="publishing.html?tab=reviews&amp;kind=game&amp;id=${encodeURIComponent(id)}">${gs.exists ? 'Xem kết quả / bổ sung BD' : 'Gửi MKT đánh giá'} →</a>${evalRequestButtonHTML('game', id)}</div></section>`;
   }
 
   /* ===== Migration Partner legacy (c.partnerEval) -> canonical (request kind=company) =====
@@ -471,7 +592,9 @@
        hasValidGameV2(current) — định nghĩa "có v2" duy nhất (B3, delegating
        PublishingScore.hasValidV2). */
   function hasValidGameV2(cur) { return v2HasValidScore(cur); }
-  window.PublishingBridge = { summary, gameBadge, partnerSummary, gameSummary, migratePartnerLegacy, selectRequest, requestCurrentHasData, requestHasCanonicalData, hasValidGameV2 };
+  window.PublishingBridge = { summary, gameBadge, partnerSummary, gameSummary, migratePartnerLegacy, selectRequest, requestCurrentHasData, requestHasCanonicalData, hasValidGameV2,
+    /* Trạng thái đánh giá 3 mức + nút yêu cầu (helper dùng chung mọi bề mặt BD) */
+    evalStatus, evalStatusFromRequests, evalBadge, evalBadgeForStatus, companyBadge, evalRequestUrl, evalRequestButtonHTML, requestEvalCompleted, requestIsOpen };
   addEventListener('storage', e => { if (e.key === 'sava_publishing_v1') { if (typeof render === 'function') render(); if (typeof refreshDrawer === 'function') refreshDrawer(); } });
   /* Migration chạy khi trang CRM (index.html) đã nạp xong state S. */
   if (typeof document !== 'undefined') {
