@@ -374,7 +374,7 @@ function migrateState(s) {
       if (found) { l.company = found.id; }
       else {
         const target = (LINES[l.line] && LINES[l.line].target) || "Đối tác";
-        const nc = { id: newCompanyId(), name: l.name || "Công ty của lead (mẫu)", type: target, roles: { [l.line]: target }, contact: l.person || "—", phone: "", last: "Vừa tạo" };
+        const nc = { id: newCompanyId(), name: l.name || "Công ty của lead (mẫu)", type: target, roles: { [l.line]: target }, last: "Vừa tạo" };
         s.companies.push(nc);
         l.company = nc.id;
       }
@@ -400,6 +400,82 @@ function migrateState(s) {
   s.leads.forEach(l => {
     const pair = LEAD_SAMPLE_RENAMES[l.id];
     if (pair && l.name === pair[0]) l.name = pair[1];
+  });
+  /* === Migration MỘT LẦN: đầu mối chính cấp công ty -> Lead (chốt nghiệp vụ) ===
+     Nguyên tắc đích: người liên hệ của công ty = chính các Lead của công ty
+     đó, MỘT nguồn sự thật duy nhất. Field cũ c.contact ("Đầu mối chính",
+     text tự do) + c.phone đi kèm khối đầu mối đó (mọi bề mặt cũ đều hiện
+     phone cặp ngay dưới/trong khối contact; app KHÔNG có SĐT tổng đài/hotline
+     riêng của công ty) là trùng lặp với Lead nên bị loại khỏi mọi bề mặt.
+     Dữ liệu cũ KHÔNG được mất: công ty nào còn giá trị đầu mối có nghĩa
+     (khác rỗng/khác dấu "—" giữ chỗ) mà chưa có lead tương ứng -> tạo 1 Lead
+     thuộc công ty đó:
+       - name = nguyên giá trị đầu mối (lead là NGƯỜI liên hệ); person = cùng
+         giá trị đó (đúng tiền lệ cũ: company.contact vốn được ghi từ
+         lead.person ở các đường tạo công ty từ lead);
+       - phone = c.phone (Lead mang thêm field phone; phía Supabase field
+         này đi qua legacy_extra của bảng leads — xem supabase-adapter.js —
+         nên KHÔNG cần cột/SQL mới);
+       - line suy từ vai trò theo mảng đầu tiên của công ty (thứ tự LINES),
+         không có thì lấy line của deal đầu tiên của công ty, cuối cùng mới
+         mặc định "publishing" (mảng có lead phổ biến nhất trong app);
+       - status "new", when = ngày ISO hôm nay.
+     Chống trùng + idempotent:
+       - Marker RIÊNG TỪNG CÔNG TY c.contactLeadMigrated = true, đặt ngay
+         khi công ty đã được xét migration (kể cả khi đã có lead trùng /
+         đầu mối là giữ chỗ): chạy lại không tạo thêm, và user XÓA lead đã
+         migrate (hoặc lead trùng có sẵn) thì lần nạp sau KHÔNG hồi sinh
+         lead từ field cũ nữa. Marker này không nằm trong COMPANY_KNOWN của
+         adapter nên tự đi qua companies.legacy_extra và sống sót qua
+         đồng bộ Supabase (không cần SQL).
+       - Kể cả chưa có marker, một lead của CÙNG công ty mà name HOẶC person
+         (trim, không phân biệt hoa/thường) trùng nguyên giá trị đầu mối
+         cũng được coi là lead tương ứng -> không tạo trùng. Lead user đã
+         tự tạo/sửa không bao giờ bị đụng (chỉ đọc để đối chiếu).
+     Field cũ SAU migration: c.contact/c.phone được GIỮ NGUYÊN trong dữ
+     liệu thô (localStorage + cột companies.contact/phone phía Supabase,
+     adapter giữ mapping như cũ để round-trip không mất dữ liệu và shape
+     state không lệch khỏi dữ liệu máy chủ — lệch shape từng gây vòng lặp
+     reload 30/10/2026), nhưng KHÔNG còn bề mặt nào đọc/hiển thị/ghi:
+     form/drawer/danh sách công ty, drawer deal, one-pager Partner và khối
+     thông tin phía đánh giá đều lấy đầu mối từ danh sách Lead; mọi đường
+     tạo công ty mới không còn đặt contact/phone nữa. Đặt SAU migration
+     gắn lead<->company ở trên để công ty vừa được tạo từ lead mồ côi
+     (contact cũ vốn ghi từ chính lead.person đó) được dedup đúng bằng
+     person, không sinh lead trùng. */
+  const CONTACT_PLACEHOLDERS = new Set(["", "—", "-", "–"]);
+  const normContactKey = v => String(v || "").trim().toLowerCase();
+  let migLeadSeq = 0;
+  const newLeadId = () => {
+    let id;
+    do { migLeadSeq++; id = "l" + Date.now() + "m" + migLeadSeq; } while (s.leads.some(l => l.id === id));
+    return id;
+  };
+  s.companies.forEach(c => {
+    if (!c || typeof c !== "object" || Array.isArray(c)) return;
+    if (c.contactLeadMigrated) return;
+    /* Công ty tạo bởi bản mới không còn field contact/phone -> không có gì để migrate, cũng không gắn marker thừa. */
+    if (!("contact" in c) && !("phone" in c)) return;
+    c.contactLeadMigrated = true;
+    const contactVal = String(c.contact || "").trim();
+    if (CONTACT_PLACEHOLDERS.has(contactVal)) return;
+    const key = normContactKey(contactVal);
+    const exists = s.leads.some(l => l && l.company === c.id && (normContactKey(l.name) === key || normContactKey(l.person) === key));
+    if (exists) return;
+    const roleLine = Object.keys(LINES).find(k => c.roles && c.roles[k]);
+    const dealLine = (s.deals || []).map(d => d && d.company === c.id ? d.line : null).find(x => x && LINES[x]);
+    s.leads.push({
+      id: newLeadId(),
+      name: contactVal,
+      company: c.id,
+      person: contactVal,
+      phone: String(c.phone || "").trim(),
+      line: roleLine || dealLine || "publishing",
+      source: "",
+      status: "new",
+      note: "",
+      when: new Date().toISOString().slice(0, 10),
+    });
   });
   return s;
 }

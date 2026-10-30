@@ -186,8 +186,8 @@ create table public.companies (
   name                   text not null,               -- app: name
   type                   text not null default '',    -- app: type ('Publisher'|'Game studio'|'Indie dev'|'Doanh nghiệp'|…)
   roles                  jsonb not null default '{}'::jsonb, -- app: roles {line: nhãn}
-  contact                text not null default '',    -- app: contact (đầu mối chính, text tự do)
-  phone                  text not null default '',    -- app: phone
+  contact                text not null default '',    -- app: contact (LEGACY — đầu mối chính cũ, text tự do; ĐÃ BỎ khỏi mọi bề mặt: đầu mối của công ty nay = các Lead của công ty, migration một lần trong migrateState/shared.js tạo Lead từ field này + marker contactLeadMigrated qua legacy_extra. Cột GIỮ NGUYÊN để bảo toàn dữ liệu thô — KHÔNG cần/có DDL cho đợt bỏ đầu mối)
+  phone                  text not null default '',    -- app: phone (LEGACY — SĐT đi kèm khối đầu mối cũ của công ty, bỏ cùng contact; không phải hotline công ty. SĐT hiện hành nằm ở Lead: leads legacy_extra khoá 'phone', không có cột riêng)
   last_label             text not null default '',    -- app: last (chữ tự do: 'Hôm qua', 'Hôm nay'… — không parse ngày)
   partner_eval_migrated  boolean not null default false, -- app: partnerEvalMigrated (cờ migration bridge)
   created_at  timestamptz not null default now(),

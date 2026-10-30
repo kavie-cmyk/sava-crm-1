@@ -367,7 +367,9 @@
        revision (điểm, kết luận, entries, gates, scoresV2.fromMechanicId).
      Nguyên tắc áp dụng từ đợt này:
      - Thông tin ĐỊNH DANH/MÔ TẢ có đối tác ở CRM (tên, genre/sub-genre =
-       mechanic, platform, trailer, mô tả, tên/loại hình/đầu mối company)
+       mechanic, platform, trailer, mô tả, tên/loại hình company; đầu mối
+       của company = danh sách Lead của công ty đó trong CRM — field đầu
+       mối riêng cấp công ty đã bỏ, Lead là nguồn sự thật duy nhất)
        là LIVE: hiển thị resolve theo id về CRM hiện tại (liveInfoHTML +
        effectiveIntake). Field intake KHÔNG có đối tác ở CRM (artStyle,
        coreLoop, metrics studio báo, teamSize, country...) giữ nguyên là
@@ -435,7 +437,12 @@
   function entitySnapshotFor(kind, en) {
     if (!en || typeof en !== 'object') return null;
     if (kind === 'game') return { name: String(en.title || en.name || ''), genre: String(en.genre || ''), platform: String(en.platform || ''), stage: String(en.stage || ''), desc: String(en.desc || ''), buildUrl: String(en.buildUrl || ''), trailerUrl: String(en.trailerUrl || '') };
-    return { name: String(en.name || ''), type: String(en.type || ''), contact: String(en.contact || ''), phone: String(en.phone || '') };
+    /* Đầu mối riêng của công ty (hai field contact/phone cũ) KHÔNG còn chụp vào
+       snapshot: người liên hệ của công ty = các Lead của công ty đó (xem
+       liveInfoHTML — resolve LIVE từ CRM hiện tại). Snapshot chỉ giữ định
+       danh công ty (tên + loại hình). Snapshot CŨ còn khoá contact/phone
+       trong dữ liệu thô vẫn đọc được nhưng không bề mặt nào hiển thị nữa. */
+    return { name: String(en.name || ''), type: String(en.type || '') };
   }
   function currentRequesterId() {
     try { const u = (typeof window !== 'undefined' && window.SavaAuth && typeof window.SavaAuth.currentUser === 'function') ? window.SavaAuth.currentUser() : null; return u && u.memberId ? String(u.memberId) : ''; } catch { return ''; }
@@ -467,10 +474,21 @@
       }
     } else {
       if (en) {
-        rows = row('Tên công ty (CRM hiện tại)', label(en)) + row('Loại hình', en.type || '') + row('Đầu mối chính', en.contact || '') + row('Điện thoại', en.phone || '');
+        /* Đầu mối liên hệ = các Lead của công ty trong CRM HIỆN TẠI (một
+           nguồn sự thật duy nhất; field đầu mối riêng của công ty đã bỏ).
+           s là state CRM (crm()) nên s.leads là danh sách lead hiện tại;
+           mỗi lead hiện tên + person (nếu khác tên) + SĐT (nếu có). */
+        const cLeads = (s && Array.isArray(s.leads) ? s.leads : []).filter(l => l && l.company === en.id);
+        const leadsText = cLeads.length ? cLeads.map(l => {
+          const bits = [String(l.name || '')];
+          if (l.person && l.person !== l.name) bits.push(String(l.person));
+          if (l.phone) bits.push(String(l.phone));
+          return bits.filter(Boolean).join(' · ');
+        }).join(' ; ') : '';
+        rows = row('Tên công ty (CRM hiện tại)', label(en)) + row('Loại hình', en.type || '') + row('Đầu mối liên hệ — lead của công ty (CRM hiện tại)', leadsText);
       } else if (snap) {
         note = `<p class="mut">Hồ sơ công ty gốc đã được gỡ khỏi CRM — thông tin dưới đây là dữ liệu chụp trong yêu cầu lúc tạo (snapshot), điểm/kết luận đã lưu vẫn giữ nguyên.</p>`;
-        rows = row('Tên công ty (snapshot)', snap.name || '') + row('Loại hình (snapshot)', snap.type || '') + row('Đầu mối chính (snapshot)', snap.contact || '') + row('Điện thoại (snapshot)', snap.phone || '');
+        rows = row('Tên công ty (snapshot)', snap.name || '') + row('Loại hình (snapshot)', snap.type || '');
       } else {
         note = `<p class="mut">Hồ sơ công ty gốc đã được gỡ khỏi CRM và yêu cầu này không có dữ liệu chụp (tạo trước đợt đồng bộ) — hiển thị theo hồ sơ đầu vào đã lưu trong yêu cầu.</p>`;
         const it = r.intake || {};

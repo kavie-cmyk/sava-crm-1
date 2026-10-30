@@ -349,7 +349,7 @@ function save() {
   S._crmTab = CRM_TAB_ID;
   storeState(S);
 }
-function comp(id) { return S.companies.find(c => c.id === id) || {id:"", name:"—", type:"", contact:"—", phone:""}; }
+function comp(id) { return S.companies.find(c => c.id === id) || {id:"", name:"—", type:""}; }
 /* --- Mô hình Lead–Company–Deal ---
    lead.company: id công ty (1 công ty có nhiều lead); lead.person: người đầu mối.
    deal.leads: mảng id lead — nguồn sự thật DUY NHẤT cho quan hệ deal↔lead.
@@ -359,13 +359,28 @@ function leadCompanyName(l) { const c = leadCompany(l); return c ? c.name : "—
 function dealsForLead(leadId) { return S.deals.filter(d => Array.isArray(d.leads) && d.leads.includes(leadId)); }
 function leadsForDeal(d) { if (!d || !Array.isArray(d.leads)) return []; return d.leads.map(id => S.leads.find(l => l.id === id)).filter(Boolean); }
 function leadsForCompany(companyId) { return S.leads.filter(l => l.company === companyId); }
+/* Đầu mối liên hệ của công ty = CHÍNH các lead của công ty đó (nguồn sự thật
+   duy nhất — field đầu mối riêng c.contact/c.phone đã bỏ, xem migration
+   trong shared.js). Helper này dựng HTML gọn cho các bề mặt cần dòng đầu
+   mối của 1 công ty (danh sách công ty, drawer deal, one-pager Partner):
+   mỗi lead hiện tên + person (nếu khác tên) + SĐT (nếu có). */
+function companyLeadsHTML(companyId) {
+  const ls = companyId ? leadsForCompany(companyId) : [];
+  if (!ls.length) return '<span class="mut">Chưa có lead — thêm lead để có đầu mối liên hệ</span>';
+  return ls.map(l => {
+    const bits = [esc(leadDisplayName(l))];
+    if (l.person && l.person !== l.name) bits.push(esc(l.person));
+    if (l.phone) bits.push("📞 " + esc(l.phone));
+    return bits.join(" · ");
+  }).join("<br>");
+}
 /* Nhãn chính của lead = TÊN LEAD (người đầu mối); tên công ty chỉ là thông tin phụ. */
 function leadDisplayName(l) { return (l && l.name) ? l.name : leadCompanyName(l); }
 function leadLabel(l) { const nm = leadDisplayName(l); const cn = leadCompanyName(l); return nm + (cn && cn !== nm ? " · " + cn : "") + (l.person ? " — " + l.person : ""); }
 function leadMini(l) {
   const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
   return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}</div>
-    <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person ? " · 👤 " + esc(l.person) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person && l.person !== l.name ? " · 👤 " + esc(l.person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 function attachLeadToDeal(leadId, dealId) {
@@ -578,9 +593,9 @@ function vCompanies() {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     /* D3: roles có key lạ (không có trong LINES) -> nhãn thô + màu trung tính, không crash */
     const roleChips = Object.entries(c.roles || {}).map(([k,r]) => `<span class="chip" style="background:${lineColor(k)}">${esc(lineName(k))}: ${esc(r)}</span>`).join("");
-    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${esc(c.contact)}<div class="mut">${esc(c.phone)}</div></td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td></tr>`;
+    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td></tr>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có khách nào ở mảng này.</td></tr>'}</table></div>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có khách nào ở mảng này.</td></tr>'}</table></div>
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 
@@ -620,7 +635,7 @@ function convertLead(id) {
   // Deal mới lấy company từ chính lead; chỉ khi lead chưa gắn công ty hợp lệ mới tạo công ty từ tên lead.
   let companyId = leadCompany(l) ? l.company : null;
   if (!companyId) {
-    const nc = { id:"c"+Date.now(), name:l.name, type:LINES[l.line].target, roles:{ [l.line]:LINES[l.line].target }, contact:l.person || "—", phone:"", last:"Vừa tạo" };
+    const nc = { id:"c"+Date.now(), name:l.name, type:LINES[l.line].target, roles:{ [l.line]:LINES[l.line].target }, last:"Vừa tạo" };
     S.companies.push(nc); companyId = nc.id; l.company = nc.id;
   }
   /* Tên công ty hiển thị LUÔN lấy live từ hồ sơ công ty (M4), không dùng l.name. */
@@ -1163,7 +1178,7 @@ function openDeal(id) {
       ${valueRows}
       <div class="k">Người phụ trách</div><div>${esc(memberName(S, d.owner))}</div>
       <div class="k">Ngày dự kiến chốt</div><div>${esc(d.due || "—")}</div>
-      <div class="k">Đầu mối phía đối tác</div><div>${esc(c.contact)}</div>
+      <div class="k">Đầu mối phía đối tác (lead của công ty)</div><div>${companyLeadsHTML(c.id)}</div>
       ${d.line === "metaverse" ? `<div class="k">Phân khúc ngành</div><div>${esc(dealVerticalLabel(d))}</div>` : ""}
       ${fields}
     </div>
@@ -1361,13 +1376,25 @@ function partnerPagerHTML(c) {
   const gamesOwned = S.games.filter(g => g.company === c.id);
   /* D3: roles key lạ -> nhãn thô + màu trung tính (guard inline vì khối này được dùng độc lập) */
   const roleChips = Object.entries(c.roles || {}).map(([k, role]) => `<span class="chip" style="background:${LINES[k] ? LINES[k].color : '#64748b'}">${LINES[k] ? LINES[k].name : esc(k)}: ${esc(role)}</span>`).join("");
+  /* Đầu mối liên hệ = các lead của công ty (nguồn sự thật duy nhất; field
+     đầu mối riêng của công ty đã bỏ). Tính INLINE tại đây (không gọi
+     companyLeadsHTML ở ngoài khối) vì khối Partner Eval UI được dùng độc
+     lập — cùng lý do guard inline của roleChips ở trên; S.leads thiếu
+     (state cũ) -> coi như chưa có lead. */
+  const pagerLeads = (Array.isArray(S.leads) ? S.leads : []).filter(l => l && l.company === c.id);
+  const pagerLeadsHTML = pagerLeads.length ? pagerLeads.map(l => {
+    const bits = [esc(l.name || "—")];
+    if (l.person && l.person !== l.name) bits.push(esc(l.person));
+    if (l.phone) bits.push("📞 " + esc(l.phone));
+    return bits.join(" · ");
+  }).join("<br>") : '<span class="mut">Chưa có lead — thêm lead để có đầu mối liên hệ</span>';
   const head = `<button class="x" onclick="closePartnerPager()" style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--mut)">✕</button>
     <h3 style="font-size:17px;margin-bottom:2px">📄 One-pager quyết định — Partner</h3>
     <div class="mut">Đọc từ đánh giá Partner canonical (module Publishing). Điểm /100 không gồm Hard Gate; kết luận cuối mới áp cả 2 gate.</div>
     <h3 style="margin:16px 0 6px">A. Tổng quan công ty</h3>
     <div class="kv">
       <div class="k">Công ty</div><div><b>${esc(c.name)}</b> · ${esc(c.type || "")}</div>
-      <div class="k">Đầu mối</div><div>${esc(c.contact || "—")}${c.phone ? " · " + esc(c.phone) : ""}</div>
+      <div class="k">Đầu mối liên hệ (lead)</div><div>${pagerLeadsHTML}</div>
       <div class="k">Vai trò theo mảng</div><div>${roleChips || "—"}</div>
       <div class="k">Deal / game</div><div>${deals.length} deal · ${gamesOwned.length} game sở hữu</div>
     </div>`;
@@ -1430,15 +1457,13 @@ function openCompany(id) {
     <h2>🏢 ${esc(c.name)}</h2><div class="mut">${esc(c.type)} · Tương tác cuối: ${esc(c.last)}</div>
     <div style="margin:10px 0">${roleChips}</div>
     <div class="kv">
-      <div class="k">Đầu mối chính</div><div>${esc(c.contact)}</div>
-      <div class="k">Điện thoại</div><div>${esc(c.phone || "—")}</div>
       <div class="k">Tổng deal (tất cả mảng)</div><div><b>${deals.length}</b> (${open} đang mở, ${won} đã thắng)</div>
       <div class="k">Việc đang treo (tất cả mảng)</div><div>${tasks.length} việc chưa xong</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editCompany('${c.id}')">✏️ Sửa công ty</button><button class="btn danger" onclick="deleteCompany('${c.id}')">🗑 Xóa công ty</button></div>
     <button class="btn" onclick="closeDrawer(); openAddFor('${c.id}')">+ Thêm deal cho công ty này</button>
     ${partnerSummaryBlockHTML(c)}
-    <h3 style="margin:18px 0 8px">📥 Leads của công ty này (bấm để xem chi tiết lead)</h3>
+    <h3 style="margin:18px 0 8px">📥 Leads của công ty này — chính là đầu mối liên hệ của công ty (bấm để xem chi tiết lead)</h3>
     ${leadsForCompany(c.id).map(leadMini).join("") || '<div class="mut">Chưa có lead nào thuộc công ty này.</div>'}
     <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>
     <h3 style="margin:18px 0 8px">📋 Các deal của công ty này (bấm để xem chi tiết deal)</h3>
@@ -1446,7 +1471,7 @@ function openCompany(id) {
     ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${esc(g.emoji || "")} ${esc(g.title)}</div><div class="c">${esc(g.genre || "")} · ${esc(g.stage || "")} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div><div class="c" style="margin-top:3px">📊 ${esc(gameEvalSummaryText(g.id))}</div><div style="margin-top:4px">${window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? PublishingBridge.evalBadge("game", g.id) : ""}</div></div>`).join("") : ""}
     ${tasks.length ? `<h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>` + tasks.map(taskRow).join("") : ""}
     ${acts.length ? `<h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>` + acts.map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${esc(memberName(S, a.who))}</div></div></div>`).join("") : ""}
-    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Bản thật sẽ thêm: nhiều người liên hệ, ghi hoạt động mới, đính link Drive.</div>`);
+    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Bản thật sẽ thêm: ghi hoạt động mới, đính link Drive.</div>`);
 }
 /* C7: link build/trailer của game — chỉ thành <a> thật khi là URL http/https
    an toàn (link mẫu chứa chữ "mẫu" hoặc không phải http/https thì hiện text). */
@@ -1521,6 +1546,7 @@ function openLead(id) {
     <div class="kv">
       <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
       <div class="k">Người đầu mối</div><div>${esc(l.person || "—")}</div>
+      <div class="k">Điện thoại</div><div>${esc(l.phone || "—")}</div>
       <div class="k">Trạng thái</div><div><span class="pill" style="background:${st[1]}">${st[0]}</span></div>
       <div class="k">Mảng quan tâm</div><div>${esc(lineName(l.line))}${lineDef(l.line) ? " — " + esc(lineDef(l.line).desc) : ""}</div>
       <div class="k">Đối tượng của mảng</div><div>${lineDef(l.line) ? esc(lineDef(l.line).target) : "—"}</div>
@@ -1686,7 +1712,7 @@ function saveDeal() {
       } else if (!gg || gg.own !== "ours") { toast("Game đã chọn không hợp lệ cho mảng Game Studio"); return; }
     }
   }
-  if (!c) { c = { id:"c"+Date.now(), name:newCompanyName, type:LINES[line].target, roles:{[line]:LINES[line].target}, contact:"—", phone:"", last:"Vừa tạo" }; S.companies.push(c); }
+  if (!c) { c = { id:"c"+Date.now(), name:newCompanyName, type:LINES[line].target, roles:{[line]:LINES[line].target}, last:"Vừa tạo" }; S.companies.push(c); }
   else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
   let gameId = "";
   if (gameSel === "__new__") {
@@ -2198,7 +2224,7 @@ function saveEditDeal(id) {
   /* 4) Qua hết validate -> giờ mới mutate: tạo công ty (nếu mới), bổ sung role,
         tạo game mới thuộc công ty (nếu chọn "＋ Tạo game mới…"). */
   let c = targetCompany;
-  if (!c) { c = { id: "c" + Date.now(), name: newCompanyName, type: LINES[line].target, roles: { [line]: LINES[line].target }, contact: "—", phone: "", last: "Vừa tạo" }; S.companies.push(c); }
+  if (!c) { c = { id: "c" + Date.now(), name: newCompanyName, type: LINES[line].target, roles: { [line]: LINES[line].target }, last: "Vừa tạo" }; S.companies.push(c); }
   else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
   if (gameVal === "__new__") {
     const ng = { id: "g" + Date.now(), title: newGameTitle, own: line === "publishing" ? "partner" : "ours", genre: "", platform: "", stage: "", emoji: "🎮", desc: "", bdNote: "", buildUrl: "", trailerUrl: "", mktEval: null };
@@ -2281,7 +2307,7 @@ function publishingRequestCount(kind, entityId) {
 /* --- Công ty --- */
 const ROLE_OPTS_BY_LINE = { game_studio: ["Publisher"], publishing: ["Game studio", "Indie dev"], ai: ["Khách hàng"], metaverse: ["Khách hàng"] };
 function editCompany(id) {
-  const c = id ? comp(id) : { name: "", type: "", contact: "", phone: "", roles: {} };
+  const c = id ? comp(id) : { name: "", type: "", roles: {} };
   if (id && !c.id) return;
   const rolesHtml = Object.entries(LINES).map(([k, L]) => `
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_role_on_${k}" style="width:auto" ${c.roles && c.roles[k] ? "checked" : ""}> Có vai trò ở mảng ${L.name}</label>
@@ -2289,8 +2315,7 @@ function editCompany(id) {
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa công ty" : "🏢 Thêm công ty"}</h3>
     ${field("Tên công ty", txt("e_cname", c.name))}
     ${field("Loại hình", selLegacy("e_ctype", ["Publisher", "Game studio", "Indie dev", "Doanh nghiệp", "Khác"], c.type || "", "— Chưa chọn —"))}
-    ${field("Đầu mối chính", txt("e_ccontact", c.contact, "VD: An — Founder"))}
-    ${field("Điện thoại", txt("e_cphone", c.phone))}
+    <div class="mut" style="margin-top:12px">Người liên hệ của công ty là các <b>Lead</b> thuộc công ty này (một nguồn sự thật duy nhất) — thêm/sửa người liên hệ ở mục Lead, không còn trường đầu mối riêng ở công ty.</div>
     <div class="mut" style="margin-top:12px">Vai trò theo mảng — bật mảng nào thì công ty hiện trong mảng đó:</div>
     ${rolesHtml}
     ${formFoot("saveCompany", id ? `'${id}'` : "null")}`);
@@ -2315,8 +2340,8 @@ function saveCompany(id) {
     }
   }
   let c;
-  if (id) { c = comp(id); Object.assign(c, { name, type: v("e_ctype"), contact: v("e_ccontact"), phone: v("e_cphone"), roles, last: "Vừa sửa" }); }
-  else { c = { id: "c" + Date.now(), name, type: v("e_ctype") || "Đối tác", contact: v("e_ccontact") || "—", phone: v("e_cphone"), last: "Vừa tạo", roles }; S.companies.push(c); }
+  if (id) { c = comp(id); Object.assign(c, { name, type: v("e_ctype"), roles, last: "Vừa sửa" }); }
+  else { c = { id: "c" + Date.now(), name, type: v("e_ctype") || "Đối tác", last: "Vừa tạo", roles }; S.companies.push(c); }
   save(); closeEdit(); render(); openCompany(c.id); toast("Đã lưu công ty: " + name);
 }
 function deleteCompany(id) {
@@ -2433,7 +2458,7 @@ function toggleLeadNewCompany() {
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
 }
 function editLead(id, presetCompanyId) {
-  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "publishing", source: "", status: "new", note: "", when: "Vừa xong", company: "", person: "" };
+  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "publishing", source: "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "" };
   if (id && !l) return;
   const presetComp = presetCompanyId ? comp(presetCompanyId) : null;
   const curCompId = id ? (l.company || "") : (presetComp && presetComp.id ? presetComp.id : (l.company || ""));
@@ -2445,6 +2470,7 @@ function editLead(id, presetCompanyId) {
     ${field("Tên lead (người đầu mối)", txt("e_lname", l.name))}
     ${field("Công ty", `<select id="e_lcompany" onchange="toggleLeadNewCompany()">${compOpts}</select><div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
     ${field("Người đầu mối", txt("e_lperson", l.person || "", "VD: Anh Minh — Founder"))}
+    ${field("Điện thoại", txt("e_lphone", l.phone || "", "SĐT của người liên hệ này"))}
     ${field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), presetLine || l.line))}
     ${field("Nguồn", selLegacy("e_lsource", ["Form savameta.com", "Giới thiệu", "Facebook", "Cộng đồng dev", "Sự kiện", "Chủ động tiếp cận", "Khác"], l.source || "", "— Chưa chọn —"))}
     ${field("Trạng thái", sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"], ["converted", "Đã chuyển đổi"]], l.status) + (l.status === "converted" ? `<div class="mut" style="margin-top:4px">Lead đang ở trạng thái Đã chuyển đổi — đổi về Đạt chuẩn / Đã liên hệ tại đây để khôi phục tay nếu lead không còn deal liên kết (C2; bình thường hệ thống tự hồi về Đạt chuẩn khi deal bị xóa / lead bị gỡ khỏi deal).</div>` : ""))}
@@ -2466,7 +2492,7 @@ function saveLead(id) {
     const companyName = v("e_lnewCompany");
     if (!companyName) { toast("Nhập tên công ty mới, hoặc chọn công ty có sẵn"); return; }
     let c = S.companies.find(x => (x.name || "").trim().toLowerCase() === companyName.toLowerCase());
-    if (!c) { c = { id: "c" + Date.now(), name: companyName, type: LINES[line].target, roles: { [line]: LINES[line].target }, contact: v("e_lperson") || "—", phone: "", last: "Vừa tạo" }; S.companies.push(c); }
+    if (!c) { c = { id: "c" + Date.now(), name: companyName, type: LINES[line].target, roles: { [line]: LINES[line].target }, last: "Vừa tạo" }; S.companies.push(c); }
     else if (!c.roles[line]) { c.roles[line] = LINES[line].target; }
     companyId = c.id;
   } else if (compVal) {
@@ -2484,7 +2510,7 @@ function saveLead(id) {
   /* Thời gian: input date -> lưu ISO; để trống khi sửa thì giữ nguyên giá trị cũ
      (kể cả chữ cũ); lead mới để trống -> hôm nay (ISO). */
   const whenVal = v("e_lwhen");
-  const data = { name, company: companyId, person: v("e_lperson"), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
+  const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
   let l;
   if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
   else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }

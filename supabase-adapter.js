@@ -107,6 +107,22 @@
   /* ==================================================================
      KHO CRM — state -> rows
      ================================================================== */
+  /* contact/phone của company là field ĐẦU MỐI CŨ (legacy): nghiệp vụ đã
+     chốt đầu mối của công ty = các Lead của công ty, không bề mặt nào còn
+     đọc/hiển thị/ghi hai field này và công ty tạo mới không còn đặt chúng.
+     Adapter VẪN giữ mapping hai cột này như cũ có chủ đích: (1) round-trip
+     giữ nguyên dữ liệu thô đã migrate xong (migration ở migrateState trong
+     shared.js tạo Lead từ hai field này rồi mới thôi dùng), xoá mapping sẽ
+     làm mất dữ liệu thô ở lần ghi tiếp theo và làm lệch shape state so với
+     dữ liệu máy chủ; (2) hàm ánh xạ chịu được field biến mất
+     (String(c.contact || '') / c.contact || '') nên state thiếu contact/
+     phone không vỡ. Marker migration c.contactLeadMigrated CỐ Ý không nằm
+     trong COMPANY_KNOWN: nó đi qua legacy_extra của bảng companies và tự
+     sống sót qua đồng bộ, không cần cột/SQL mới.
+     Tương tự, lead.phone (SĐT của NGƯỜI liên hệ, do migration đầu mối tạo
+     và form lead ghi) CỐ Ý không nằm trong LEAD_KNOWN bên dưới: bảng leads
+     không có cột phone, field đi qua legacy_extra của leads khi ghi và
+     được mergeExtras khôi phục khi đọc — không cần DDL. */
   const COMPANY_KNOWN = ['id', 'name', 'type', 'roles', 'contact', 'phone', 'last', 'partnerEval', 'partnerEvalMigrated'];
   const GAME_KNOWN = ['id', 'title', 'own', 'company', 'genre', 'platform', 'stage', 'emoji', 'desc', 'bdNote', 'buildUrl', 'trailerUrl', 'scores', 'verdict', 'mktEval'];
   /* deal.vertical (phân khúc ngành, chỉ deal Metaverse) CỐ Ý không nằm trong
