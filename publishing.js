@@ -1049,6 +1049,13 @@
     }
   });
   addEventListener('storage',e=>{if([KEY,STORE_KEY].includes(e.key)&&!$('#editor').open)render();});
+  /* Boot mở-nhanh (supabase-auth.js): dữ liệu MỚI từ Supabase đã về cache
+     trong lúc trang hiện bằng cache cũ -> render lại TẠI CHỖ, không
+     reload. read()/crm() đọc tươi từ localStorage mỗi lần render nên
+     chỉ cần render lại + làm mới window.S cho bridge. Dialog đang mở
+     thì bỏ qua (giống listener 'storage' ở trên) để không nuốt bản sửa
+     người dùng đang gõ. */
+  try { window.__savaOnDataRefreshed = () => { if ($('#editor').open) return; try { window.S = crm(); } catch {} render(); }; } catch {}
   try {
     /* A13: Partner canonical migrate được cả khi chỉ mở Publishing/MKT
        trước CRM: publishing.html/mkt.html nạp publishing-bridge.js, trang

@@ -2,6 +2,12 @@
    - Cả 3 trang (index / publishing / mkt) đều nạp file này. <html> mang
      class 'sava-locked' ngay từ đầu (auth.css ẩn toàn bộ app, chỉ hiện
      #savaAuthRoot) cho tới khi phiên đăng nhập + dữ liệu Supabase sẵn sàng.
+   - NGOẠI LỆ boot mở-nhanh (xem khối "Boot nhanh" dưới đây): nếu máy đã
+     có phiên còn hạn + cache đã từng đồng bộ từ máy chủ cho đúng user +
+     danh tính đã kiểm chứng khớp vai–trang, khoá được gỡ NGAY khi file
+     này nạp (trước khung hình đầu tiên) và kiểm chứng + tải dữ liệu
+     chuyển sang chạy NGẦM, cập nhật giao diện tại chỗ, không reload.
+     Thiếu một điều kiện bất kỳ -> cổng đầy đủ như cũ.
    - Chưa có session -> CHỈ hiện form đăng nhập (email + mật khẩu), không
      có nút đăng ký. Lỗi đăng nhập dịch sang tiếng Việt tử tế.
    - Có session -> đọc profiles (theo auth user) -> members để lấy vai
@@ -83,8 +89,118 @@
     const p = (location.pathname || '').split('/').pop() || 'index.html';
     return ['index.html', 'publishing.html', 'mkt.html', 'import.html', ''].includes(p) ? (p || 'index.html') : p;
   }
-  function lock() { document.documentElement.classList.add('sava-locked'); }
+  function lock() {
+    document.documentElement.classList.add('sava-locked');
+    /* Khoá lại thì bỏ hẳn chế độ mở-nhanh: thẻ auth phải hiện lại được
+       (auth.css ẩn các thẻ khi còn class sava-optimistic). */
+    try { document.documentElement.classList.remove('sava-optimistic'); } catch (e) {}
+  }
   function unlock() { document.documentElement.classList.remove('sava-locked'); }
+
+  /* ---------- Boot nhanh (optimistic unlock) ----------
+     Mục tiêu: Back / F5 / chuyển trang KHÔNG hiện cổng chờ toàn màn hình
+     nữa khi máy này đã có (a) phiên Supabase còn hạn được lưu trong
+     localStorage, (b) cache gương đã từng được đồng bộ từ máy chủ cho
+     ĐÚNG user đó (khoá sava_cache_synced_v1 — chỉ ghi sau một lần
+     loadAll() thành công ở luồng cổng đầy đủ), và (c) danh tính đã kiểm
+     chứng được lưu kèm (sava_identity_cache_v1) khớp vai với trang.
+     Đủ 3 điều kiện -> gỡ khoá NGAY khi file này được nạp (script nằm ở
+     <head>, trước khi <body> kịp vẽ khung hình đầu tiên) và gắn class
+     'sava-optimistic' để auth.css giấu các thẻ đăng nhập/chặn. App render
+     từ cache như bình thường; kiểm tra quyền + loadAll() vẫn chạy NGẦM ở
+     proceed(): sai lệch thì cập nhật tại chỗ, bị thu hồi thì đăng xuất.
+     THIẾU bất kỳ điều kiện nào -> optimisticBoot = null, luồng cổng cũ
+     chạy nguyên vẹn (gồm đường reload-1-lần của bản vá vòng lặp).
+     An toàn: quyết định mở-nhanh chỉ dựa trên dữ liệu VỐN ĐÃ có trên máy
+     người dùng này; RLS/policy không đổi; đồng bộ GHI vẫn chỉ bật sau
+     khi loadAll() ngầm thành công (xem proceed). */
+  const SYNCED_KEY = 'sava_cache_synced_v1';
+  const IDENTITY_KEY = 'sava_identity_cache_v1';
+  const CRM_CACHE_KEY = 'sava_crm_shared_v1';
+  const PUB_CACHE_KEY = 'sava_publishing_v1';
+  function lsGet(k) { try { return (typeof localStorage !== 'undefined' && localStorage) ? localStorage.getItem(k) : null; } catch (e) { return null; } }
+  function lsSet(k, v) { try { if (typeof localStorage !== 'undefined' && localStorage) localStorage.setItem(k, v); } catch (e) {} }
+  function lsRemove(k) { try { if (typeof localStorage !== 'undefined' && localStorage) localStorage.removeItem(k); } catch (e) {} }
+  function lsJson(k) {
+    const raw = lsGet(k);
+    if (!raw) return null;
+    try { const v = JSON.parse(raw); return (v && typeof v === 'object' && !Array.isArray(v)) ? v : null; } catch (e) { return null; }
+  }
+  function storedSession() {
+    /* Phiên do supabase-js lưu (persistSession:true) ở khoá
+       sb-<project-ref>-auth-token. Đọc TRỰC TIẾP theo khoá suy từ URL
+       cấu hình; dự phòng quét khoá khi localStorage liệt kê được. */
+    const keys = [];
+    try {
+      const url = (typeof window !== 'undefined' && window.SAVA_SUPABASE_URL) || '';
+      const m = String(url).match(/^https:\/\/([^.]+)\.supabase\.co/);
+      if (m) keys.push('sb-' + m[1] + '-auth-token');
+    } catch (e) {}
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage && typeof localStorage.key === 'function' && typeof localStorage.length === 'number') {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && /^sb-.+-auth-token$/.test(k) && keys.indexOf(k) < 0) keys.push(k);
+        }
+      }
+    } catch (e) {}
+    for (const k of keys) {
+      const v = lsJson(k);
+      if (!v) continue;
+      const s = v.access_token ? v : (v.currentSession && v.currentSession.access_token ? v.currentSession : null);
+      if (s && s.access_token && s.user && s.user.id) return s;
+    }
+    return null;
+  }
+  function computeOptimisticBoot() {
+    try {
+      if (passwordFlowPending || authLinkError) return null;
+      const page = pageName();
+      if (page === 'import.html') return null; /* công cụ Admin giữ cổng đầy đủ */
+      const sess = storedSession();
+      if (!sess) return null;
+      /* Access token phải CÒN HẠN tại máy này; hết hạn -> cổng cũ (getSession
+         có thể tự làm mới rồi proceed bình thường, không mở-nhanh mù). */
+      if (!(typeof sess.expires_at === 'number' && sess.expires_at * 1000 > Date.now())) return null;
+      const synced = lsJson(SYNCED_KEY);
+      if (!synced || synced.userId !== sess.user.id) return null;
+      const identity = lsJson(IDENTITY_KEY);
+      if (!identity || identity.userId !== sess.user.id || !identity.memberId || !identity.role) return null;
+      if (!lsJson(CRM_CACHE_KEY) || !lsJson(PUB_CACHE_KEY)) return null;
+      /* Khớp vai–trang như proceed(): lệch vai thì để cổng cũ điều hướng. */
+      if (identity.role === 'mkt' && page !== 'mkt.html') return null;
+      if ((identity.role === 'bd' || identity.role === 'admin' || identity.role === 'other') && page === 'mkt.html') return null;
+      return { userId: sess.user.id, identity };
+    } catch (e) { return null; }
+  }
+  let optimisticBoot = computeOptimisticBoot();
+  let optimisticActive = !!optimisticBoot;
+  if (optimisticBoot) {
+    try { document.documentElement.classList.add('sava-optimistic'); } catch (e) {}
+    unlock();
+  }
+  function persistBootCaches(session, hash) {
+    if (session && session.user && session.user.id) {
+      lsSet(SYNCED_KEY, JSON.stringify({ userId: session.user.id, hash: hash || null, at: new Date().toISOString() }));
+      if (currentIdentity) {
+        lsSet(IDENTITY_KEY, JSON.stringify({ userId: session.user.id, memberId: currentIdentity.memberId, name: currentIdentity.name, role: currentIdentity.role, memberRole: currentIdentity.memberRole, email: currentIdentity.email || '' }));
+      }
+    }
+  }
+  function clearBootCaches() { lsRemove(SYNCED_KEY); lsRemove(IDENTITY_KEY); }
+  function refreshAppInPlace() {
+    /* Dữ liệu ngầm mới đã ghi vào cache (loadAll): nhờ trang tự nạp lại
+       state trong bộ nhớ + render lại TẠI CHỖ (cả 3 trang đều gắn hook
+       __savaOnDataRefreshed). Trang nào thiếu hook thì nhận sự kiện
+       'sava:data-refreshed'; tệ nhất dữ liệu mới hiện ở lần chuyển trang
+       kế tiếp (vẫn mở-nhanh từ cache) — KHÔNG reload ở đường này. */
+    try {
+      if (typeof window !== 'undefined' && typeof window.__savaOnDataRefreshed === 'function') { window.__savaOnDataRefreshed(); return; }
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        window.dispatchEvent(new CustomEvent('sava:data-refreshed'));
+      }
+    } catch (e) {}
+  }
   function setStatus(msg) { const el = $('savaAuthStatus'); if (el) el.textContent = msg || ''; }
   function showCard(which) {
     const login = $('savaLoginCard'), blocked = $('savaBlockedCard'), pwCard = $('savaSetPasswordCard');
@@ -345,12 +461,13 @@
         if (eventSession) pendingPasswordSession = eventSession;
         return;
       }
-      if (event === 'SIGNED_OUT' && booted) { booted = false; currentIdentity = null; showLogin('Phiên đăng nhập đã hết hoặc bạn đã đăng xuất. Đăng nhập lại để tiếp tục.'); }
+      if (event === 'SIGNED_OUT' && booted) { booted = false; currentIdentity = null; optimisticActive = false; optimisticBoot = null; clearBootCaches(); showLogin('Phiên đăng nhập đã hết hoặc bạn đã đăng xuất. Đăng nhập lại để tiếp tục.'); }
     });
     const doLogout = async () => {
       try { await client.auth.signOut(); } catch (e) {}
       try { sessionStorage.removeItem('sava_boot_hash'); } catch (e) {}
       booted = false;
+      optimisticActive = false; optimisticBoot = null; clearBootCaches();
       showLogin('Đã đăng xuất.');
     };
     const logoutBtn = $('savaLogoutBtn');
@@ -389,7 +506,7 @@
       return;
     }
 
-    setStatus('Đang kiểm tra phiên đăng nhập…');
+    if (!optimisticActive) setStatus('Đang kiểm tra phiên đăng nhập…');
     let session = null;
     try {
       const res = await client.auth.getSession();
@@ -401,16 +518,47 @@
       showSetPassword(pendingPasswordKind || 'recovery');
       return;
     }
-    if (!session) { showLogin(''); return; }
+    if (!session) { optimisticActive = false; optimisticBoot = null; clearBootCaches(); showLogin(''); return; }
     proceed(client, session);
+  }
+
+  /* Kiểm chứng ngầm (đường mở-nhanh) phát hiện tài khoản bị thu hồi /
+     ngừng hoạt động / mất profile: ĐĂNG XUẤT THẬT + xoá mọi dấu vết
+     mở-nhanh trên máy + khoá về màn hình đăng nhập kèm lý do. booted
+     được hạ TRƯỚC khi signOut để sự kiện SIGNED_OUT không ghi đè
+     thông điệp này bằng thông điệp hết phiên chung chung. */
+  async function forceSignOutToLogin(client, msg) {
+    optimisticActive = false; optimisticBoot = null;
+    booted = false;
+    currentIdentity = null;
+    clearBootCaches();
+    try { await client.auth.signOut(); } catch (e) {}
+    try { sessionStorage.removeItem('sava_boot_hash'); } catch (e) {}
+    showLogin(msg);
   }
 
   async function proceed(client, session) {
     if (passwordFlowPending) { showSetPassword(pendingPasswordKind); return; }
     if (booted) return;
     booted = true;
-    setStatus('Đã đăng nhập — đang kiểm tra quyền…');
-    showCard('login');
+    /* Mở-nhanh chỉ áp dụng khi phiên server vừa lấy khớp user đã mở
+       khoá lạc quan; lệch user (đăng nhập tài khoản khác) -> cổng cũ. */
+    const optimistic = !!(optimisticActive && optimisticBoot && session && session.user && session.user.id === optimisticBoot.userId);
+    if (!optimistic) {
+      optimisticActive = false;
+      setStatus('Đã đăng nhập — đang kiểm tra quyền…');
+      showCard('login');
+    } else {
+      /* App đã hiện từ cache: điền thanh người dùng bằng danh tính đã
+         kiểm chứng lưu trên máy, giấu hẳn các thẻ auth. Kiểm chứng
+         server bên dưới sẽ thay bằng danh tính thật khi trả về. */
+      const ci = optimisticBoot.identity;
+      currentIdentity = { memberId: ci.memberId, name: ci.name, role: ci.role, memberRole: ci.memberRole || ci.role, email: ci.email || '' };
+      showCard('none');
+      const ub = $('savaUserBar'), inf = $('savaUserInfo');
+      if (inf) inf.textContent = ci.name + ' · ' + (ROLE_LABEL[ci.role] || ci.memberRole || ci.role);
+      if (ub) ub.classList.remove('sava-hidden');
+    }
     let profile = null, member = null;
     try {
       const pr = await client.from('profiles').select('id,member_id,email').eq('id', session.user.id).maybeSingle();
@@ -422,14 +570,17 @@
         member = mr.data;
       }
     } catch (e) {
+      if (optimistic) { await forceSignOutToLogin(client, 'Không đọc được thông tin phân quyền từ máy chủ (' + (e.message || e) + '). Đã đăng xuất để an toàn — đăng nhập lại để tiếp tục.'); return; }
       showBlocked('Không đọc được thông tin phân quyền từ máy chủ (' + (e.message || e) + '). Thử tải lại trang; nếu vẫn lỗi, liên hệ quản trị.');
       return;
     }
     if (!profile || !member) {
+      if (optimistic) { await forceSignOutToLogin(client, 'Tài khoản này không còn được gắn với thành viên nào trong CRM nên đã bị đăng xuất. Liên hệ quản trị (Zac) để được gắn lại rồi đăng nhập.'); return; }
       showBlocked('Tài khoản này chưa được gắn với thành viên nào trong CRM nên chưa xem được dữ liệu. Liên hệ quản trị (Zac) để được gắn tài khoản với đúng thành viên rồi đăng nhập lại.');
       return;
     }
     if (!member.active) {
+      if (optimistic) { await forceSignOutToLogin(client, 'Tài khoản của ' + member.name + ' đã bị ngừng hoạt động trong CRM nên đã bị đăng xuất. Liên hệ quản trị (Zac) nếu cần mở lại.'); return; }
       showBlocked('Tài khoản của ' + member.name + ' đã bị ngừng hoạt động trong CRM nên không còn quyền truy cập dữ liệu. Liên hệ quản trị (Zac) nếu cần mở lại.');
       return;
     }
@@ -452,15 +603,40 @@
       return;
     }
 
-    /* Nạp dữ liệu Supabase vào cache rồi mới mở app */
+    /* Nạp dữ liệu Supabase vào cache.
+       - Đường MỞ-NHANH (optimistic): app đang hiện bằng cache — loadAll
+         chạy NGẦM, đồng bộ GHI vẫn TẮT cho tới khi loadAll xong (tính
+         chất dfbe2cd/9a68dad giữ nguyên: không gì từ cache bị đẩy lên
+         trong cửa sổ này). Xong: dữ liệu không đổi -> không đụng giao
+         diện; có đổi -> trang tự render lại tại chỗ qua hook; người
+         dùng vừa sửa trong lúc nạp (localDirty) -> bật đồng bộ và đẩy
+         diff ngay, không ghi đè bản sửa. KHÔNG reload ở đường này.
+       - Đường cổng cũ: nạp xong mới mở app (kèm reload-1-lần bên dưới). */
     const userBar = $('savaUserBar'), info = $('savaUserInfo');
     if (info) info.textContent = member.name + ' · ' + (ROLE_LABEL[role] || member.role) + (page === 'import.html' ? ' · Công cụ nạp dữ liệu' : '');
     if (window.SavaData && typeof window.SavaData.attach === 'function') {
       window.SavaData.attach(client, role);
       window.SavaData.installHook();
-      setStatus('Đang tải dữ liệu từ Supabase…');
+      if (!optimistic) setStatus('Đang tải dữ liệu từ Supabase…');
       try {
-        const { hash, changed } = await window.SavaData.loadAll();
+        const { hash, changed, localDirty } = await window.SavaData.loadAll();
+        if (optimistic && page !== 'import.html') {
+          try { sessionStorage.setItem('sava_boot_hash', hash); } catch (e) {}
+          persistBootCaches(session, hash);
+          window.SavaData.setEnabled(true);
+          unlock();
+          showCard('none');
+          if (userBar) userBar.classList.remove('sava-hidden');
+          try { document.documentElement.classList.remove('sava-optimistic'); } catch (e) {}
+          if (localDirty) {
+            if (typeof window.SavaData.scheduleSync === 'function') window.SavaData.scheduleSync(0);
+          } else if (changed) {
+            refreshAppInPlace();
+          }
+          showNotice(takeNotice());
+          if (typeof window.__savaOnReady === 'function') { try { window.__savaOnReady({ member, role }); } catch (e) {} }
+          return;
+        }
         let prevHash = null;
         try { prevHash = sessionStorage.getItem('sava_boot_hash'); } catch (e) {}
         /* Tải lại trang TỐI ĐA 1 LẦN cho mỗi phiên bản dữ liệu máy chủ
@@ -489,12 +665,17 @@
           return;
         }
         try { sessionStorage.setItem('sava_boot_hash', hash); } catch (e) {}
+        persistBootCaches(session, hash);
         window.SavaData.setEnabled(true);
       } catch (e) {
         /* Offline / lỗi nạp: mở app từ cache trên máy, TẮT đồng bộ ghi
-           (chưa có snapshot server thì không đẩy gì lên). */
+           (chưa có snapshot server thì không đẩy gì lên). Ở đường
+           mở-nhanh app vốn đang hiện bằng cache — giữ nguyên như vậy,
+           chỉ tắt ghi + cảnh báo, không khoá lại. */
         window.SavaData.setEnabled(false);
         unlock();
+        showCard('none');
+        try { document.documentElement.classList.remove('sava-optimistic'); } catch (e) {}
         if (userBar) userBar.classList.remove('sava-hidden');
         showNotice('Không tải được dữ liệu mới nhất từ Supabase (' + (e.message || e) + '). Đang hiển thị dữ liệu đã lưu trên máy này; thay đổi lúc này CHƯA được đồng bộ lên máy chủ.');
         return;
@@ -502,6 +683,7 @@
     }
     unlock();
     showCard('none');
+    try { document.documentElement.classList.remove('sava-optimistic'); } catch (e) {}
     if (userBar) userBar.classList.remove('sava-hidden');
     showNotice(takeNotice());
     if (typeof window.__savaOnReady === 'function') { try { window.__savaOnReady({ member, role }); } catch (e) {} }
@@ -509,5 +691,5 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
-  if (typeof window !== 'undefined') window.SavaAuth = { _proceed: proceed, _showLogin: showLogin, _showBlocked: showBlocked, _showSetPassword: showSetPassword, _cleanAuthHash: cleanAuthHash, _passwordFlowPending: () => passwordFlowPending, _pendingPasswordKind: () => pendingPasswordKind, currentUser: () => (currentIdentity ? { ...currentIdentity } : null), callMemberAdmin, fetchMemberProfiles, accountStatusFor, isValidEmail };
+  if (typeof window !== 'undefined') window.SavaAuth = { _proceed: proceed, _showLogin: showLogin, _showBlocked: showBlocked, _showSetPassword: showSetPassword, _cleanAuthHash: cleanAuthHash, _passwordFlowPending: () => passwordFlowPending, _pendingPasswordKind: () => pendingPasswordKind, _optimisticBoot: () => (optimisticBoot ? { userId: optimisticBoot.userId, identity: { ...optimisticBoot.identity } } : null), _refreshAppInPlace: refreshAppInPlace, currentUser: () => (currentIdentity ? { ...currentIdentity } : null), callMemberAdmin, fetchMemberProfiles, accountStatusFor, isValidEmail };
 })();

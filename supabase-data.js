@@ -120,6 +120,13 @@
   /* ---------- Nạp toàn bộ từ Supabase -> state cũ -> cache ---------- */
   async function loadAll() {
     if (!A) throw new Error('Thiếu supabase-adapter.js');
+    /* Ảnh chụp cache lúc BẮT ĐẦU nạp — dùng ở cuối để phát hiện app đã
+       ghi cache trong lúc đang nạp (chỉ có thể xảy ra ở đường boot
+       mở-nhanh, khi giao diện đã hiện bằng cache và người dùng kịp sửa
+       trước lúc dữ liệu máy chủ về). */
+    let startCrm = null, startPub = null;
+    try { startCrm = localStorage.getItem(CRM_KEY); } catch (e) {}
+    try { startPub = localStorage.getItem(PUB_KEY); } catch (e) {}
     const byCreated = qb => qb.order('created_at', { ascending: true });
     const [members, companies, archive, games, leads, deals, dealTerms, dealContracts, dealLeads, tasks, activities] = await Promise.all([
       q('members', byCreated), q('companies', byCreated), qSafe('company_partner_eval_archive'),
@@ -160,11 +167,25 @@
     try { priorPub = localStorage.getItem(PUB_KEY); } catch (e) {}
     const crmJson = JSON.stringify(crmState), pubJson = JSON.stringify(pubState);
     const changed = cacheDiffers(priorCrm, crmState) || cacheDiffers(priorPub, pubState);
+    const hash = A.hashStr(crmJson + '|' + pubJson);
+    /* Người dùng ĐÃ SỬA cache trong lúc nạp (boot mở-nhanh): cache cuối
+       khác ảnh chụp ban đầu VỀ MẶT CHUỖI và khác dữ liệu máy chủ VỀ NỘI
+       DUNG. Khi đó TUYỆT ĐỐI không ghi đè cache bằng dữ liệu máy chủ
+       (sẽ nuốt mất bản sửa vừa làm); thay vào đó: snapshot đồng bộ được
+       đặt = dữ liệu máy chủ, cache local giữ nguyên, và tầng auth bật
+       đồng bộ + đẩy diff ngay — bản sửa được đối xử như mọi lần sửa
+       sau khi vào app (last-write-wins theo chính sách xung đột sẵn
+       có). Đường cổng cũ không bao giờ gặp nhánh này vì giao diện bị
+       khoá trong lúc nạp, không ai sửa được. */
+    const localDirty = (priorCrm !== startCrm || priorPub !== startPub) && changed;
+    if (localDirty) {
+      crmSnap = A.clone(crmState); pubSnap = A.clone(pubState);
+      return { crmState, pubState, hash, changed: true, localDirty: true };
+    }
     rawSet(CRM_KEY, crmJson);
     rawSet(PUB_KEY, pubJson);
     crmSnap = A.clone(crmState); pubSnap = A.clone(pubState);
-    const hash = A.hashStr(crmJson + '|' + pubJson);
-    return { crmState, pubState, hash, changed };
+    return { crmState, pubState, hash, changed, localDirty: false };
   }
 
   /* ---------- Đồng bộ diff ---------- */

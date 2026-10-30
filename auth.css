@@ -31,6 +31,12 @@ html.sava-locked #savaAuthRoot {
 .sava-auth-error { color: #dc2626; font-size: 13.5px; margin-top: 12px; min-height: 18px; line-height: 1.45; }
 .sava-auth-status { color: #64748b; font-size: 13px; margin-top: 10px; min-height: 16px; }
 .sava-hidden { display: none !important; }
+/* Boot mở-nhanh (supabase-auth.js gắn class sava-optimistic + gỡ
+   sava-locked NGAY ở <head> khi máy đã có phiên còn hạn + cache đã
+   đồng bộ): các thẻ đăng nhập/chặn/đặt mật khẩu phải KHÔNG được xuất
+   hiện — kể cả thoáng qua một khung hình — trong lúc kiểm chứng chạy
+   ngầm. #savaUserBar là position:fixed nên root không chiếm chỗ. */
+html.sava-optimistic #savaAuthRoot .sava-auth-card { display: none !important; }
 /* Thanh người dùng sau đăng nhập — nhất quán cả 3 trang */
 #savaUserBar {
   position: fixed; top: 10px; right: 12px; z-index: 9000;

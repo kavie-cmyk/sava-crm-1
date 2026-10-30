@@ -2581,6 +2581,22 @@ function deleteActivity(id) {
 }
 
 render();
+/* Boot mở-nhanh (supabase-auth.js): khi kiểm chứng ngầm tải được dữ
+   liệu MỚI từ Supabase về cache, auth gọi hook này để app nạp lại state
+   trong bộ nhớ từ cache mới rồi render lại TẠI CHỖ — không reload
+   trang. Rev guard được đặt lại theo rev của cache mới và drawer đang
+   mở được đóng (hồ sơ trong drawer có thể đã đổi/xoá ở máy chủ). */
+window.__savaOnDataRefreshed = function () {
+  try {
+    S = loadState();
+    crmRev = (S && typeof S._crmRev === "number" && Number.isFinite(S._crmRev)) ? S._crmRev : 0;
+    crmStale = false;
+    const __b = document.getElementById("crmStaleBanner");
+    if (__b) __b.remove();
+    closeDrawer();
+    render();
+  } catch (e) {}
+};
 /* Deep-link vào CRM (phía Publishing link ngược về đúng hồ sơ):
    ?open=company&id=<id> -> mở drawer công ty; ?open=game&id=<id> -> mở drawer game. */
 try {
