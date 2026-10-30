@@ -485,7 +485,9 @@ function render() {
 
 function pipelineValue(ds) {
   const values = {};
-  ds.forEach(d => { if (d.amount) values[d.cur] = (values[d.cur] || 0) + d.amount; });
+  /* Deal mảng game có thể đang giữ amount ẩn trong dữ liệu (di sản từ khi
+     deal còn ở mảng AI/Metaverse) — không tính vào giá trị pipeline. */
+  ds.forEach(d => { if (d.amount && !GAME_LINES.includes(d.line)) values[d.cur] = (values[d.cur] || 0) + d.amount; });
   return Object.entries(values).map(([cur, value]) => {
     if (cur === 'VND' && value >= 1e9) return (value / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ ₫';
     return money(value, cur);
@@ -553,7 +555,7 @@ function vBoard() {
     const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (line !== "metaverse" || dealMatchesVerticalFilter(d)) && (!query || (d.title+" "+comp(d.company).name).toLowerCase().includes(query)));
     const amt = {}; ds.forEach(d => { if (d.amount) amt[d.cur] = (amt[d.cur]||0)+d.amount; });
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
-    const cards = ds.map(d => { const gt = d.game ? game(d.game) : null; return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
+    const cards = ds.map(d => { const gt = dealVisibleGame(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t">${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
       <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span><span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
@@ -585,7 +587,9 @@ function vCompanies() {
 function vGames() {
   const show = S.games.filter(g => (curLine==="all" || (curLine==="game_studio" && g.own==="ours") || (curLine==="publishing" && g.own==="partner")) && (!query || (g.title + " " + g.genre).toLowerCase().includes(query)));
   const cards = show.map(g => {
-    const deals = S.deals.filter(d => d.game === g.id);
+    /* Chỉ đếm deal mà game HIỂN THỊ được theo mảng (dealVisibleGame) —
+       liên kết game giữ ẩn của deal đã đổi sang mảng khác không tính. */
+    const deals = S.deals.filter(d => { const vg = dealVisibleGame(d); return !!vg && vg.id === g.id; });
     const scores = g.scores ? `<div class="mut" style="margin-top:8px">Điểm BD /10 (lưu trữ): TB <b>${scoreAvg(g.scores)}</b> · ${esc(g.verdict || "")}</div>` : "";
     const v2chip = gameV2ChipText(g.id);
     return `<div class="gcard" onclick="openGame('${g.id}')" style="cursor:pointer" title="Bấm để xem chi tiết game + deal liên quan"><div class="emoji">${esc(g.emoji || "")}</div><h4>${esc(g.title)}</h4>
@@ -1074,7 +1078,7 @@ function openDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
   if (termEditDealId && termEditDealId !== id) termEditDealId = null;
   drawerCtx = { type: "deal", id };
-  const L = lineDefOrFallback(d.line, d.stage), c = comp(d.company), g = d.game ? game(d.game) : null;
+  const L = lineDefOrFallback(d.line, d.stage), c = comp(d.company), g = dealVisibleGame(d);
   const st = stagePairSafe(d.line, d.stage);
   const fields = (L.fields || []).map(([k, lb]) => `<div class="k">${lb}</div><div>${esc(cfDisplay(d, k))}</div>`).join("");
   const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${esc(memberName(S, a.who))}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
@@ -1451,7 +1455,7 @@ function extLinkHTML(u) { const s = safeHttpUrl(u); if (s) return `<a href="${es
 function openGame(id) {
   const g = game(id); if (!g) return;
   drawerCtx = { type: "game", id };
-  const deals = S.deals.filter(d => d.game === id);
+  const deals = S.deals.filter(d => { const vg = dealVisibleGame(d); return !!vg && vg.id === id; });
   const owner = g.company ? comp(g.company) : null;
   /* Điểm /10 cũ (BD + MKT) chỉ còn là LƯU TRỮ: gập trong 1 mục, đúng 2 dòng text,
      không render bars. Dữ liệu g.scores/g.mktEval giữ nguyên trong state. */
@@ -2027,20 +2031,63 @@ function refreshEditGameOptions() {
   if (dealDraftGame && dealDraftGame !== "__new__" && ![...selG.options].some(o => o.value === dealDraftGame)) { dealDraftGame = ""; selG.value = ""; }
   onEditGameChange(selG.value);
 }
+/* Game HIỂN THỊ được của deal theo mảng HIỆN TẠI của nó: game_studio ->
+   game own='ours'; publishing -> game own='partner' của đúng công ty deal;
+   mảng không phải game -> không hiển thị. d.game có thể đang mang game của
+   mảng cũ được GIỮ ẨN trong dữ liệu khi deal đổi mảng (theo đúng tiền lệ
+   d.vertical — xem fillDealLineFields/saveEditDeal): game đó không thuộc
+   pool của mảng hiện tại thì không được hiện như liên kết thật, nhưng vẫn
+   nằm trong d.game để đổi mảng ngược lại là khôi phục đúng. */
+function dealVisibleGame(d) {
+  if (!d || !d.game || !GAME_LINES.includes(d.line)) return null;
+  const g = game(d.game); if (!g) return null;
+  if (d.line === "publishing") return (g.own === "partner" && g.company === d.company) ? g : null;
+  return g.own === "ours" ? g : null;
+}
 function fillDealLineFields(d) {
   const line = dealDraftLine, L = LINES[line];
   const same = d && d.line === line;
+  /* Stage là NGOẠI LỆ có chủ đích (không phải lỗi mất dữ liệu): mỗi mảng có
+     BỘ TỪ VỰNG stage riêng, stage của mảng cũ phần lớn không tồn tại trong
+     mảng đích nên không giữ được — đổi mảng = bắt đầu ở stage đầu của
+     pipeline đích. Các trường DỮ LIỆU dưới đây (amount/cur/game/custom/
+     vertical) thì ngược lại: phải khôi phục từ dữ liệu đã lưu của deal bất
+     kể mảng gốc, theo đúng tiền lệ vertical ở dưới. */
   let h = field("Stage", sel("e_stage", L.stages.map(s => [s[0], s[1]]), same ? d.stage : L.stages[0][0]));
   if (GAME_LINES.includes(line)) {
-    const selected = same ? (dealDraftGame || "") : "";
+    /* Game đang gắn (dealDraftGame, khởi tạo từ d.game khi mở form): chỉ
+       chọn sẵn khi nó THUỘC POOL của mảng đích + công ty đang chọn —
+       game_studio chỉ nhận game own='ours', publishing chỉ nhận game
+       own='partner' của đúng công ty. Không thuộc pool (vd game đối tác
+       đang giữ ẩn sau khi deal tạm ở mảng Game Studio) thì select để
+       trống, nhưng dealDraftGame/d.game KHÔNG bị xoá: lưu mà không chọn
+       game khác thì saveEditDeal giữ nguyên liên kết ẩn đó, đổi mảng
+       ngược lại là hiện lại đúng (trước đây ép "" theo line gốc làm mất
+       liên kết khi đổi mảng qua lại rồi lưu). */
+    const dg = dealDraftGame || "";
+    let selected = "";
+    if (dg === "__new__") selected = "__new__";
+    else if (dg) {
+      const gg = game(dg);
+      if (!gg) selected = same ? dg : "";
+      else if (line === "publishing") selected = (gg.own === "partner" && gg.company === editDealCompanyId(d)) ? dg : "";
+      else selected = gg.own === "ours" ? dg : "";
+    }
     const isNewCompany = document.getElementById("e_company") && document.getElementById("e_company").value === "__new__";
     h += field("Game gắn với deal" + (line === "publishing" ? ' <span style="color:#dc2626">(bắt buộc — chỉ liệt kê game của công ty ở trên)</span>' : ""), `<select id="e_game" onchange="onEditGameChange(this.value)">${editGameOptionsHTML(line, editDealCompanyId(d), selected)}</select>` +
       `<div id="e_newGameWrap" style="display:${selected === "__new__" ? "" : "none"}; margin-top:6px"><input id="e_newGame" placeholder="Tên game mới — sẽ tạo game gắn công ty này khi lưu"></div>` +
       (isNewCompany ? `<div class="mut" style="margin-top:4px">Công ty mới — chưa có game: chọn “＋ Tạo game mới…” để tạo game thuộc công ty mới khi lưu.</div>` : ""));
     h += `<div class="mut" style="margin-top:8px">Term rev-share + link hợp đồng sửa riêng trong trang chi tiết deal (khối 🤝 Term bên dưới).</div>`;
   } else {
-    h += field("Giá trị hợp đồng dự kiến", `<input id="e_amount" type="number" min="0" value="${same ? (d.amount ?? "") : ""}">`);
-    h += field("Tiền tệ", sel("e_cur", [["VND", "VND"], ["USD", "USD"]], same ? d.cur : "VND"));
+    /* amount/cur là trường DÙNG CHUNG của cả hai mảng phi-game (AI +
+       Metaverse) và được giữ ẩn trong dữ liệu khi deal tạm sang mảng
+       game: luôn khôi phục từ deal đã lưu bất kể mảng gốc (theo tiền lệ
+       vertical). Trước đây dùng (same ? d.amount : "") nên đổi mảng
+       AI <-> Metaverse rồi lưu không nhập lại là amount bị ghi về 0 và
+       cur reset USD -> VND. Người dùng xoá/chọn lại ngay tại form này
+       vẫn được tôn trọng vì saveEditDeal đọc đúng value trên form. */
+    h += field("Giá trị hợp đồng dự kiến", `<input id="e_amount" type="number" min="0" value="${d ? (d.amount ?? "") : ""}">`);
+    h += field("Tiền tệ", sel("e_cur", [["VND", "VND"], ["USD", "USD"]], d ? (d.cur || "VND") : "VND"));
   }
   if (line === "metaverse") {
     /* Form SỬA deal đã tồn tại: d.vertical được GIỮ NGUYÊN trong dữ liệu khi
@@ -2051,7 +2098,14 @@ function fillDealLineFields(d) {
        đi qua hàm này nên không ảnh hưởng.) */
     h += field("Phân khúc ngành", verticalSelectHTML("e_vertical", d ? (d.vertical || "") : ""));
   }
-  h += L.fields.map(([k, lb]) => cfFieldHTML(line, k, lb, same ? (d.custom || {}) : {})).join("");
+  /* Custom fields: luôn dựng từ d.custom đã lưu bất kể mảng gốc — key
+     dùng chung giữa hai mảng (use_case của AI/Metaverse) hiện đúng giá
+     trị đã lưu (giá trị không thuộc danh sách của mảng đích hiện theo
+     nhãn "(dữ liệu cũ)" nhờ selLegacy trong cfFieldHTML); key chỉ thuộc
+     mảng đích mà deal đã có từ lần ở mảng đó trước đây cũng khôi phục.
+     Key của MẢNG KHÁC không hiện ở đây nhưng được saveEditDeal giữ ẩn
+     trong d.custom (gộp từ custom cũ, không thay trắng). */
+  h += L.fields.map(([k, lb]) => cfFieldHTML(line, k, lb, d ? (d.custom || {}) : {})).join("");
   document.getElementById("e_lineFields").innerHTML = h;
 }
 function saveEditDeal(id) {
@@ -2111,8 +2165,24 @@ function saveEditDeal(id) {
   const ownerVal = document.getElementById("e_owner").value;
   const dueVal = document.getElementById("e_due").value;
   const oldCustom = d.custom || {};
-  const newCustom = {};
-  LINES[line].fields.forEach(([k]) => { const r = cfReadValue(line, k, oldCustom); newCustom[k] = r.value; if (r.extra) Object.assign(newCustom, r.extra); });
+  const origLine = d.line;
+  /* Custom fields: GỘP vào custom cũ thay vì thay trắng (bản cũ dựng
+     newCustom = {} chỉ gồm field của mảng đích -> đổi mảng là mất toàn bộ
+     custom của mảng gốc). Field thuộc mảng đích đọc từ form như cũ (người
+     dùng sửa/xoá có chủ đích ngay tại form được tôn trọng); field KHÔNG
+     thuộc mảng đích không có ô nhập trong form -> giữ nguyên giá trị đã
+     lưu, nằm ẩn trong dữ liệu, đổi mảng ngược lại hiện lại đúng. Riêng
+     field kiểu "money": khoá phụ <k>_cur / <k>_text do chính field đó
+     quản lý nên phải xoá trước khi áp kết quả đọc — không xoá thì
+     <k>_text cũ (được cfDisplay ưu tiên hơn số) sẽ kẹt lại kể cả khi
+     người dùng đã nhập số mới; cfReadValue tự trả lại <k>_text trong
+     extra khi ô số để trống và dữ liệu cũ vốn là chữ. */
+  const newCustom = { ...oldCustom };
+  LINES[line].fields.forEach(([k]) => {
+    const def = cfDef(line, k);
+    if (def && def.type === "money") { delete newCustom[k + "_text"]; delete newCustom[k + "_cur"]; }
+    const r = cfReadValue(line, k, oldCustom); newCustom[k] = r.value; if (r.extra) Object.assign(newCustom, r.extra);
+  });
   const curVal = !GAME_LINES.includes(line) ? document.getElementById("e_cur").value : null;
   /* Phân khúc ngành: chỉ đọc khi mảng đích là Metaverse (form chỉ hiện
      trường này ở Metaverse). Đổi mảng KHỎI Metaverse -> GIỮ NGUYÊN
@@ -2153,14 +2223,32 @@ function saveEditDeal(id) {
   d.idle = 0;
   d.custom = newCustom;
   if (GAME_LINES.includes(line)) {
-    if (gameVal) d.game = gameVal; else delete d.game;
-    delete d.amount; delete d.cur;
+    if (gameVal) d.game = gameVal;
+    else if (line === origLine) delete d.game;
+    /* gameVal rỗng khi VỪA đổi mảng game -> game (vd Publishing -> Game
+       Studio): game cũ không thuộc pool của mảng đích nên form không
+       chọn sẵn được và người dùng chưa chọn game mới — đó KHÔNG phải
+       thao tác gỡ liên kết có chủ đích, nên d.game được GIỮ ẨN trong dữ
+       liệu (dealVisibleGame lo phần không hiển thị ở mảng không khớp),
+       đổi mảng ngược lại là khôi phục. Gỡ liên kết có chủ đích chỉ xảy
+       ra khi mảng KHÔNG đổi mà người dùng tự chọn "— Không gắn game —"
+       (nhánh line === origLine ở trên; Publishing không tới được đây vì
+       game rỗng đã bị chặn ở bước validate). */
+    /* amount/cur: KHÔNG xoá khi deal sang mảng game (bản cũ delete làm
+       mất hẳn giá trị hợp đồng của deal AI/Metaverse sau một lần đổi
+       mảng qua lại). Hai trường này chỉ ẩn hiển thị ở mảng game (mọi
+       chỗ hiển thị/tổng hợp đều rẽ theo isGame), giữ nguyên trong dữ
+       liệu để đổi mảng ngược lại là khôi phục đúng. */
     if (!d.term) d.term = { rev_share: "Chưa đề xuất", advance: "—", territories: "", duration: "", exclusivity: "", marketing: "", payment: "" };
     if (!d.contract) d.contract = { status: "Chưa có HĐ", no: "", signed: "", url: "" };
   } else {
     d.amount = amountVal;
     d.cur = curVal;
-    delete d.game;
+    /* d.game: KHÔNG xoá khi deal sang mảng phi-game (bản cũ delete làm
+       mất liên kết game của deal Game Studio/Publishing). Game chỉ ẩn
+       hiển thị ở mảng phi-game (dealVisibleGame), giữ nguyên trong dữ
+       liệu để đổi mảng ngược lại là khôi phục đúng liên kết. Term/HĐ của
+       deal game cũng vốn đã được giữ nguyên ở nhánh này (không delete). */
   }
   save(); closeEdit(); render(); openDeal(id);
   toast("Đã lưu deal: " + d.title);
