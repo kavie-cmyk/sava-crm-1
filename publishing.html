@@ -28,6 +28,20 @@
     </form>
     <p class="sava-auth-status" id="savaAuthStatus">Đang kiểm tra phiên đăng nhập…</p>
   </div>
+  <div class="sava-auth-card sava-hidden" id="savaSetPasswordCard">
+    <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
+    <h1 id="savaSetPasswordTitle">Đặt mật khẩu</h1>
+    <p class="sava-auth-sub" id="savaSetPasswordSub">Tài khoản của bạn vừa được mời vào CRM Sava Meta. Đặt mật khẩu cho tài khoản dưới đây để hoàn tất — từ lần sau, đăng nhập bằng email của bạn và mật khẩu này.</p>
+    <form id="savaSetPasswordForm">
+      <label for="savaNewPassword">Mật khẩu mới</label>
+      <input id="savaNewPassword" type="password" autocomplete="new-password" required>
+      <label for="savaNewPasswordConfirm">Nhập lại mật khẩu</label>
+      <input id="savaNewPasswordConfirm" type="password" autocomplete="new-password" required>
+      <div class="sava-auth-error" id="savaSetPasswordError" role="alert"></div>
+      <button type="submit">Đặt mật khẩu &amp; vào app</button>
+    </form>
+    <p class="sava-auth-status" id="savaSetPasswordStatus"></p>
+  </div>
   <div class="sava-auth-card sava-hidden" id="savaBlockedCard">
     <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
     <h1>Chưa truy cập được</h1>

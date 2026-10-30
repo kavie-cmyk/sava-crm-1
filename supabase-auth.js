@@ -19,11 +19,62 @@
      mẫu/dữ liệu cũ lên khi chưa có snapshot từ server).
    - Session hết hạn/mất giữa chừng (onAuthStateChange SIGNED_OUT) ->
      khoá lại về màn hình đăng nhập.
-   - Sau đăng nhập, #savaUserBar hiện tên + vai + nút Đăng xuất ở cả 3 trang. */
+   - Sau đăng nhập, #savaUserBar hiện tên + vai + nút Đăng xuất ở cả 3 trang.
+   - Link mời (type=invite) / khôi phục (type=recovery): client được tạo
+     với detectSessionInUrl:false (supabase-client.js) nên supabase-js
+     KHÔNG tự đọc token trong URL hash, cũng KHÔNG tự bắn PASSWORD_RECOVERY
+     cho các link này. Gate vì vậy tự đọc hash NGAY khi file này được nạp
+     (trước mọi lần tạo client / getSession), tự setSession bằng
+     access_token + refresh_token trong hash, và hiện màn hình "Đặt mật
+     khẩu" thay cho cả form đăng nhập lẫn app cho tới khi updateUser
+     thành công. Sự kiện PASSWORD_RECOVERY (nếu có ở cấu hình khác) cũng
+     được bắt để vào cùng màn hình này. */
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
   const ROLE_LABEL = { admin: 'Admin', bd: 'BD', mkt: 'MKT', other: 'Khác' };
+
+  /* ---------- Đặt mật khẩu từ link mời / khôi phục ---------- */
+  /* Đọc hash MỘT LẦN ngay khi script được nạp — thời điểm sớm nhất phía
+     app, trước khi client Supabase được tạo trong init(). Vì client dùng
+     detectSessionInUrl:false nên hash sẽ còn nguyên cho tới lúc này. */
+  function parseHashParams() {
+    const out = {};
+    try {
+      const raw = (typeof location !== 'undefined' && location.hash) ? String(location.hash).replace(/^#/, '') : '';
+      if (!raw) return out;
+      raw.split('&').forEach(pair => {
+        if (!pair) return;
+        const i = pair.indexOf('=');
+        const k = i >= 0 ? pair.slice(0, i) : pair;
+        const v = i >= 0 ? pair.slice(i + 1) : '';
+        try { out[decodeURIComponent(k)] = decodeURIComponent(v.replace(/\+/g, ' ')); } catch (e) { out[k] = v; }
+      });
+    } catch (e) {}
+    return out;
+  }
+  const initialHash = parseHashParams();
+  /* type=invite: user được mời, sự kiện auth đi kèm thường chỉ là
+     SIGNED_IN nên phải dựa vào hash. type=recovery: khôi phục mật khẩu. */
+  let pendingPasswordKind = (initialHash.type === 'invite' || initialHash.type === 'recovery') ? initialHash.type : null;
+  let passwordFlowPending = !!pendingPasswordKind;
+  let pendingPasswordSession = null;
+  let authClient = null;
+  /* Link hết hạn/không hợp lệ: Supabase trả về hash dạng
+     #error=...&error_code=...&error_description=... thay vì token. */
+  const authLinkError = initialHash.error_description || initialHash.error || null;
+
+  function cleanAuthHash() {
+    /* Xoá hash (chứa token tạm) khỏi URL mà không tải lại trang. */
+    try {
+      if (typeof history !== 'undefined' && history && typeof history.replaceState === 'function') {
+        const clean = ((typeof location !== 'undefined' && location.pathname) || '') + ((typeof location !== 'undefined' && location.search) || '');
+        history.replaceState(null, '', clean || String(location.href || '').split('#')[0]);
+        return;
+      }
+    } catch (e) {}
+    try { if (typeof location !== 'undefined' && location.hash) location.hash = ''; } catch (e) {}
+  }
   function pageName() {
     const p = (location.pathname || '').split('/').pop() || 'index.html';
     return ['index.html', 'publishing.html', 'mkt.html', 'import.html', ''].includes(p) ? (p || 'index.html') : p;
@@ -32,9 +83,127 @@
   function unlock() { document.documentElement.classList.remove('sava-locked'); }
   function setStatus(msg) { const el = $('savaAuthStatus'); if (el) el.textContent = msg || ''; }
   function showCard(which) {
-    const login = $('savaLoginCard'), blocked = $('savaBlockedCard');
+    const login = $('savaLoginCard'), blocked = $('savaBlockedCard'), pwCard = $('savaSetPasswordCard');
     if (login) login.classList.toggle('sava-hidden', which !== 'login');
     if (blocked) blocked.classList.toggle('sava-hidden', which !== 'blocked');
+    if (pwCard) pwCard.classList.toggle('sava-hidden', which !== 'password');
+  }
+  function setPwError(msg) { const el = $('savaSetPasswordError'); if (el) el.textContent = msg || ''; }
+  function setPwStatus(msg) { const el = $('savaSetPasswordStatus'); if (el) el.textContent = msg || ''; }
+  function viSetPasswordError(err) {
+    const m = String((err && err.message) || err || '');
+    if (/should be different|same as|new password should/i.test(m)) return 'Mật khẩu mới phải khác mật khẩu cũ. Chọn mật khẩu khác rồi thử lại.';
+    if (/at least|weak|pwned|too short|password.*(short|weak)/i.test(m)) return 'Mật khẩu chưa đạt yêu cầu của máy chủ (cần ít nhất 6 ký tự và đủ mạnh). Chọn mật khẩu khác rồi thử lại.';
+    if (/session|not logged in|missing|jwt|expired/i.test(m)) return 'Phiên từ liên kết đã hết hạn hoặc không còn hợp lệ. Nhờ quản trị (Zac) gửi lại email mời / khôi phục rồi bấm liên kết mới nhất.';
+    if (/network|fetch/i.test(m)) return 'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.';
+    return 'Đặt mật khẩu thất bại: ' + m;
+  }
+  function buildSetPasswordCard() {
+    /* Dự phòng: trang nào thiếu sẵn thẻ đặt mật khẩu trong HTML (bản cache
+       cũ) thì dựng thẻ bằng JS, gắn vào #savaAuthRoot như 2 thẻ còn lại. */
+    try {
+      const existing = $('savaSetPasswordCard');
+      if (existing) return existing;
+      const root = $('savaAuthRoot');
+      if (!root || typeof root.appendChild !== 'function' || typeof document.createElement !== 'function') return null;
+      const card = document.createElement('div');
+      card.id = 'savaSetPasswordCard';
+      card.className = 'sava-auth-card sava-hidden';
+      card.innerHTML =
+        '<div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>' +
+        '<h1 id="savaSetPasswordTitle">Đặt mật khẩu</h1>' +
+        '<p class="sava-auth-sub" id="savaSetPasswordSub"></p>' +
+        '<form id="savaSetPasswordForm">' +
+        '<label for="savaNewPassword">Mật khẩu mới</label>' +
+        '<input id="savaNewPassword" type="password" autocomplete="new-password" required>' +
+        '<label for="savaNewPasswordConfirm">Nhập lại mật khẩu</label>' +
+        '<input id="savaNewPasswordConfirm" type="password" autocomplete="new-password" required>' +
+        '<div class="sava-auth-error" id="savaSetPasswordError" role="alert"></div>' +
+        '<button type="submit">Đặt mật khẩu &amp; vào app</button>' +
+        '</form>' +
+        '<p class="sava-auth-status" id="savaSetPasswordStatus"></p>';
+      root.appendChild(card);
+      bindSetPasswordForm();
+      return card;
+    } catch (e) { return null; }
+  }
+  function showSetPassword(kind) {
+    passwordFlowPending = true;
+    if (kind === 'invite' || kind === 'recovery') pendingPasswordKind = kind;
+    lock();
+    const card = $('savaSetPasswordCard') || buildSetPasswordCard();
+    if (!card) { showCard('login'); return; }
+    showCard('password');
+    const bar = $('savaUserBar'); if (bar) bar.classList.add('sava-hidden');
+    const title = $('savaSetPasswordTitle'), sub = $('savaSetPasswordSub');
+    if (pendingPasswordKind === 'recovery') {
+      if (title) title.textContent = 'Đặt lại mật khẩu';
+      if (sub) sub.textContent = 'Bạn vừa bấm liên kết khôi phục mật khẩu trong email. Đặt mật khẩu mới dưới đây để vào CRM — từ lần sau, đăng nhập bằng mật khẩu mới này.';
+    } else {
+      if (title) title.textContent = 'Đặt mật khẩu';
+      if (sub) sub.textContent = 'Tài khoản của bạn vừa được mời vào CRM Sava Meta. Đặt mật khẩu cho tài khoản dưới đây để hoàn tất — từ lần sau, đăng nhập bằng email của bạn và mật khẩu này.';
+    }
+    setStatus('');
+    const first = $('savaNewPassword');
+    if (first && typeof first.focus === 'function') { try { first.focus(); } catch (e) {} }
+  }
+  let setPwFormBound = false;
+  function bindSetPasswordForm() {
+    const form = $('savaSetPasswordForm');
+    if (!form || setPwFormBound || typeof form.addEventListener !== 'function') return;
+    setPwFormBound = true;
+    form.addEventListener('submit', onSetPasswordSubmit);
+  }
+  async function onSetPasswordSubmit(e) {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const client = authClient;
+    const pwEl = $('savaNewPassword'), cfEl = $('savaNewPasswordConfirm');
+    const pw = pwEl ? (pwEl.value || '') : '';
+    const cf = cfEl ? (cfEl.value || '') : '';
+    setPwError('');
+    /* Validate phía client trước — fail thì KHÔNG gọi updateUser. */
+    if (!pw || pw.length < 6) { setPwError('Mật khẩu phải có ít nhất 6 ký tự.'); return; }
+    if (pw !== cf) { setPwError('Mật khẩu nhập lại chưa khớp. Kiểm tra lại hai ô rồi thử lại.'); return; }
+    if (!client || !client.auth || typeof client.auth.updateUser !== 'function') {
+      setPwError('Không kết nối được chức năng đăng nhập. Tải lại trang rồi thử lại.');
+      return;
+    }
+    setPwStatus('Đang đặt mật khẩu…');
+    let res = null;
+    try { res = await client.auth.updateUser({ password: pw }); }
+    catch (err) { setPwStatus(''); setPwError(viSetPasswordError(err)); return; }
+    if (res && res.error) { setPwStatus(''); setPwError(viSetPasswordError(res.error)); return; }
+    /* Thành công: xoá hash chứa token tạm, rồi chạy luồng gate bình
+       thường (phân vai -> nạp dữ liệu -> mở app) bằng phiên hiện có. */
+    setPwStatus('');
+    cleanAuthHash();
+    passwordFlowPending = false;
+    setNotice('Đã đặt mật khẩu thành công — chào mừng bạn đến CRM Sava Meta.');
+    let session = pendingPasswordSession;
+    if (!session) {
+      try { const r = await client.auth.getSession(); session = r && r.data ? r.data.session : null; } catch (err2) { session = null; }
+    }
+    if (!session) { showLogin('Đã đặt mật khẩu xong nhưng chưa lấy được phiên đăng nhập. Đăng nhập bằng mật khẩu vừa đặt để vào app.'); return; }
+    proceed(client, session);
+  }
+  async function establishPasswordSession(client) {
+    /* detectSessionInUrl:false -> phải tự nạp phiên từ token trong hash. */
+    const at = initialHash.access_token, rt = initialHash.refresh_token;
+    if (at && rt && client.auth && typeof client.auth.setSession === 'function') {
+      try {
+        const res = await client.auth.setSession({ access_token: at, refresh_token: rt });
+        if (res && !res.error && res.data && res.data.session) { pendingPasswordSession = res.data.session; return pendingPasswordSession; }
+        if (res && res.error) return null;
+      } catch (e) { return null; }
+    }
+    /* Không có token trong hash (vd PASSWORD_RECOVERY ở cấu hình khác):
+       dùng phiên đã lưu nếu có. */
+    try {
+      const r = await client.auth.getSession();
+      const s = r && r.data ? r.data.session : null;
+      if (s) pendingPasswordSession = s;
+      return s;
+    } catch (e) { return null; }
   }
   function showBlocked(msg) {
     lock(); showCard('blocked');
@@ -61,12 +230,16 @@
   }
   function showNotice(msg) {
     if (!msg) return;
-    const el = document.createElement('div');
-    el.setAttribute('role', 'status');
-    el.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9998;background:#0f172a;color:#fff;padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:92vw;text-align:center';
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(() => { try { el.remove(); } catch (e) {} }, 5000);
+    /* Thông báo là phụ trợ — bất kỳ lỗi DOM nào ở đây cũng không được
+       phép làm hỏng luồng vào app phía sau. */
+    try {
+      const el = document.createElement('div');
+      if (typeof el.setAttribute === 'function') el.setAttribute('role', 'status');
+      if (el.style) el.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9998;background:#0f172a;color:#fff;padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:92vw;text-align:center';
+      el.textContent = msg;
+      document.body.appendChild(el);
+      setTimeout(() => { try { el.remove(); } catch (e) {} }, 5000);
+    } catch (e) {}
   }
 
   let booted = false;
@@ -76,7 +249,23 @@
       showLogin('Không tải được thư viện đăng nhập (kiểm tra kết nối mạng) — tải lại trang để thử lại.');
       return;
     }
-    client.auth.onAuthStateChange((event) => {
+    authClient = client;
+    client.auth.onAuthStateChange((event, eventSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        /* Khôi phục mật khẩu: chặn vào app, bắt đặt mật khẩu mới trước. */
+        passwordFlowPending = true;
+        pendingPasswordKind = 'recovery';
+        if (eventSession) pendingPasswordSession = eventSession;
+        booted = false;
+        showSetPassword('recovery');
+        return;
+      }
+      if (event === 'SIGNED_IN' && passwordFlowPending) {
+        /* Invite thường chỉ bắn SIGNED_IN (kèm hash type=invite đã bắt ở
+           trên) — giữ nguyên màn hình đặt mật khẩu, chỉ lưu lại phiên. */
+        if (eventSession) pendingPasswordSession = eventSession;
+        return;
+      }
       if (event === 'SIGNED_OUT' && booted) { booted = false; showLogin('Phiên đăng nhập đã hết hoặc bạn đã đăng xuất. Đăng nhập lại để tiếp tục.'); }
     });
     const doLogout = async () => {
@@ -101,6 +290,25 @@
       if (error) { setStatus(''); if (errEl) errEl.textContent = viAuthError(error); return; }
       if (data && data.session) proceed(client, data.session);
     });
+    bindSetPasswordForm();
+
+    /* Link mời / khôi phục: vào thẳng màn hình đặt mật khẩu, không qua
+       form đăng nhập, không vào app cho tới khi đặt mật khẩu xong. */
+    if (passwordFlowPending) {
+      showSetPassword(pendingPasswordKind);
+      setPwStatus('Đang xác thực liên kết…');
+      const pwSession = await establishPasswordSession(client);
+      if (pwSession) setPwStatus('Liên kết hợp lệ — đặt mật khẩu để vào app.');
+      else {
+        setPwStatus('');
+        setPwError('Liên kết đặt mật khẩu đã hết hạn hoặc không hợp lệ, hoặc phiên tạm đã mất. Nhờ quản trị (Zac) gửi lại email mời / khôi phục rồi bấm liên kết mới nhất trong email.');
+      }
+      return;
+    }
+    if (authLinkError) {
+      showLogin('Liên kết đăng nhập đã hết hạn hoặc không hợp lệ. Nhờ quản trị (Zac) gửi lại email mời / khôi phục rồi bấm liên kết mới nhất trong email.');
+      return;
+    }
 
     setStatus('Đang kiểm tra phiên đăng nhập…');
     let session = null;
@@ -108,11 +316,18 @@
       const res = await client.auth.getSession();
       session = res && res.data ? res.data.session : null;
     } catch (e) { session = null; }
+    if (passwordFlowPending) {
+      /* PASSWORD_RECOVERY tới trong lúc đang kiểm tra phiên thường. */
+      if (session) pendingPasswordSession = session;
+      showSetPassword(pendingPasswordKind || 'recovery');
+      return;
+    }
     if (!session) { showLogin(''); return; }
     proceed(client, session);
   }
 
   async function proceed(client, session) {
+    if (passwordFlowPending) { showSetPassword(pendingPasswordKind); return; }
     if (booted) return;
     booted = true;
     setStatus('Đã đăng nhập — đang kiểm tra quyền…');
@@ -193,5 +408,5 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
-  if (typeof window !== 'undefined') window.SavaAuth = { _proceed: proceed, _showLogin: showLogin, _showBlocked: showBlocked };
+  if (typeof window !== 'undefined') window.SavaAuth = { _proceed: proceed, _showLogin: showLogin, _showBlocked: showBlocked, _showSetPassword: showSetPassword, _cleanAuthHash: cleanAuthHash, _passwordFlowPending: () => passwordFlowPending, _pendingPasswordKind: () => pendingPasswordKind };
 })();
