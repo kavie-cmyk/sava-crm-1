@@ -160,7 +160,22 @@ hiện tại; **tắt `active` của một thành viên là người đó mất 
 cập dữ liệu ngay ở tầng database**, kể cả khi tài khoản đăng nhập vẫn còn
 — không cần xóa tài khoản.
 
-## 6. Giai đoạn 2 sẽ làm gì (để Zac hình dung, chưa phải làm bây giờ)
+## 6. Giai đoạn 2b ĐÃ XONG (cập nhật 2026-10-30) — việc còn lại của Zac
+
+Frontend đã nối Supabase xong: đăng nhập bắt buộc + phân quyền theo vai ở
+cả 3 trang, tầng dữ liệu thật thay localStorage (localStorage chỉ còn là
+cache gương + bản sao lưu gốc trên máy). Việc Zac cần làm chỉ còn:
+
+1. **Bootstrap tài khoản đầu tiên** — làm theo **`BOOTSTRAP.md`** trong
+   thư mục này (tắt đăng ký tự do, tạo user Admin, chạy SQL gắn
+   profiles → member `zac`).
+2. **Nạp dữ liệu cũ một lần** bằng trang **`import.html`** (đăng nhập
+   Admin → Đọc & phân tích → xem danh sách request mồ côi → xác nhận →
+   nạp). Chi tiết mapping + đối chiếu ở `MIGRATION.md`.
+
+Phần mô tả giai đoạn 2 bên dưới giữ lại để tham khảo lịch sử kế hoạch.
+
+## 7. Giai đoạn 2 sẽ làm gì (để Zac hình dung, chưa phải làm bây giờ)
 
 1. **Nối frontend**: thêm thư viện Supabase vào 3 trang (`index.html`,
    `publishing.html`, `mkt.html`), thay tầng đọc/ghi localStorage bằng

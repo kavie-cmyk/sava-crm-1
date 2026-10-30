@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nạp dữ liệu localStorage lên Supabase · Sava Meta CRM</title><meta name="theme-color" content="#f5f6f8">
+  <link rel="stylesheet" href="auth.css">
+  <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="supabase-client.js"></script>
+  <script src="supabase-adapter.js"></script>
+  <script src="supabase-data.js"></script>
+  <script src="supabase-auth.js"></script>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f1f5f9; color:#0f172a; margin:0; }
+    main { max-width: 860px; margin: 0 auto; padding: 84px 18px 48px; }
+    .panel { background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:20px; margin-bottom:14px; }
+    h1 { font-size:22px; } h2 { font-size:16px; margin-top:0; }
+    p, li { font-size:14px; line-height:1.6; }
+    .mut { color:#64748b; font-size:13px; }
+    .btn { background:#2563eb; color:#fff; border:none; padding:10px 16px; border-radius:9px; cursor:pointer; font-size:14px; font-weight:700; }
+    .btn[disabled] { background:#94a3b8; cursor:not-allowed; }
+    table { width:100%; border-collapse:collapse; font-size:13.5px; }
+    th, td { text-align:left; padding:7px 8px; border-bottom:1px solid #eef2f7; }
+    .ok { color:#15803d; font-weight:600; } .bad { color:#dc2626; font-weight:600; }
+    .warn { background:#fffbeb; border:1px solid #f59e0b; color:#92400e; border-radius:10px; padding:10px 14px; font-size:13.5px; line-height:1.55; }
+    code { background:#f1f5f9; padding:1px 5px; border-radius:5px; }
+  </style>
+</head>
+<body>
+<div id="savaAuthRoot">
+  <div class="sava-auth-card" id="savaLoginCard">
+    <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
+    <h1>Đăng nhập CRM</h1>
+    <p class="sava-auth-sub">Công cụ nạp dữ liệu chỉ dành cho Admin. Đăng nhập bằng tài khoản Admin để tiếp tục.</p>
+    <form id="savaLoginForm">
+      <label for="savaEmail">Email</label>
+      <input id="savaEmail" type="email" autocomplete="username" required>
+      <label for="savaPassword">Mật khẩu</label>
+      <input id="savaPassword" type="password" autocomplete="current-password" required>
+      <div class="sava-auth-error" id="savaLoginError" role="alert"></div>
+      <button type="submit">Đăng nhập</button>
+    </form>
+    <p class="sava-auth-status" id="savaAuthStatus">Đang kiểm tra phiên đăng nhập…</p>
+  </div>
+  <div class="sava-auth-card sava-hidden" id="savaBlockedCard">
+    <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
+    <h1>Chưa truy cập được</h1>
+    <p class="sava-auth-sub" id="savaBlockedMsg"></p>
+    <button type="button" class="sava-auth-logout" id="savaBlockedLogout">Đăng xuất</button>
+  </div>
+  <div id="savaUserBar" class="sava-hidden"><span id="savaUserInfo"></span><button type="button" id="savaLogoutBtn">Đăng xuất</button></div>
+</div>
+<main>
+  <h1>🧰 Nạp dữ liệu localStorage lên Supabase (một lần)</h1>
+  <p>Trang này đọc 2 kho dữ liệu cũ trên <b>chính trình duyệt này</b> — kho CRM <code>sava_crm_shared_v1</code> và kho Publishing <code>sava_publishing_v1</code> (ưu tiên bản sao lưu <code>__pre_supabase_backup</code> nếu đã có, vì đó là bản gốc trước khi app nối Supabase) — rồi nạp lên Supabase theo đúng mapping trong <code>supabase/MIGRATION.md</code>: giữ nguyên id, tách field nhạy cảm sang bảng private.</p>
+  <div class="warn"><b>Đọc kỹ trước khi nạp:</b> (1) Chạy trang này trên đúng trình duyệt/máy đang chứa dữ liệu thật của team. (2) Xem báo cáo phân tích trước — các <b>request mồ côi</b> (game/company đã bị xoá) sẽ <b>KHÔNG</b> được nạp, chờ Zac chốt riêng. (3) Nạp dùng <b>upsert theo id</b> nên chạy lại không nhân đôi dữ liệu. (4) Dữ liệu localStorage gốc không bị xoá.</div>
+
+  <section class="panel">
+    <h2>Bước 1 — Đọc &amp; phân tích dữ liệu trên máy này</h2>
+    <p class="mut" id="srcInfo">Chưa đọc. Bấm nút để quét 2 kho localStorage trên trình duyệt này.</p>
+    <button class="btn" id="analyzeBtn">Đọc &amp; phân tích</button>
+    <div id="report"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Bước 2 — Xác nhận &amp; nạp lên Supabase</h2>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.5">
+      <input type="checkbox" id="confirmBox" style="margin-top:3px">
+      <span>Tôi xác nhận đã xem báo cáo ở Bước 1 (gồm danh sách request mồ côi bị loại) và muốn nạp dữ liệu này lên Supabase ngay bây giờ.</span>
+    </label>
+    <p><button class="btn" id="importBtn" disabled>Nạp lên Supabase</button></p>
+    <div id="results"></div>
+  </section>
+  <p class="mut">Sau khi nạp xong: mở <a href="index.html">CRM BD</a> / <a href="publishing.html">Publishing</a> để kiểm tra dữ liệu, và đối chiếu số lượng theo mục 7 của <code>supabase/MIGRATION.md</code>.</p>
+</main>
+<script src="shared.js"></script>
+<script src="publishing-data.js"></script>
+<script>
+(function () {
+  'use strict';
+  const A = window.SavaAdapter;
+  const CRM_KEY = 'sava_crm_shared_v1', PUB_KEY = 'sava_publishing_v1';
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let analysis = null;
+
+  function readStore(key) {
+    const backup = localStorage.getItem(key + '__pre_supabase_backup');
+    if (backup) return { raw: backup, source: 'bản sao lưu gốc (' + key + '__pre_supabase_backup)' };
+    const raw = localStorage.getItem(key);
+    return { raw, source: raw ? 'kho đang dùng (' + key + ')' : 'không có' };
+  }
+  function sanitizePub(parsed) {
+    const dropped = [];
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { store: { version: 1, requests: [], marketUpdates: [] }, dropped: ['kho Publishing không hợp lệ'] };
+    const requests = (Array.isArray(parsed.requests) ? parsed.requests : []).filter(r => {
+      const ok = r && typeof r === 'object' && ['company', 'game'].includes(r.kind) && r.entityId;
+      if (!ok) dropped.push((r && r.id) || '(không id)');
+      return ok;
+    });
+    const marketUpdates = (Array.isArray(parsed.marketUpdates) ? parsed.marketUpdates : []).filter(u => u && typeof u === 'object' && u.id);
+    return { store: { version: 1, requests, marketUpdates }, dropped };
+  }
+
+  document.getElementById('analyzeBtn').addEventListener('click', () => {
+    const crmSrc = readStore(CRM_KEY), pubSrc = readStore(PUB_KEY);
+    document.getElementById('srcInfo').innerHTML =
+      'Kho CRM: <b>' + esc(crmSrc.source) + '</b> · Kho Publishing: <b>' + esc(pubSrc.source) + '</b>';
+    let crmState = null, pubState = null, err = '';
+    try { crmState = crmSrc.raw ? migrateState(JSON.parse(crmSrc.raw)) : null; } catch (e) { err += 'Kho CRM đọc lỗi: ' + e.message + '. '; }
+    let pubDropped = [];
+    try {
+      const parsedPub = pubSrc.raw ? JSON.parse(pubSrc.raw) : null;
+      const s = sanitizePub(parsedPub); pubState = s.store; pubDropped = s.dropped;
+    } catch (e) { err += 'Kho Publishing đọc lỗi: ' + e.message + '. '; }
+    const reportEl = document.getElementById('report');
+    if (err || !crmState) {
+      reportEl.innerHTML = '<p class="bad">' + esc(err || 'Không có dữ liệu CRM trên trình duyệt này — hãy mở trang này trên đúng máy/trình duyệt chứa dữ liệu thật.') + '</p>';
+      analysis = null;
+      document.getElementById('importBtn').disabled = true;
+      return;
+    }
+    const staticIds = new Set((window.PublishingData && window.PublishingData.records || []).map(r => r.id));
+    const crmRows = A.crmStateToRows(crmState);
+    const orphans = A.findOrphanRequests(pubState, crmState);
+    const orphanIds = new Set(orphans.map(r => r.id));
+    const pubStateKept = { ...pubState, requests: pubState.requests.filter(r => !orphanIds.has(r.id)) };
+    const pubRows = A.publishingStateToRows(pubStateKept, staticIds);
+    analysis = { crmState, pubState: pubStateKept, crmRows, pubRows, orphans, pubDropped };
+    const rowsHtml = [
+      ['members (upsert — dữ liệu máy này thắng)', crmRows.members.length],
+      ['companies', crmRows.companies.length],
+      ['company_partner_eval_archive (partnerEval legacy)', crmRows.company_partner_eval_archive.length],
+      ['games', crmRows.games.length],
+      ['leads', crmRows.leads.length],
+      ['deals', crmRows.deals.length],
+      ['deal_terms', crmRows.deal_terms.length],
+      ['deal_contracts', crmRows.deal_contracts.length],
+      ['deal_leads', crmRows.deal_leads.length],
+      ['tasks', crmRows.tasks.length],
+      ['activities', crmRows.activities.length],
+      ['publishing_requests', pubRows.publishing_requests.length],
+      ['publishing_revisions', pubRows.publishing_revisions.length],
+      ['publishing_revision_private', pubRows.publishing_revision_private.length],
+      ['publishing_request_intake_private', pubRows.publishing_request_intake_private.length],
+      ['market_observations', pubRows.market_observations.length],
+      ['market_observation_audit', pubRows.market_observation_audit.length],
+    ].map(([t, n]) => '<tr><td>' + esc(t) + '</td><td><b>' + n + '</b></td></tr>').join('');
+    let extra = '';
+    if (pubRows.materialized.length) extra += '<p class="warn">Có ' + pubRows.materialized.length + ' request mà <code>current</code> lệch revision cuối — khi nạp, <code>current</code> sẽ được vật hoá thành một revision bổ sung (quy tắc 5.3 MIGRATION.md): ' + pubRows.materialized.map(esc).join(', ') + '</p>';
+    if (pubDropped.length) extra += '<p class="warn">Đã loại ' + pubDropped.length + ' request Publishing không hợp lệ (thiếu kind/entityId): ' + pubDropped.map(esc).join(', ') + '</p>';
+    if (orphans.length) {
+      extra += '<div class="warn"><b>' + orphans.length + ' request MỒ CÔI — KHÔNG nạp (chờ Zac chốt):</b><ul>' +
+        orphans.map(r => '<li>' + esc(r.id) + ' · ' + esc(r.kind) + ' · entityId ' + esc(r.entityId) + ' (đã bị xoá khỏi CRM)</li>').join('') + '</ul></div>';
+    }
+    reportEl.innerHTML = '<h3 style="margin:16px 0 8px">Báo cáo trước khi nạp — số bản ghi theo bảng đích</h3><table><thead><tr><th>Bảng đích</th><th>Số bản ghi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table>' + extra;
+    document.getElementById('importBtn').disabled = !document.getElementById('confirmBox').checked;
+  });
+  document.getElementById('confirmBox').addEventListener('change', e => {
+    document.getElementById('importBtn').disabled = !(analysis && e.target.checked);
+  });
+
+  async function chunked(rows, size, fn) {
+    for (let i = 0; i < rows.length; i += size) await fn(rows.slice(i, i + size));
+    if (!rows.length) await fn([]);
+  }
+  document.getElementById('importBtn').addEventListener('click', async () => {
+    if (!analysis) return;
+    const btn = document.getElementById('importBtn');
+    btn.disabled = true; btn.textContent = 'Đang nạp…';
+    const resultsEl = document.getElementById('results');
+    const client = window.savaSupabase();
+    const groups = [];
+    const run = async (name, fn) => {
+      try { const n = await fn(); groups.push({ name, ok: true, n }); }
+      catch (e) { groups.push({ name, ok: false, error: e.message || String(e) }); }
+      resultsEl.innerHTML = '<h3>Kết quả nạp</h3><table><tbody>' + groups.map(g =>
+        '<tr><td>' + esc(g.name) + '</td><td>' + (g.ok ? '<span class="ok">✓ ' + g.n + ' bản ghi</span>' : '<span class="bad">✗ ' + esc(g.error) + '</span>') + '</td></tr>').join('') + '</tbody></table>';
+    };
+    const up = (table, rows, onConflict) => async () => {
+      let n = 0;
+      await chunked(rows, 200, async part => {
+        if (!part.length) return;
+        const { error } = await client.from(table).upsert(part, onConflict ? { onConflict } : undefined);
+        if (error) throw new Error(error.message || error.code);
+        n += part.length;
+      });
+      return n;
+    };
+    const insIgnore = (table, rows, onConflict) => async () => {
+      let n = 0;
+      await chunked(rows, 200, async part => {
+        if (!part.length) return;
+        const { error } = await client.from(table).upsert(part, { onConflict, ignoreDuplicates: true });
+        if (error) throw new Error(error.message || error.code);
+        n += part.length;
+      });
+      return n;
+    };
+    const R = analysis.crmRows, P = analysis.pubRows;
+    await run('members', up('members', R.members));
+    await run('companies', up('companies', R.companies));
+    await run('company_partner_eval_archive', up('company_partner_eval_archive', R.company_partner_eval_archive, 'company_id'));
+    await run('games', up('games', R.games));
+    await run('leads', up('leads', R.leads));
+    await run('deals', up('deals', R.deals));
+    await run('deal_terms', up('deal_terms', R.deal_terms, 'deal_id'));
+    await run('deal_contracts', up('deal_contracts', R.deal_contracts, 'deal_id'));
+    await run('deal_leads (xoá liên kết cũ của các deal này rồi nạp lại)', async () => {
+      const dealIds = [...new Set(R.deal_leads.map(r => r.deal_id))];
+      if (dealIds.length) {
+        const { error } = await client.from('deal_leads').delete().in('deal_id', dealIds);
+        if (error) throw new Error(error.message || error.code);
+      }
+      let n = 0;
+      await chunked(R.deal_leads, 200, async part => {
+        if (!part.length) return;
+        const { error } = await client.from('deal_leads').insert(part);
+        if (error) throw new Error(error.message || error.code);
+        n += part.length;
+      });
+      return n;
+    });
+    await run('tasks', up('tasks', R.tasks));
+    await run('activities', up('activities', R.activities));
+    await run('publishing_requests (chưa gắn con trỏ current)', up('publishing_requests', P.publishing_requests.map(r => ({ ...r, current_revision_no: null }))));
+    await run('publishing_revisions (chỉ thêm mới — bỏ qua nếu đã có)', insIgnore('publishing_revisions', P.publishing_revisions, 'request_id,revision_no'));
+    await run('publishing_revision_private (chỉ thêm mới)', insIgnore('publishing_revision_private', P.publishing_revision_private, 'request_id,revision_no'));
+    await run('publishing_request_intake_private', up('publishing_request_intake_private', P.publishing_request_intake_private, 'request_id'));
+    await run('publishing_requests — gắn current_revision_no', async () => {
+      let n = 0;
+      for (const r of P.publishing_requests) {
+        if (r.current_revision_no === null) continue;
+        const { error } = await client.from('publishing_requests').update({ current_revision_no: r.current_revision_no }).eq('id', r.id);
+        if (error) throw new Error(error.message || error.code);
+        n++;
+      }
+      return n;
+    });
+    await run('market_observations', up('market_observations', P.market_observations));
+    await run('market_observation_audit (chỉ thêm mới)', insIgnore('market_observation_audit', P.market_observation_audit.map(({ legacy_extra, ...rest }) => rest), 'observation_id,seq'));
+    resultsEl.innerHTML += '<p class="mut">Xong. app_state_meta không được ghi qua công cụ này (RLS chỉ cho Admin đọc; việc truy vết đợt nạp xem ở báo cáo này). Đối chiếu số lượng theo MIGRATION.md mục 7 trước khi nghiệm thu.</p>';
+    btn.textContent = 'Đã nạp xong — có thể nạp lại (upsert, không nhân đôi)';
+    btn.disabled = false;
+    try { sessionStorage.removeItem('sava_boot_hash'); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>
