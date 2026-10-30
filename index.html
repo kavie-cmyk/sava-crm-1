@@ -554,11 +554,78 @@ function isOverdue(t) {
   if (isValidDateStr(t.dueDate)) return t.dueDate < todayStr();
   return !!t.overdue;
 }
+/* ===== Liên kết nguồn của việc (task) =====
+   Một việc gắn với TỐI ĐA MỘT đối tượng nguồn:
+   - Deal:    t.deal    — cơ chế cũ, adapter ghi xuống cột tasks.deal_id.
+   - Company: t.company ┐
+   - Lead:    t.lead    ├─ field MỚI: CỐ Ý không nằm trong TASK_KNOWN của
+   - Game:    t.game    ┘  supabase-adapter.js nên đi qua tasks.legacy_extra
+     khi ghi và được mergeExtras khôi phục khi đọc — đúng mẫu deal.vertical /
+     lead.mainContact / lead.phone, KHÔNG cần cột/SQL mới.
+   saveTask chuẩn hoá: xoá cả 4 khoá rồi chỉ đặt lại đúng 1 khoá theo ô chọn
+   liên kết trong form, nên sửa việc ở view Công việc giữ/đổi liên kết đúng
+   như đã chọn, không bao giờ sinh việc 2 liên kết. Đối tượng đích đã bị xoá
+   (id còn mà bản ghi không còn) -> chip hiện "(đối tượng đã xoá)", không
+   bấm được, không crash. */
+const TASK_LINK_META = {
+  deal:    { icon: "📋", noun: "Deal",    open: "openDeal" },
+  company: { icon: "🏢", noun: "Công ty", open: "openCompany" },
+  lead:    { icon: "📥", noun: "Lead",    open: "openLead" },
+  game:    { icon: "🎮", noun: "Game",    open: "openGame" },
+};
+function taskLinkTarget(type, id) {
+  if (type === "deal") return S.deals.find(x => x.id === id) || null;
+  if (type === "company") { const c = comp(id); return c && c.id ? c : null; }
+  if (type === "lead") return S.leads.find(x => x.id === id) || null;
+  if (type === "game") return game(id) || null;
+  return null;
+}
+function taskLinkLabel(type, target) {
+  if (!target) return "(đối tượng đã xoá)";
+  if (type === "deal") return target.title || "—";
+  if (type === "company") return target.name || "—";
+  if (type === "lead") return leadDisplayName(target);
+  if (type === "game") return target.title || "—";
+  return "—";
+}
+function taskLinkOf(t) {
+  if (!t) return null;
+  for (const type of ["deal", "company", "lead", "game"]) {
+    const id = t[type];
+    if (id) { const target = taskLinkTarget(type, id); return { type, id, target, label: taskLinkLabel(type, target), icon: TASK_LINK_META[type].icon, noun: TASK_LINK_META[type].noun, open: TASK_LINK_META[type].open }; }
+  }
+  return null;
+}
+function taskLinkChipHTML(t) {
+  const l = taskLinkOf(t); if (!l) return "";
+  if (!l.target) return `<span class="chip" style="background:#64748b">${l.icon} ${esc(l.noun)}: ${esc(l.label)}</span>`;
+  return `<a href="#" onclick="${l.open}('${l.id}');return false" title="Mở ${esc(l.noun)} gắn với việc này"><span class="chip" style="background:#0ea5e9">${l.icon} ${esc(l.noun)}: ${esc(l.label)}</span></a>`;
+}
+function tasksForLink(type, id) { return S.tasks.filter(t => t && t[type] === id); }
+/* Dòng việc trong mục "Việc liên quan" của drawer: tiêu đề + người phụ trách
+   + hạn + trạng thái (quá hạn theo isOverdue như mọi bề mặt); bấm tiêu đề
+   hoặc nút sửa đều mở ĐÚNG form sửa việc sẵn có (editTask). */
+function relatedTaskRow(t) {
+  const od = isOverdue(t);
+  const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
+  return `<div class="task ${t.done ? "done" : ""}"><input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" onclick="editTask('${t.id}')" title="Bấm để sửa việc">${esc(t.title)}</div><div class="mut">${esc(memberName(S, t.assignee))} · Hạn: <span class="${od ? "overdue" : ""}">${esc(dueLabel)}</span> · ${t.done ? "Đã xong" : "Chưa xong"}${od ? ' · <span class="overdue">Quá hạn</span>' : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+}
+/* Mục "Việc liên quan" dùng chung cho drawer Company / Lead / Deal / Game:
+   nút "+ Thêm việc" mở ĐÚNG form tạo việc sẵn có (editTask) với liên kết
+   tới bản ghi đang xem được điền sẵn; rỗng thì hiện dòng trống nhẹ nhàng. */
+function relatedTasksHTML(type, id) {
+  const meta = TASK_LINK_META[type]; if (!meta) return "";
+  const list = tasksForLink(type, id);
+  return `<h3 style="margin:18px 0 8px">✅ Việc liên quan (${list.length})</h3>
+    <div style="margin-bottom:8px"><button class="btn" onclick="editTask(null,'${type}','${id}')">+ Thêm việc</button></div>
+    ${list.length ? list.map(relatedTaskRow).join("") : `<div class="mut">Chưa có việc nào gắn với ${esc(meta.noun.toLowerCase())} này — bấm "+ Thêm việc" ở trên để tạo việc ngay tại đây.</div>`}`;
+}
 function taskRow(t) {
   const d = S.deals.find(x => x.id === t.deal);
   const od = isOverdue(t);
   const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
-  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`onclick="openDeal('${d.id}')"`:''}>${esc(t.title)}</div><div class="mut">${d?`<a href="#" onclick="openDeal('${d.id}');return false">${esc(d.title)}</a><br>`:''}${esc(memberName(S, t.assignee))} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+  const chip = taskLinkChipHTML(t);
+  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" ${d?`onclick="openDeal('${d.id}')"`:''}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${esc(memberName(S, t.assignee))} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
 
@@ -1101,13 +1168,10 @@ function openDeal(id) {
      chưa gửi yêu cầu) + đúng 1 dòng điểm BD /10 (lưu trữ) nếu game có scores. */
   const evalBox = g ? ((d.line === "publishing" ? `<h3 style="margin:16px 0 6px">📊 Đánh giá Publishing của game</h3><div style="font-size:13.5px">${esc(gameEvalSummaryText(g.id))}</div>` : "") +
     (g.scores ? `<div class="mut" style="margin-top:6px">Điểm BD /10 (lưu trữ): TB <b>${scoreAvg(g.scores)}</b> · ${esc(g.verdict || "")}</div>` : "")) : "";
-  /* M3: việc gắn trực tiếp với deal này (t.deal === d.id) — hiện cạnh khu vực hoạt động. */
-  const dealTasks = S.tasks.filter(t => t.deal === d.id);
-  const dealTasksBox = `<h3 style="margin:18px 0 8px">✅ Việc gắn với deal này</h3>` + (dealTasks.length ? dealTasks.map(t => {
-    const od = isOverdue(t);
-    const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
-    return `<div class="task ${t.done ? "done" : ""}"><div><div class="tt">${esc(t.title)}</div><div class="mut">${esc(memberName(S, t.assignee))} · Hạn: <span class="${od ? "overdue" : ""}">${esc(dueLabel)}</span> · ${t.done ? "Đã xong" : "Chưa xong"}${od ? ' · <span class="overdue">Quá hạn</span>' : ""}</div></div></div>`;
-  }).join("") : '<div class="mut">Chưa có việc gắn với deal này</div>');
+  /* M3 + thêm-việc-từ-ngữ-cảnh: việc gắn trực tiếp với deal này (t.deal === d.id)
+     qua mục "Việc liên quan" dùng chung (relatedTasksHTML) — có nút + Thêm việc
+     mở form tạo việc với liên kết deal điền sẵn. */
+  const dealTasksBox = relatedTasksHTML("deal", d.id);
   const attachedLeads = leadsForDeal(d);
   const attachCandidates = S.leads.filter(l => !(Array.isArray(d.leads) && d.leads.includes(l.id)))
     .sort((a, b) => ((b.company === d.company) - (a.company === d.company)) || ((b.line === d.line) - (a.line === d.line)));
@@ -1468,6 +1532,7 @@ function openCompany(id) {
     <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>
     <h3 style="margin:18px 0 8px">📋 Các deal của công ty này (bấm để xem chi tiết deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}
+    ${relatedTasksHTML("company", c.id)}
     ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${esc(g.emoji || "")} ${esc(g.title)}</div><div class="c">${esc(g.genre || "")} · ${esc(g.stage || "")} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div><div class="c" style="margin-top:3px">📊 ${esc(gameEvalSummaryText(g.id))}</div><div style="margin-top:4px">${window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? PublishingBridge.evalBadge("game", g.id) : ""}</div></div>`).join("") : ""}
     ${tasks.length ? `<h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>` + tasks.map(taskRow).join("") : ""}
     ${acts.length ? `<h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>` + acts.map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${esc(memberName(S, a.who))}</div></div></div>`).join("") : ""}
@@ -1531,6 +1596,7 @@ function openGame(id) {
     ${legacyScores}
     <h3 style="margin:16px 0 8px">📋 Deal liên quan (bấm để mở deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
+    ${relatedTasksHTML("game", g.id)}
     <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>`);
 }
 function openLead(id) {
@@ -1555,6 +1621,7 @@ function openLead(id) {
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn" onclick="editLead('${l.id}')">✏️ Sửa lead</button><button class="btn danger" onclick="deleteLead('${l.id}')">🗑 Xóa lead</button></div>
     <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (bấm để mở deal)</h3>
     ${relDeals.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}
+    ${relatedTasksHTML("lead", l.id)}
     ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="lead_attach_deal" style="flex:1;min-width:220px">${attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : ""}
     <div style="margin-top:16px">${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${esc(lineName(l.line))}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${esc(lineName(l.line))}.</div>`}</div>
     <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>`);
@@ -2347,12 +2414,15 @@ function saveCompany(id) {
 function deleteCompany(id) {
   const c = comp(id); if (!c.id) return;
   const n = S.deals.filter(d => d.company === id).length;
+  const nTask = S.tasks.filter(t => t.company === id).length;
   const pubN = publishingRequestCount("company", id);
   const pubWarn = pubN ? `\n\n⚠️ Công ty này đang có ${pubN} yêu cầu đánh giá trong module Publishing — xóa ở đây KHÔNG xóa yêu cầu đó; hãy xóa/lưu trữ trong module Publishing.` : "";
-  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + pubWarn + `\nKhông khôi phục được.`)) return;
+  if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với công ty này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với công ty).` : "") + pubWarn + `\nKhông khôi phục được.`)) return;
   S.companies = S.companies.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.company === id) delete d.company; });
   S.games.forEach(g => { if (g.company === id) delete g.company; });
+  /* Việc gắn trực tiếp với công ty: gỡ liên kết như deal/game ở trên — TUYỆT ĐỐI không xoá việc. */
+  S.tasks.forEach(t => { if (t.company === id) delete t.company; });
   // Lead trỏ tới công ty đã xóa: gỡ gắn (company = "" = chủ động chưa gắn, migration không tự tạo lại) -> giao diện hiện "— (chưa gắn công ty)".
   S.leads.forEach(l => { if (l.company === id) l.company = ""; });
   save(); closeDrawer(); render(); toast("Đã xóa công ty: " + c.name);
@@ -2445,9 +2515,12 @@ function deleteGame(id) {
   const pubDealN = S.deals.filter(d => d.game === id && d.line === "publishing").length;
   const pubN = publishingRequestCount("game", id);
   const pubWarn = pubN ? `\n\n⚠️ ${pubN} yêu cầu đánh giá trong module Publishing đang tham chiếu game này — xóa game sẽ biến chúng thành hồ sơ mồ côi cần dọn tay trong module Publishing (xóa ở đây KHÔNG xóa các yêu cầu đó).` : "";
-  if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\nHậu quả: ${n} deal sẽ mất game gắn kèm` + (pubDealN ? ` — gồm ${pubDealN} deal Publishing (deal Publishing bắt buộc có game, sẽ phải gắn lại game khác)` : "") + `.` : "") + pubWarn + `\n\nKhông khôi phục được.`)) return;
+  const nTask = S.tasks.filter(t => t.game === id).length;
+  if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\nHậu quả: ${n} deal sẽ mất game gắn kèm` + (pubDealN ? ` — gồm ${pubDealN} deal Publishing (deal Publishing bắt buộc có game, sẽ phải gắn lại game khác)` : "") + `.` : "") + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với game này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với game).` : "") + pubWarn + `\n\nKhông khôi phục được.`)) return;
   S.games = S.games.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.game === id) delete d.game; });
+  /* Việc gắn trực tiếp với game: gỡ liên kết, không xoá việc (như deal ở trên). */
+  S.tasks.forEach(t => { if (t.game === id) delete t.game; });
   save(); closeDrawer(); render(); toast("Đã xóa game: " + g.title);
 }
 
@@ -2525,23 +2598,57 @@ function saveLead(id) {
 }
 function deleteLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
-  if (!confirm(`Xóa hẳn lead "${l.name}"?\nKhông khôi phục được.`)) return;
+  const nTask = S.tasks.filter(t => t.lead === id).length;
+  if (!confirm(`Xóa hẳn lead "${l.name}"?` + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với lead này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với lead).` : "") + `\nKhông khôi phục được.`)) return;
   S.leads = S.leads.filter(x => x.id !== id);
   // Quan hệ deal↔lead chỉ nằm ở deal.leads -> gỡ id lead khỏi mọi deal.
   S.deals.forEach(d => { if (Array.isArray(d.leads)) d.leads = d.leads.filter(x => x !== id); });
+  // Việc gắn trực tiếp với lead: gỡ liên kết, không xoá việc (cùng quy ước gỡ liên kết khi xoá deal/company/game).
+  S.tasks.forEach(t => { if (t.lead === id) delete t.lead; });
   save(); closeDrawer(); render(); toast("Đã xóa lead: " + l.name);
 }
 
 /* --- Việc (task) --- */
-function editTask(id) {
+/* Ô chọn liên kết nguồn của form việc: value dạng "<type>:<id>" với type ∈
+   deal/company/lead/game, "" = không gắn gì. Gộp cả 4 loại vào MỘT ô chọn
+   (nhóm theo loại) để bất biến "một việc — tối đa một đối tượng nguồn" nằm
+   ngay trong form: tạo từ view Công việc chọn deal như cũ hoặc đối tượng
+   khác; tạo từ drawer thì editTask(null, type, id) điền sẵn đúng giá trị
+   này và hiện chip liên kết ngay trên form. Đích đã xoá mà việc còn trỏ tới
+   -> thêm option giữ nguyên giá trị (nhãn "(đối tượng đã xoá)") để mở form
+   sửa không làm rơi liên kết âm thầm, đúng tiền lệ "(dữ liệu cũ)". */
+function taskLinkSelectHTML(curVal) {
+  const groups = [
+    ["deal", S.deals.map(d => [d.id, d.title || "—"])],
+    ["company", S.companies.filter(c => c && c.id).map(c => [c.id, c.name || "—"])],
+    ["lead", S.leads.map(l => [l.id, leadLabel(l)])],
+    ["game", S.games.map(g => [g.id, g.title || "—"])],
+  ];
+  let extra = "";
+  if (curVal) {
+    const sep = curVal.indexOf(":");
+    const ct = curVal.slice(0, sep), cid = curVal.slice(sep + 1);
+    const known = groups.some(([type, opts]) => type === ct && opts.some(([v]) => String(v) === cid));
+    if (!known) extra = `<option value="${esc(curVal)}" selected>${esc((TASK_LINK_META[ct] || {}).icon || "🔗")} ${esc((TASK_LINK_META[ct] || {}).noun || ct)}: (đối tượng đã xoá)</option>`;
+  }
+  return `<select id="e_tlink"><option value="" ${!curVal ? "selected" : ""}>— Không gắn đối tượng nào —</option>${extra}${groups.map(([type, opts]) => opts.length ? `<optgroup label="${esc(TASK_LINK_META[type].icon + " " + TASK_LINK_META[type].noun)}">${opts.map(([v, label]) => `<option value="${esc(type + ":" + v)}" ${curVal === type + ":" + v ? "selected" : ""}>${esc(label)}</option>`).join("")}</optgroup>` : "").join("")}</select>`;
+}
+/* editTask(id, linkType, linkId): linkType/linkId CHỈ dùng khi tạo mới (id=null)
+   từ drawer Company/Lead/Deal/Game để điền sẵn liên kết. Người làm giữ mặc
+   định cũ của form (defaultOwnerId). Đây vẫn là form tạo/sửa việc DUY NHẤT
+   của app — không có form song song cho đường tạo từ ngữ cảnh. */
+function editTask(id, linkType, linkId) {
   const t = id ? S.tasks.find(x => x.id === id) : { title: "", assignee: defaultOwnerId(), due: "", dueDate: "", deal: "", done: false };
   if (id && !t) return;
-  const dealOpts = [["", "— Không gắn deal —"], ...S.deals.map(d => [d.id, d.title])];
+  const curLink = id ? taskLinkOf(t) : (linkType && linkId && TASK_LINK_META[linkType] ? { type: linkType, id: linkId, target: taskLinkTarget(linkType, linkId), label: taskLinkLabel(linkType, taskLinkTarget(linkType, linkId)), icon: TASK_LINK_META[linkType].icon, noun: TASK_LINK_META[linkType].noun } : null);
+  const curVal = curLink ? curLink.type + ":" + curLink.id : "";
+  const chipLine = curLink ? `<div style="margin-bottom:10px">🔗 Việc này gắn với: <span class="chip" style="background:#0ea5e9">${curLink.icon} ${esc(curLink.noun)}: ${esc(curLink.label)}</span> <span class="mut">(đổi hoặc gỡ liên kết ở ô "Gắn với đối tượng" bên dưới)</span></div>` : "";
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa việc" : "✅ Thêm việc"}</h3>
+    ${chipLine}
     ${field("Nội dung việc", txt("e_ttitle", t.title))}
     ${field("Người làm", ownerSel("e_tassignee", t.assignee))}
     ${field("Hạn ngày (để tính quá hạn tự động)", `<input id="e_tdueDate" type="date" value="${esc(t.dueDate || "")}">`)}
-    ${field("Gắn với deal", sel("e_tdeal", dealOpts, t.deal || ""))}
+    ${field("Gắn với đối tượng", taskLinkSelectHTML(curVal))}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_tdone" style="width:auto" ${t.done ? "checked" : ""}> Đã xong</label>
     ${formFoot("saveTask", id ? `'${id}'` : "null")}`);
 }
@@ -2553,10 +2660,18 @@ function saveTask(id) {
      (chỉ còn là fallback hiển thị sau dueDate), việc mới để trống. */
   const existingTask = id ? S.tasks.find(x => x.id === id) : null;
   const data = { title, assignee: document.getElementById("e_tassignee").value, due: existingTask ? (existingTask.due || "") : "", dueDate: v("e_tdueDate"), done, overdue: false };
-  const dv = document.getElementById("e_tdeal").value;
+  /* Liên kết nguồn: đọc "<type>:<id>" từ ô chọn, chuẩn hoá về ĐÚNG 1 khoá
+     (deal/company/lead/game) — xoá cả 4 khoá cũ trước khi đặt khoá mới, nên
+     sửa việc giữ nguyên liên kết khi ô chọn không đổi và đổi/gỡ sạch khi
+     user đổi ô chọn. Giá trị lạ (type không thuộc 4 loại) -> coi như không gắn. */
+  const lv = (document.getElementById("e_tlink")?.value || "").trim();
+  const sep = lv.indexOf(":");
+  const linkType = sep > 0 ? lv.slice(0, sep) : "";
+  const linkId = sep > 0 ? lv.slice(sep + 1) : "";
+  const applyLink = t => { ["deal", "company", "lead", "game"].forEach(k => { delete t[k]; }); if (linkId && TASK_LINK_META[linkType]) t[linkType] = linkId; };
   let t;
-  if (id) { t = S.tasks.find(x => x.id === id); data.overdue = t.overdue && !done; Object.assign(t, data); if (dv) t.deal = dv; else delete t.deal; }
-  else { t = { id: "t" + Date.now(), ...data }; if (dv) t.deal = dv; S.tasks.push(t); }
+  if (id) { t = S.tasks.find(x => x.id === id); data.overdue = t.overdue && !done; Object.assign(t, data); applyLink(t); }
+  else { t = { id: "t" + Date.now(), ...data }; applyLink(t); S.tasks.push(t); }
   save(); closeEdit(); render(); refreshDrawer(); toast("Đã lưu việc: " + title);
 }
 function deleteTask(id) {

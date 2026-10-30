@@ -142,6 +142,14 @@
   const TERM_KNOWN = ['rev_share', 'advance', 'advance_num', 'advance_cur', 'territories', 'duration', 'exclusivity', 'marketing', 'payment'];
   const CONTRACT_KNOWN = ['status', 'no', 'signed', 'url'];
   const LEAD_KNOWN = ['id', 'name', 'company', 'person', 'line', 'source', 'status', 'note', 'when'];
+  /* Liên kết nguồn MỚI của task — t.company / t.lead / t.game (một việc gắn
+     tối đa một đối tượng nguồn; t.deal cũ vẫn đi cột deal_id) — CỐ Ý không
+     nằm trong TASK_KNOWN: bảng tasks không có cột cho chúng, ba field đi qua
+     legacy_extra của tasks khi ghi (extrasOf) và được mergeExtras khôi phục
+     khi đọc — đúng mẫu deal.vertical / lead.mainContact ở trên, không cần
+     DDL. Đừng thêm chúng vào TASK_KNOWN khi chưa có cột thật, extrasOf sẽ
+     làm rơi field. Bảng tasks KHÔNG có CHECK trên legacy_extra và cụm tasks
+     vẫn chỉ cấp policy admin+bd (MKT không đọc được task nào). */
   const TASK_KNOWN = ['id', 'title', 'assignee', 'deal', 'due', 'dueDate', 'done', 'overdue'];
   const ACTIVITY_KNOWN = ['id', 'deal', 'type', 'who', 'when', 'text', 'url'];
   const MEMBER_KNOWN = ['id', 'name', 'role', 'active'];
