@@ -1758,17 +1758,21 @@ function selLegacy(id, options, cur, emptyLabel) {
   return h + `</select>`;
 }
 /* ===== Phân khúc ngành (vertical) — CHỈ deal mảng Metaverse =====
-   Danh sách ngành: metaverseVerticals(S) ở shared.js (4 ngành mặc định +
-   S.verticals do người dùng thêm + ngành đã gán trên deal Metaverse).
-   Select dựng theo ĐÚNG mẫu selLegacy ở trên: ô trống = "Chưa phân ngành";
-   giá trị đã lưu ngoài danh sách -> option "(dữ liệu cũ) <giá trị>" chọn sẵn;
-   cuối danh sách luôn có "＋ Thêm ngành mới…" — chọn mục đó hiện ô nhập tên
-   ngành, ngành mới được đăng ký vào S.verticals (ensureVertical) và gán
-   luôn cho deal khi lưu form (đúng cơ chế thêm-mục-ngay-trong-form mà các
-   ô chọn công ty/game đang dùng với "__new__"). */
+   Hai khái niệm danh sách (shared.js): CHÍNH THỨC = metaverseVerticalsOfficial
+   (4 ngành mặc định + S.verticals do người dùng thêm qua UI); ĐẦY ĐỦ =
+   metaverseVerticals (chính thức + ngành đã gán trên deal Metaverse).
+   Select form dựng theo ĐÚNG mẫu selLegacy ở trên, xét theo danh sách
+   CHÍNH THỨC: ô trống = "Chưa phân ngành"; giá trị hiện tại KHÔNG thuộc
+   danh sách chính thức (chỉ tồn tại vì đã gán trên deal) -> option
+   "(dữ liệu cũ) <giá trị>" chọn sẵn; cuối danh sách luôn có
+   "＋ Thêm ngành mới…" — chọn mục đó hiện ô nhập tên ngành, ngành mới
+   được đăng ký vào S.verticals (ensureVertical) và gán luôn cho deal khi
+   lưu form (đúng cơ chế thêm-mục-ngay-trong-form mà các ô chọn công ty/
+   game đang dùng với "__new__"). Bộ lọc pipeline dùng danh sách ĐẦY ĐỦ
+   để lọc được cả ngành chưa chính thức đang gán trên deal. */
 function verticalSelectHTML(id, cur) {
   const curS = cur === null || cur === undefined ? "" : String(cur);
-  const opts = metaverseVerticals(S);
+  const opts = metaverseVerticalsOfficial(S);
   let h = `<select id="${id}" onchange="onVerticalSelectChange('${id}')">`;
   h += `<option value="" ${curS === "" ? "selected" : ""}>— Chưa phân ngành —</option>`;
   if (curS && !opts.includes(curS)) h += `<option value="${esc(curS)}" selected>(dữ liệu cũ) ${esc(curS)}</option>`;
@@ -1799,7 +1803,10 @@ function ensureVertical(name) {
   const t = String(name || "").trim();
   if (!t) return;
   if (!Array.isArray(S.verticals)) S.verticals = [];
-  if (!metaverseVerticals(S).includes(t)) S.verticals.push(t);
+  /* Đăng ký theo danh sách CHÍNH THỨC: tên chỉ mới tồn tại vì đã gán trên
+     deal (chưa chính thức) vẫn phải được ghi vào S.verticals khi người
+     dùng chủ động thêm qua UI — từ đó nó thành ngành chính thức. */
+  if (!metaverseVerticalsOfficial(S).includes(t)) S.verticals.push(t);
 }
 /* Bộ lọc ngành ở pipeline Metaverse: "" = tất cả ngành,
    "__unset__" = chỉ deal chưa phân ngành, còn lại = tên ngành. */
@@ -1812,6 +1819,8 @@ function dealMatchesVerticalFilter(d) {
   return !!d && typeof d.vertical === "string" && d.vertical.trim() === boardVerticalFilter;
 }
 function boardVerticalFilterHTML() {
+  /* Bộ lọc dùng danh sách ĐẦY ĐỦ (gồm cả ngành chỉ mới gán trên deal) —
+     khác dropdown form vốn xét nhãn "(dữ liệu cũ)" theo danh sách chính thức. */
   const opts = metaverseVerticals(S);
   const cur = boardVerticalFilter;
   const legacyOpt = cur && cur !== VERTICAL_UNSET_FILTER && !opts.includes(cur)
@@ -2024,7 +2033,13 @@ function fillDealLineFields(d) {
     h += field("Tiền tệ", sel("e_cur", [["VND", "VND"], ["USD", "USD"]], same ? d.cur : "VND"));
   }
   if (line === "metaverse") {
-    h += field("Phân khúc ngành", verticalSelectHTML("e_vertical", same ? (d.vertical || "") : ""));
+    /* Form SỬA deal đã tồn tại: d.vertical được GIỮ NGUYÊN trong dữ liệu khi
+       deal đổi mảng khỏi Metaverse (chỉ ẩn hiển thị), nên khi mảng đích là
+       Metaverse phải khôi phục đúng giá trị đó bất kể line gốc của deal là
+       gì — ép "" như các trường theo-mảng khác (same ? ... : "") sẽ làm
+       mất ngành đã gán khi đổi mảng qua lại rồi lưu. (Form TẠO mới không
+       đi qua hàm này nên không ảnh hưởng.) */
+    h += field("Phân khúc ngành", verticalSelectHTML("e_vertical", d ? (d.vertical || "") : ""));
   }
   h += L.fields.map(([k, lb]) => cfFieldHTML(line, k, lb, same ? (d.custom || {}) : {})).join("");
   document.getElementById("e_lineFields").innerHTML = h;
@@ -2093,11 +2108,12 @@ function saveEditDeal(id) {
      trường này ở Metaverse). Đổi mảng KHỎI Metaverse -> GIỮ NGUYÊN
      d.vertical trong dữ liệu (không hiển thị ở mảng khác, quay lại
      Metaverse là thấy lại) — cách ít phá dữ liệu nhất. */
-  let verticalVal = null;
+  let verticalVal = null, verticalIsNew = false;
   if (line === "metaverse") {
     const vr = readVerticalForm("e_vertical");
     if (vr.error) { toast(vr.error); return; }
     verticalVal = vr.value;
+    verticalIsNew = !!vr.isNew;
   }
   /* 4) Qua hết validate -> giờ mới mutate: tạo công ty (nếu mới), bổ sung role,
         tạo game mới thuộc công ty (nếu chọn "＋ Tạo game mới…"). */
@@ -2112,7 +2128,11 @@ function saveEditDeal(id) {
   }
   d.title = title; d.company = c.id; d.line = line;
   if (line === "metaverse") {
-    if (verticalVal) { d.vertical = verticalVal; ensureVertical(verticalVal); }
+    /* Chỉ đăng ký ngành CHÍNH THỨC khi người dùng vừa thêm mới qua
+       "__new__": giữ nguyên một giá trị "(dữ liệu cũ)" rồi lưu không được
+       âm thầm hợp thức hoá nó vào S.verticals (đúng tinh thần selLegacy —
+       mở form + lưu không đổi thì dữ liệu giữ nguyên vẹn). */
+    if (verticalVal) { d.vertical = verticalVal; if (verticalIsNew) ensureVertical(verticalVal); }
     else delete d.vertical;
   }
   d.stage = stageVal;

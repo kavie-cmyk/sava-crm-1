@@ -8,7 +8,14 @@
      mới ngay trong form, thẻ pipeline + dealMini + drawer hiện nhãn ngành,
      bộ lọc ngành ở pipeline Metaverse (kết hợp tìm kiếm, lọc "Chưa phân
      ngành"), giá trị lạ đã lưu hiện "(dữ liệu cũ)", đổi mảng khỏi Metaverse
-     thì GIỮ vertical trong dữ liệu. */
+     thì GIỮ vertical trong dữ liệu.
+   - Sửa lỗi (QA độc lập, sau 203f9f1): (1) đổi mảng AI -> Metaverse trong
+     form SỬA phải khôi phục d.vertical đã giữ trong dữ liệu (trước đây
+     fillDealLineFields ép "" theo line gốc -> lưu là mất ngành); (2) nhãn
+     "(dữ liệu cũ)" xét theo danh sách CHÍNH THỨC (metaverseVerticalsOfficial:
+     mặc định + S.verticals), KHÔNG theo danh sách đầy đủ — giá trị chỉ tồn
+     tại vì đã gán trên deal phải hiện legacy trong form, trong khi bộ lọc
+     pipeline vẫn dùng danh sách đầy đủ để lọc được giá trị đó. */
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
@@ -269,6 +276,100 @@ test('chức năng: tạo deal Metaverse với ngành mới ngay trong form -> d
   getEl('f_line').value = 'ai';
   run('fillStages()');
   assert.equal(getEl('f_verticalWrap').style.display, 'none', 'form tạo mảng AI phải ẩn khối ngành');
+});
+
+test('shared: danh sách CHÍNH THỨC (mặc định + S.verticals) tách khỏi danh sách ĐẦY ĐỦ (thêm ngành suy ra từ deal)', () => {
+  const ctx = loadShared();
+  const s = {
+    verticals: ['Bất động sản'],
+    deals: [
+      { id: 'd1', line: 'metaverse', vertical: 'Nông nghiệp' },
+      { id: 'd2', line: 'ai', vertical: 'Không tính (khác mảng)' },
+    ],
+  };
+  assert.deepEqual([...ctx.metaverseVerticalsOfficial(s)], ['Sản xuất', 'Giáo dục', 'Y tế', 'Du lịch', 'Bất động sản'],
+    'danh sách chính thức KHÔNG được chứa giá trị chỉ tồn tại vì đã gán trên deal');
+  assert.deepEqual([...ctx.metaverseVerticals(s)], ['Sản xuất', 'Giáo dục', 'Y tế', 'Du lịch', 'Bất động sản', 'Nông nghiệp'],
+    'danh sách đầy đủ vẫn chứa ngành suy ra từ deal Metaverse (cho bộ lọc)');
+  assert.equal(ctx.MetaverseVerticals.official, ctx.metaverseVerticalsOfficial, 'phải export official qua window.MetaverseVerticals');
+});
+
+test('sửa lỗi 1: đổi mảng Metaverse -> AI -> Metaverse qua đúng đường form sửa, không đụng trường ngành -> vertical còn nguyên sau cả hai lần lưu', () => {
+  const { run, getEl } = loadIndex();
+  const fillCommon = line => {
+    getEl('e_title').value = 'Meta Y Te VR';
+    getEl('e_company').value = 'cm';
+    getEl('e_line').value = line;
+    getEl('e_stage').value = line === 'metaverse' ? 'discovery' : 'prospect';
+    getEl('e_owner').value = 'zac';
+    getEl('e_due').value = '';
+    getEl('e_amount').value = '70';
+    getEl('e_cur').value = 'VND';
+  };
+  /* dm3 đang metaverse + vertical "Y tế". Lần lưu 1: đổi mảng -> AI qua
+     đúng sự kiện change của form (dealDraftLine + fillDealLineFields). */
+  run("editDeal('dm3')");
+  assert.ok(getEl('e_lineFields').innerHTML.includes('id="e_vertical"'), 'mở form Metaverse phải có trường ngành');
+  run('dealDraftLine = "ai"; fillDealLineFields(S.deals.find(d => d.id === "dm3"));');
+  assert.ok(!getEl('e_lineFields').innerHTML.includes('e_vertical'), 'đổi sang AI thì trường ngành ẩn');
+  fillCommon('ai');
+  run("saveEditDeal('dm3')");
+  assert.equal(run("S.deals.find(d=>d.id==='dm3').line"), 'ai');
+  assert.equal(run("S.deals.find(d=>d.id==='dm3').vertical"), 'Y tế', 'đổi mảng khỏi Metaverse vẫn giữ vertical trong dữ liệu');
+  /* Lần lưu 2: mở lại form (deal đang AI, vertical "Y tế" ẩn trong dữ liệu),
+     đổi mảng về Metaverse qua sự kiện change, KHÔNG đụng trường ngành.
+     Trình duyệt thật sẽ lấy value từ option selected trong HTML vừa dựng —
+     stub DOM không tự suy value nên test đọc selected từ HTML rồi gán lại
+     đúng như trình duyệt. */
+  run("editDeal('dm3')");
+  assert.ok(!getEl('e_lineFields').innerHTML.includes('e_vertical'), 'mở form deal AI không có trường ngành');
+  run('dealDraftLine = "metaverse"; fillDealLineFields(S.deals.find(d => d.id === "dm3"));');
+  const fieldsHtml = getEl('e_lineFields').innerHTML;
+  assert.ok(fieldsHtml.includes('id="e_vertical"'), 'đổi về Metaverse phải dựng lại trường ngành');
+  assert.ok(fieldsHtml.includes('value="Y tế" selected'), 'option "Y tế" (giá trị đã giữ trong dữ liệu) phải được chọn sẵn');
+  assert.ok(!fieldsHtml.includes('<option value="" selected>— Chưa phân ngành —'), 'KHÔNG được chọn sẵn "Chưa phân ngành" (đây chính là lỗi mất dữ liệu)');
+  getEl('e_vertical').value = 'Y tế'; /* = value của option selected, như trình duyệt */
+  fillCommon('metaverse');
+  run("saveEditDeal('dm3')");
+  const d3 = run("S.deals.find(d=>d.id==='dm3')");
+  assert.equal(d3.line, 'metaverse');
+  assert.equal('vertical' in d3, true, 'vertical KHÔNG được bị xoá sau khi đổi mảng qua lại');
+  assert.equal(d3.vertical, 'Y tế', 'vertical phải còn nguyên "Y tế" sau cả hai lần lưu');
+});
+
+test('sửa lỗi 2: giá trị lạ chỉ có trên deal -> form sửa hiện "(dữ liệu cũ)" được chọn; lưu không đụng -> giữ nguyên + không hợp thức hoá; bộ lọc vẫn lọc được', () => {
+  const { run, getEl } = loadIndex();
+  run("S.deals.push({ id: 'dm9', line: 'metaverse', title: 'Meta Nong Nghiep', company: 'cm', stage: 'prospect', owner: 'zac', due: '', idle: 0, custom: {}, amount: 10, cur: 'VND', vertical: 'Nông nghiệp' });");
+  assert.deepEqual([...run('S.verticals')], [], 'giá trị lạ chưa từng được thêm qua UI nên S.verticals trống');
+  /* Dropdown thuần: giá trị lạ -> legacy; giá trị chính thức -> option thường. */
+  const selHtml = run('verticalSelectHTML("e_vertical", "Nông nghiệp")');
+  assert.ok(selHtml.includes('value="Nông nghiệp" selected>(dữ liệu cũ) Nông nghiệp'), 'giá trị lạ phải hiện option "(dữ liệu cũ) ..." được chọn sẵn');
+  assert.ok(!selHtml.includes('>Nông nghiệp</option>'), 'giá trị lạ KHÔNG được hiện như option thường');
+  const selOfficial = run('verticalSelectHTML("e_vertical", "Giáo dục")');
+  assert.ok(selOfficial.includes('value="Giáo dục" selected>Giáo dục</option>') && !selOfficial.includes('(dữ liệu cũ) Giáo dục'), 'giá trị chính thức hiện option thường, không legacy');
+  /* Form sửa thật: legacy hiện trong HTML; lưu không đụng -> giữ nguyên giá
+     trị VÀ S.verticals vẫn trống (không âm thầm hợp thức hoá). */
+  run("editDeal('dm9')");
+  assert.ok(getEl('e_lineFields').innerHTML.includes('(dữ liệu cũ) Nông nghiệp'), 'form sửa phải hiện nhãn (dữ liệu cũ) cho giá trị lạ');
+  getEl('e_title').value = 'Meta Nong Nghiep'; getEl('e_company').value = 'cm'; getEl('e_line').value = 'metaverse';
+  getEl('e_stage').value = 'prospect'; getEl('e_owner').value = 'zac'; getEl('e_due').value = '';
+  getEl('e_amount').value = '10'; getEl('e_cur').value = 'VND';
+  getEl('e_vertical').value = 'Nông nghiệp'; /* option legacy đang selected -> value giữ nguyên như trình duyệt */
+  run("saveEditDeal('dm9')");
+  assert.equal(run("S.deals.find(d=>d.id==='dm9').vertical"), 'Nông nghiệp', 'lưu không đụng phải giữ nguyên giá trị lạ');
+  assert.deepEqual([...run('S.verticals')], [], 'lưu không đụng KHÔNG được ghi giá trị lạ vào S.verticals');
+  run("editDeal('dm9')");
+  assert.ok(getEl('e_lineFields').innerHTML.includes('(dữ liệu cũ) Nông nghiệp'), 'mở lại form vẫn hiện (dữ liệu cũ) — chưa thành chính thức');
+  /* Bộ lọc pipeline dùng danh sách ĐẦY ĐỦ: vẫn thấy + lọc được giá trị lạ. */
+  run('curLine = "metaverse"; curView = "board"; boardVerticalFilter = ""; query = ""; render();');
+  assert.ok(getEl('view').innerHTML.includes('>Nông nghiệp</option>'), 'bộ lọc phải liệt kê giá trị lạ (danh sách đầy đủ)');
+  run('setBoardVerticalFilter("Nông nghiệp");');
+  const view = getEl('view').innerHTML;
+  assert.ok(view.includes('Meta Nong Nghiep') && !view.includes('Meta Edu VR'), 'lọc theo giá trị lạ chỉ còn deal mang giá trị đó');
+  /* Thêm ngành qua UI -> thành chính thức, hết nhãn legacy. */
+  run('ensureVertical("Nông nghiệp");');
+  assert.deepEqual([...run('S.verticals')], ['Nông nghiệp']);
+  assert.ok(!run('verticalSelectHTML("e_vertical", "Nông nghiệp")').includes('(dữ liệu cũ)'), 'sau khi thêm qua UI, giá trị không còn nhãn (dữ liệu cũ)');
 });
 
 test('chức năng: drawer deal + dealMini hiện Phân khúc ngành chỉ cho Metaverse', () => {

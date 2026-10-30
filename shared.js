@@ -39,18 +39,31 @@ const LINES = {
    xem supabase-adapter.js). */
 const METAVERSE_VERTICALS_DEFAULT = ["Sản xuất", "Giáo dục", "Y tế", "Du lịch"];
 const METAVERSE_VERTICAL_UNSET = "Chưa phân ngành";
-function metaverseVerticals(s) {
+/* Danh sách ngành CHÍNH THỨC: 4 ngành mặc định + ngành người dùng đã chủ
+   động thêm qua UI (S.verticals). KHÔNG gồm giá trị chỉ tồn tại vì đã gán
+   trên deal — giá trị như vậy được coi là "dữ liệu cũ" trong form (nhãn
+   "(dữ liệu cũ)" theo quy ước selLegacy) cho tới khi người dùng thêm nó
+   qua UI. Dùng cho: xét nhãn legacy trong dropdown form + ensureVertical. */
+function metaverseVerticalsOfficial(s) {
   const out = [];
   const push = v => { if (typeof v !== "string") return; const t = v.trim(); if (t && !out.includes(t)) out.push(t); };
   METAVERSE_VERTICALS_DEFAULT.forEach(push);
   if (s && Array.isArray(s.verticals)) s.verticals.forEach(push);
+  return out;
+}
+/* Danh sách ngành ĐẦY ĐỦ: chính thức + mọi giá trị đã gán trên deal
+   Metaverse. Dùng cho bộ lọc pipeline (deal phải lọc được theo bất kỳ
+   ngành nào đang gán trên deal, kể cả ngành chưa chính thức). */
+function metaverseVerticals(s) {
+  const out = metaverseVerticalsOfficial(s);
+  const push = v => { if (typeof v !== "string") return; const t = v.trim(); if (t && !out.includes(t)) out.push(t); };
   if (s && Array.isArray(s.deals)) s.deals.forEach(d => { if (d && typeof d === "object" && d.line === "metaverse") push(d.vertical); });
   return out;
 }
 function dealVerticalLabel(d) {
   return (d && typeof d.vertical === "string" && d.vertical.trim()) ? d.vertical.trim() : METAVERSE_VERTICAL_UNSET;
 }
-if (typeof window !== "undefined") { window.MetaverseVerticals = { DEFAULTS: METAVERSE_VERTICALS_DEFAULT, UNSET: METAVERSE_VERTICAL_UNSET, list: metaverseVerticals, label: dealVerticalLabel }; }
+if (typeof window !== "undefined") { window.MetaverseVerticals = { DEFAULTS: METAVERSE_VERTICALS_DEFAULT, UNSET: METAVERSE_VERTICAL_UNSET, list: metaverseVerticals, official: metaverseVerticalsOfficial, label: dealVerticalLabel }; }
 const USERS = { zac: "Zac", linh: "Linh (BD)", tuan: "Tuấn (BD)", mai: "Mai (MKT)" };
 /* Thành viên: danh sách gán việc THẬT nằm ở S.members ({id, name, role, active}).
    USERS ở trên chỉ còn là hằng dự phòng (fallback tên cho id cũ) + nguồn khởi tạo members.
