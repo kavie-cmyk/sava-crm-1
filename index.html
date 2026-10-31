@@ -1706,10 +1706,104 @@ function openCompany(id) {
    an toàn (link mẫu chứa chữ "mẫu" hoặc không phải http/https thì hiện text). */
 function safeHttpUrl(u) { const s = String(u || "").trim(); return /^https?:\/\//i.test(s) && !s.includes("mẫu") ? s : ""; }
 function extLinkHTML(u) { const s = safeHttpUrl(u); if (s) return `<a href="${esc(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`; return String(u || "").trim() ? esc(String(u)) : "—"; }
+/* === Khối "Deal liên quan" trong DRAWER GAME ===
+   Liên kết game <-> deal CHỈ có một chiều duy nhất, nằm ở phía deal:
+   deal.game = id của game (field "game" trong DEAL_KNOWN của
+   supabase-adapter.js, ghi xuống cột deals.game_id; đọc lên khôi phục
+   o.game = d.game_id). Game KHÔNG lưu danh sách deal — phía game suy ra
+   bằng cách quét ngược S.deals, đúng mẫu quan hệ deal<->lead.
+   Mảng quyết định game nào gắn được vào deal nào (validate ở cả form tạo
+   saveDeal, form sửa saveEditDeal và dealVisibleGame):
+   - Game Studio (game own='ours'): game của Sava, deal.game là TUỲ CHỌN.
+   - Publishing (game own='partner'): deal BẮT BUỘC gắn đúng 1 game
+     own='partner' thuộc ĐÚNG công ty của deal (game.company === deal.company).
+   "Đã gắn với game này" = deal mà dealVisibleGame(d) === game này (liên
+   kết đang HIỂN THỊ được theo mảng hiện tại của deal; liên kết giữ ẩn khi
+   deal tạm đổi sang mảng khác không tính, khớp cách đếm ở vGames). */
+function gameDealLine(g) { return g && g.own === "ours" ? "game_studio" : g && g.own === "partner" ? "publishing" : ""; }
+/* Tập deal "có thể gắn" TỰ NHIÊN vào game này: deal cùng mảng theo quy tắc
+   trên mà chưa trỏ tới game này —
+   - game của Sava: mọi deal Game Studio chưa gắn game này (chưa gắn game
+     nào, hoặc đang gắn game khác — gắn mới sẽ thay game cũ, xem
+     attachDealToGame);
+   - game đối tác: mọi deal Publishing của ĐÚNG công ty sở hữu game chưa
+     gắn game này (deal Publishing chưa có game là dữ liệu cũ lệch chuẩn —
+     gắn vào đây là đường sửa đúng chuẩn; deal đang gắn game khác của
+     cùng công ty thì gắn mới sẽ thay, có xác nhận).
+   Deal mảng khác / công ty khác KHÔNG bao giờ là ứng viên: gắn chúng sẽ
+   phá validate sẵn có của deal. */
+function gameAttachableDeals(g) {
+  if (!g) return [];
+  const line = gameDealLine(g); if (!line) return [];
+  return S.deals.filter(d => {
+    if (!d || d.line !== line || d.game === g.id) return false;
+    if (line === "publishing") return !!g.company && d.company === g.company;
+    return true;
+  });
+}
+/* Gắn 1 deal vào game đang xem: đặt ĐÚNG field liên kết duy nhất d.game
+   qua đường lưu hiện có (save()). Tôn trọng validate thật:
+   - mảng của deal phải khớp quy tắc của game (ours -> game_studio,
+     partner -> publishing);
+   - Publishing: game phải thuộc đúng công ty của deal;
+   - deal đã gắn game KHÁC: 1 deal chỉ gắn 1 game nên gắn mới = thay game
+     cũ — phải qua confirm() nói rõ việc thay trước khi ghi. */
+function attachDealToGame(dealId, gameId) {
+  const d = S.deals.find(x => x.id === dealId); const g = game(gameId);
+  if (!d || !g) { toast("Không tìm thấy deal/game để gắn"); return; }
+  const line = gameDealLine(g);
+  if (!line || d.line !== line) { toast("Chỉ gắn được deal " + lineName(line) + " vào game này — deal này thuộc mảng " + lineName(d.line)); return; }
+  if (g.own === "partner" && (!g.company || d.company !== g.company)) { toast("Deal Publishing chỉ gắn được game của đúng công ty của deal — game này thuộc công ty khác"); return; }
+  if (g.own === "ours" && d.line !== "game_studio") { toast("Game của Sava chỉ gắn vào deal Game Studio"); return; }
+  if (d.game === gameId) { toast("Deal đã gắn game này rồi"); return; }
+  if (d.game) {
+    const old = game(d.game);
+    if (!confirm(`Deal "${d.title}" đang gắn game "${old ? old.title : d.game}".\n\nGắn vào game "${g.title}" sẽ THAY game cũ bằng game này (một deal chỉ gắn một game). Tiếp tục?`)) return;
+  }
+  d.game = gameId;
+  save(); render(); openGame(gameId);
+  toast("Đã gắn deal " + d.title + " vào game: " + g.title);
+}
+/* Gỡ deal khỏi game đang xem qua ĐÚNG field d.game + save():
+   - Publishing: gỡ trần sẽ để deal Publishing KHÔNG có game — vi phạm
+     validate bắt buộc ở saveDeal/saveEditDeal — nên CHẶN, không mutate,
+     báo rõ phải xoá deal hoặc đổi sang game khác trong form sửa deal.
+   - Game Studio: game là tuỳ chọn nên gỡ hợp lệ — xoá d.game như đường
+     sửa deal chọn "— Không gắn game —". */
+function detachDealFromGame(dealId, gameId) {
+  const d = S.deals.find(x => x.id === dealId); const g = game(gameId);
+  if (!d || !g) { toast("Không tìm thấy deal/game để gỡ"); return; }
+  if (d.game !== gameId) { toast("Deal này không gắn game đang xem"); return; }
+  if (d.line === "publishing") { toast("Không gỡ được: deal Publishing bắt buộc gắn 1 game của công ty này — hãy xoá deal, hoặc đổi sang game khác của cùng công ty trong form sửa deal (nút ✏️ Sửa thông tin deal ở chi tiết deal)"); return; }
+  delete d.game;
+  save(); render(); openGame(gameId);
+  toast("Đã gỡ deal " + d.title + " khỏi game: " + g.title);
+}
+/* Mở ĐÚNG form tạo deal hiện có (openAdd) với ngữ cảnh của game đang xem:
+   mảng theo own của game, game điền sẵn, công ty suy ra từ game —
+   game đối tác mang sẵn company (studio sở hữu) nên deal Publishing có
+   luôn công ty đúng; game của Sava KHÔNG mang company (saveGame xoá
+   company cho own='ours': chủ sở hữu là Sava, còn công ty của deal
+   Game Studio là Publisher cần tìm — không suy ra được nên để trống cho
+   người dùng chọn như form thường). returnGameId: sau khi lưu thành
+   công, saveDeal mở lại drawer game này để deal mới hiện ngay ở nhóm
+   "Đã gắn với game này" (xem dealFormReturnGameId ở openAdd/saveDeal). */
+function openAddForGame(gameId) {
+  const g = game(gameId); if (!g) return;
+  const line = gameDealLine(g);
+  if (!line) { toast("Game này chưa rõ loại (của Sava / đối tác) nên chưa tạo deal được"); return; }
+  openAdd({ line, companyId: g.own === "partner" ? (g.company || "") : "", gameId: g.id, returnGameId: g.id });
+}
 function openGame(id) {
   const g = game(id); if (!g) return;
   drawerCtx = { type: "game", id };
   const deals = S.deals.filter(d => { const vg = dealVisibleGame(d); return !!vg && vg.id === id; });
+  const attachableDeals = gameAttachableDeals(g);
+  /* Thẻ deal trong drawer game: dealMini sẵn có (tên + mảng + stage, bấm
+     mở drawer deal) + dòng công ty/publisher của deal ngay dưới thẻ. */
+  const gameDealRow = d => { const dc = d.company ? comp(d.company) : null; return `${dealMini(d)}<div class="mut" style="margin-top:3px">🏢 Công ty / Publisher: ${dc && dc.id ? esc(dc.name) : "—"}</div>`; };
+  const attachedBox = deals.map(d => `<div style="margin-bottom:8px">${gameDealRow(d)}<button class="btn ghost small" onclick="detachDealFromGame('${d.id}','${g.id}')">✕ Gỡ liên kết khỏi game này</button>${d.line === "publishing" ? '<div class="mut" style="margin-top:3px">Deal Publishing bắt buộc gắn 1 game của công ty này — không gỡ trần được; bấm gỡ sẽ hiện hướng dẫn (xoá deal hoặc đổi game trong form sửa deal).</div>' : ""}</div>`).join("");
+  const attachableBox = attachableDeals.map(d => `<div style="margin-bottom:8px">${gameDealRow(d)}<button class="btn ghost small" onclick="attachDealToGame('${d.id}','${g.id}')">＋ Gắn vào game này</button>${d.game ? '<div class="mut" style="margin-top:3px">Deal đang gắn game khác — gắn vào game này sẽ thay game cũ (sẽ hỏi xác nhận trước).</div>' : ""}</div>`).join("");
   const owner = g.company ? comp(g.company) : null;
   /* Điểm /10 cũ (BD + MKT) chỉ còn là LƯU TRỮ: gập trong 1 mục, đúng 2 dòng text,
      không render bars. Dữ liệu g.scores/g.mktEval giữ nguyên trong state. */
@@ -1760,8 +1854,12 @@ function openGame(id) {
     ${studioPartnerLine}
     ${window.PublishingBridge ? PublishingBridge.summary("game",g.id) : ""}
     ${legacyScores}
-    <h3 style="margin:16px 0 8px">📋 Deal liên quan (bấm để mở deal)</h3>
-    ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
+    <h3 style="margin:16px 0 8px">📋 Deal liên quan</h3>
+    <div style="margin-bottom:10px"><button class="btn" onclick="openAddForGame('${g.id}')">+ Tạo deal cho game này</button></div>
+    <div style="font-weight:600;margin-bottom:6px">Đã gắn với game này</div>
+    ${attachedBox || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
+    <div style="font-weight:600;margin:12px 0 6px">Deal có thể gắn</div>
+    ${attachableBox || `<div class="mut">${g.own === "partner" ? "Không có deal Publishing nào của công ty này chưa gắn game này." : "Không có deal Game Studio nào chưa gắn game này."}</div>`}
     ${relatedTasksHTML("game", g.id)}
     <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>${auditSectionHTML("game", g.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "game", id);
@@ -1811,6 +1909,13 @@ function openAddFor(companyId) {
 /* Prefill cho convertLead (S4): khi mở form từ 1 lead, saveDeal sẽ gắn các lead
    này vào deal mới và đánh dấu lead "converted". Mở form bình thường -> null. */
 let pendingDealLeads = null;
+/* Prefill từ drawer Game (openAddForGame): id game mà saveDeal phải mở
+   lại drawer của nó sau khi lưu THÀNH CÔNG, để deal mới hiện ngay trong
+   nhóm "Đã gắn với game này". Chỉ đặt qua prefill.returnGameId của
+   openAdd; mở form bình thường / Hủy (closeAdd) -> null. Lưu bị validate
+   chặn (return sớm, form còn mở) thì giá trị này còn nguyên để lần lưu
+   sau vẫn quay về đúng game. */
+let dealFormReturnGameId = null;
 /* Lựa chọn lead trong form TẠO deal, ghi theo TỪNG công ty
    (dealFormLeadSelByCompany[companyId] = [leadId...]). Ô chọn chỉ liệt kê
    lead của công ty đang chọn; lần đầu dựng danh sách cho một công ty thì
@@ -1863,6 +1968,7 @@ function dealFormLeadSelection(companyId) {
 }
 function openAdd(prefill) {
   pendingDealLeads = null;
+  dealFormReturnGameId = null;
   dealFormLeadSelByCompany = {};
   const sel = document.getElementById("f_line");
   sel.innerHTML = Object.entries(LINES).map(([k,v]) => `<option value="${k}" ${k===curLine?'selected':''}>${v.name}</option>`).join("");
@@ -1875,6 +1981,19 @@ function openAdd(prefill) {
   const fg = document.getElementById("f_game"); if (fg) fg.value = "";
   const fng = document.getElementById("f_newGame"); if (fng) fng.value = "";
   if (prefill && typeof prefill === "object") {
+    /* Prefill CHỈ bằng gameId (đường openAddForGame / gọi lạ): suy ra mảng
+       theo own của game và — chỉ với game đối tác — công ty từ chính game
+       (game.company là studio sở hữu). Game của Sava không có công ty suy
+       ra được (công ty của deal Game Studio là Publisher cần chọn). */
+    if (prefill.gameId && !prefill.line) {
+      const pg = game(prefill.gameId);
+      const pl = pg ? gameDealLine(pg) : "";
+      if (pl && LINES[pl]) prefill = { ...prefill, line: pl };
+    }
+    if (prefill.gameId && !prefill.companyId) {
+      const pg = game(prefill.gameId);
+      if (pg && pg.own === "partner" && pg.company) prefill = { ...prefill, companyId: pg.company };
+    }
     if (prefill.line && LINES[prefill.line]) { sel.value = prefill.line; fillStages(); }
     if (prefill.companyId) { document.getElementById("f_company").value = prefill.companyId; onDealCompanyChange(); }
     if (prefill.title) document.getElementById("f_title").value = prefill.title;
@@ -1885,6 +2004,12 @@ function openAdd(prefill) {
       if (prefill.companyId) dealFormLeadSelByCompany[prefill.companyId] = [...prefill.leads];
     }
     fillDealGames();
+    /* Game điền sẵn: gán thẳng vào ô chọn SAU khi fillDealGames đã dựng
+       option theo mảng + công ty — trình duyệt chỉ giữ giá trị khi nó là
+       một option thật của pool (game không thuộc pool thì ô về trống và
+       validate ở saveDeal chặn như thường), không dựng option ngoài pool. */
+    if (prefill.gameId) { const fg2 = document.getElementById("f_game"); if (fg2) { fg2.value = prefill.gameId; onDealFormGameChange(); } }
+    if (prefill.returnGameId) dealFormReturnGameId = prefill.returnGameId;
   }
   renderDealFormLeads();
   onDealFormGameChange();
@@ -1961,7 +2086,7 @@ function onDealFormGameChange() {
   const selG = document.getElementById("f_game"), nw = document.getElementById("f_newGameWrap");
   if (nw) nw.style.display = selG && selG.value === "__new__" ? "" : "none";
 }
-function closeAdd() { pendingDealLeads = null; dealFormLeadSelByCompany = {}; document.getElementById("modal").classList.remove("on"); }
+function closeAdd() { pendingDealLeads = null; dealFormReturnGameId = null; dealFormLeadSelByCompany = {}; document.getElementById("modal").classList.remove("on"); }
 function saveDeal() {
   const title = document.getElementById("f_title").value.trim(); if (!title) { toast("Nhập tên deal trước đã"); return; }
   const line = document.getElementById("f_line").value;
@@ -2046,7 +2171,13 @@ function saveDeal() {
     nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" };
   } else { nd.amount = +document.getElementById("f_amount").value||0; nd.cur = document.getElementById("f_cur").value; }
   S.deals.push(nd);
+  /* Quay về drawer Game (khi mở form từ openAddForGame): chụp TRƯỚC
+     closeAdd vì closeAdd xoá cờ. Chỉ mở lại khi deal vừa lưu THẬT SỰ gắn
+     đúng game đó (user đổi game/mảng ngay trong form thì tôn trọng lựa
+     chọn cuối — deal thuộc về game khác, không kéo về game ban đầu). */
+  const returnGameId = dealFormReturnGameId;
   save(); closeAdd(); curLine = line; setView("board");
+  if (returnGameId && nd.game === returnGameId && game(returnGameId)) openGame(returnGameId);
   if (leadMismatch) toast("Đã tạo deal mới, lead giữ nguyên vì khác mảng/công ty");
   else toast("Đã thêm deal vào pipeline " + LINES[line].name);
 }
