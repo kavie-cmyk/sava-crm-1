@@ -262,6 +262,7 @@
 <div id="toast"></div>
 <script src="apple-ui.js"></script>
 <script src="shared.js"></script>
+<script src="audit.js"></script>
 <script src="publishing-score.js"></script>
 <script src="publishing-bridge.js"></script>
 <script>
@@ -325,6 +326,9 @@ function crmMarkStale() {
 }
 function crmReloadLatest() {
   S = loadState();
+  /* Nạp lại dữ liệu mới nhất = mốc diff mới cho save(): thay đổi từ tab khác
+     không được bị đóng dấu/audit như thể do người dùng ở tab này sửa. */
+  crmPrevSnap = crmSnapshotOf(S);
   crmRev = (S && typeof S._crmRev === "number" && Number.isFinite(S._crmRev)) ? S._crmRev : 0;
   crmStale = false;
   const b = document.getElementById("crmStaleBanner");
@@ -340,12 +344,63 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
     if (info && info.rev > crmRev && info.tab !== CRM_TAB_ID) crmMarkStale();
   });
 }
+/* === Đóng dấu thời gian + sinh lịch sử (audit) tại đường lưu CRM ===
+   save() là đường lưu DUY NHẤT của kho CRM: trước khi ghi, chụp bản sao
+   SÂU của state đã lưu lần trước (crmPrevSnap — khởi tạo từ state lúc nạp
+   trang, cập nhật sau mỗi lần save thành công); sau khi mutate, stamp +
+   diff từng entity qua SavaSys.stampCollection (shared.js): entity thật
+   sự đổi mới được đóng dấu updatedAt/updatedBy (+createdAt khi tạo mới)
+   và sinh đúng 1 mục audit. Mục audit được ghi qua window.SavaAudit
+   (supabase-data.js -> bảng audit_log) SAU khi storeState thành công và
+   trong try/catch riêng — lỗi ghi audit KHÔNG bao giờ làm hỏng lưu chính.
+   Lần save bị chặn (tab cũ) thì không đóng dấu, không sinh audit. */
+let crmPrevSnap = null;
+function crmSnapshotOf(state) {
+  const snap = {};
+  try {
+    (window.SavaSys ? SavaSys.CRM_ENTITY_TYPES : []).forEach(([key]) => { snap[key] = window.SavaSys ? SavaSys.snapshotById(state ? state[key] : []) : new Map(); });
+  } catch (e) {}
+  return snap;
+}
+try { crmPrevSnap = crmSnapshotOf(typeof S === "object" ? S : null); } catch (e) { crmPrevSnap = null; }
+function currentMemberIdForStamp() {
+  try { const u = authCurrentUser(); if (u && u.memberId) return String(u.memberId); } catch (e) {}
+  return "";
+}
+function stampCrmAndAudit() {
+  let entries = [];
+  try {
+    if (!window.SavaSys || typeof SavaSys.stampCollection !== "function") return;
+    if (!crmPrevSnap) crmPrevSnap = crmSnapshotOf(null);
+    const nowIso = new Date().toISOString();
+    const by = currentMemberIdForStamp();
+    SavaSys.CRM_ENTITY_TYPES.forEach(([key, type]) => {
+      entries = entries.concat(SavaSys.stampCollection(S, S[key], crmPrevSnap[key], type, by, nowIso));
+    });
+    crmPrevSnap = crmSnapshotOf(S);
+  } catch (e) { entries = []; }
+  if (entries.length) {
+    try {
+      if (window.SavaAudit && typeof SavaAudit.recordBatch === "function") {
+        const p = SavaAudit.recordBatch(entries);
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      }
+    } catch (e) { /* ghi audit lỗi không được phá lưu chính */ }
+  }
+}
+/* Helper hiển thị dùng chung cho drawer CRM (audit.js): dòng thời gian hệ
+   thống + mục lịch sử; thiếu audit.js thì trả chuỗi rỗng, không lỗi. */
+function sysMetaHTML(ent) { try { return window.SavaAuditUI ? SavaAuditUI.metaLineHTML(S, ent) : ""; } catch (e) { return ""; } }
+function auditSectionHTML(type, id) { try { return window.SavaAuditUI ? SavaAuditUI.sectionHTML(type, id) : ""; } catch (e) { return ""; } }
+function loadDrawerAudit(rootEl, type, id) { try { if (window.SavaAuditUI) SavaAuditUI.loadInto(rootEl, S, type, id); } catch (e) {} }
+function sysShortDate(v) { if (!v) return ""; const dt = new Date(v); return Number.isNaN(dt.getTime()) ? "" : dt.toLocaleDateString("vi-VN"); }
 function save() {
   if (crmStale) { toast("⚠️ Đang bị chặn lưu vì tab khác đã cập nhật dữ liệu mới hơn — hãy bấm “Tải lại dữ liệu mới nhất” ở banner đỏ phía trên."); return; }
   try {
     const info = crmRawRev(localStorage.getItem(STORE_KEY));
     if (info && info.rev > crmRev && info.tab !== CRM_TAB_ID) { crmMarkStale(); return; }
   } catch (e) {}
+  stampCrmAndAudit();
   crmRev += 1;
   S._crmRev = crmRev;
   S._crmTab = CRM_TAB_ID;
@@ -642,7 +697,7 @@ function vBoard() {
     const cards = ds.map(d => { const gt = dealVisibleGame(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t">${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
-      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span><span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
+      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysShortDate(d.updatedAt) ? `<span title="Cập nhật lần cuối">🕘 ${esc(sysShortDate(d.updatedAt))}</span>` : ""}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
       <h4>${s[1]} <span class="pill" style="background:${L.color}">${ds.length}</span></h4><div class="sum">${sum||"—"} · xác suất ${s[2]}%</div>${cards||'<div class="mut" style="padding:4px 2px">Kéo deal vào đây</div>'}</div>`;
   }).join("");
@@ -1087,6 +1142,7 @@ function openMember(id) {
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <div style="margin-bottom:4px">${typeBadgeHTML("member")}</div>
     <h2>👤 ${esc(m.name)}</h2><div class="mut">${esc(m.id)} · ${m.active ? "Đang hoạt động" : "Đã ngừng hoạt động"}</div>
+    ${sysMetaHTML(m)}
     <div class="kv">
       <div class="k">Vai trò</div><div><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></div>
       ${isAdminViewer() ? `<div class="k">Tài khoản</div><div>${memberAccountCell(m)}</div>` : ""}
@@ -1099,7 +1155,8 @@ function openMember(id) {
     ${tasks.length ? tasks.map(taskRow).join("") : '<div class="mut">Chưa có việc nào được giao cho thành viên này.</div>'}
     <h3 style="margin:18px 0 8px">📋 Deal phụ trách (${deals.length}) — bấm để mở deal</h3>
     ${deals.length ? deals.map(dealMini).join("") : '<div class="mut">Chưa phụ trách deal nào.</div>'}
-    <div class="mut" style="margin-top:14px">Đây là tóm tắt phục vụ gán việc / gán người phụ trách trong CRM — không phải phân quyền tài khoản.</div>`);
+    <div class="mut" style="margin-top:14px">Đây là tóm tắt phục vụ gán việc / gán người phụ trách trong CRM — không phải phân quyền tài khoản.</div>${auditSectionHTML("member", m.id)}`);
+  loadDrawerAudit(document.getElementById("drawer"), "member", id);
 }
 function editMember(id) {
   const m = id ? memberList(S).find(x => x.id === id) : { name: "", role: "BD", active: true };
@@ -1240,6 +1297,7 @@ function openDeal(id) {
   document.getElementById("drawer").innerHTML = `<button class="x" onclick="closeDrawer()">✕</button>
     ${typeBadgeHTML("deal")} <span class="chip" style="background:${L.color}">${L.name}</span>
     <h2>${esc(d.title)}</h2><div class="mut">${c.id ? `<a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${esc(c.name)} →</a>` : `${esc(c.name)}`} · ${esc(c.type)}${g?` · <a href="#" onclick="openGame('${g.id}'); return false" title="Mở game">🎮 ${esc(g.title)} →</a>`:""}</div>
+    ${sysMetaHTML(d)}
     <div style="display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap"><button class="btn" onclick="editDeal('${d.id}')">✏️ Sửa thông tin deal</button><button class="btn danger" onclick="deleteDeal('${d.id}')">🗑 Xóa deal</button></div>
     <div class="kv">
       ${valueRows}
@@ -1267,9 +1325,10 @@ function openDeal(id) {
       <div class="mut" style="margin-top:5px">Cách lấy link: <b>Gmail</b> — mở đúng email đó, copy địa chỉ trên thanh trình duyệt; <b>Messenger</b> — mở đúng cuộc chat trên messenger.com, copy địa chỉ. Mỗi hoạt động chỉ ghim đúng 1 cuộc hội thoại vào đúng deal này, không kéo cả hộp thư.</div>
       <button class="btn" style="margin-top:9px" onclick="addActivity('${d.id}')">+ Thêm vào timeline</button>
     </div>
-    <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng bấm nút ✏️ Sửa ở khối trên để sửa, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>`;
+    <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng bấm nút ✏️ Sửa ở khối trên để sửa, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>${auditSectionHTML("deal", d.id)}`;
   document.getElementById("drawer").classList.add("on");
   document.getElementById("scrim").classList.add("on");
+  loadDrawerAudit(document.getElementById("drawer"), "deal", id);
 }
 function moveStage(id, stage) { const d = S.deals.find(x=>x.id===id); d.stage = stage; d.idle = 0; save(); openDeal(id); render(); toast("Đã chuyển stage: " + stagePairSafe(d.line, stage)[1]); }
 function saveTermContract(id) {
@@ -1464,7 +1523,7 @@ function partnerPagerHTML(c) {
       <div class="k">Đầu mối liên hệ (lead)</div><div>${pagerLeadsHTML}</div>
       <div class="k">Vai trò theo mảng</div><div>${roleChips || "—"}</div>
       <div class="k">Deal / game</div><div>${deals.length} deal · ${gamesOwned.length} game sở hữu</div>
-    </div>`;
+    </div>${typeof sysMetaHTML === "function" ? sysMetaHTML(c) : ""}`;
   if (!ps || !ps.exists || !ps.computed || ps.versions === 0) {
     return head + `<div class="mut" style="margin:10px 0">Chưa đánh giá Partner — mở “Đánh giá Partner” trong module Publishing để chấm.</div>`;
   }
@@ -1523,6 +1582,7 @@ function openCompany(id) {
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <div style="margin-bottom:4px">${typeBadgeHTML("company")}</div>
     <h2>🏢 ${esc(c.name)}</h2><div class="mut">${esc(c.type)} · Tương tác cuối: ${esc(c.last)}</div>
+    ${sysMetaHTML(c)}
     <div style="margin:10px 0">${roleChips}</div>
     <div class="kv">
       <div class="k">Tổng deal (tất cả mảng)</div><div><b>${deals.length}</b> (${open} đang mở, ${won} đã thắng)</div>
@@ -1540,7 +1600,8 @@ function openCompany(id) {
     ${(gamesOwned.length || gamesLinked.length) ? `<h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>` + [...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${esc(g.emoji || "")} ${esc(g.title)}</div><div class="c">${esc(g.genre || "")} · ${esc(g.stage || "")} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div><div class="c" style="margin-top:3px">📊 ${esc(gameEvalSummaryText(g.id))}</div><div style="margin-top:4px">${window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? PublishingBridge.evalBadge("game", g.id) : ""}</div></div>`).join("") : ""}
     ${tasks.length ? `<h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>` + tasks.map(taskRow).join("") : ""}
     ${acts.length ? `<h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>` + acts.map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${esc(memberName(S, a.who))}</div></div></div>`).join("") : ""}
-    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Bản thật sẽ thêm: ghi hoạt động mới, đính link Drive.</div>`);
+    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Bản thật sẽ thêm: ghi hoạt động mới, đính link Drive.</div>${auditSectionHTML("company", c.id)}`);
+  loadDrawerAudit(document.getElementById("drawer"), "company", id);
 }
 /* C7: link build/trailer của game — chỉ thành <a> thật khi là URL http/https
    an toàn (link mẫu chứa chữ "mẫu" hoặc không phải http/https thì hiện text). */
@@ -1586,6 +1647,7 @@ function openGame(id) {
     <div style="margin-bottom:4px">${typeBadgeHTML("game")}</div>
     <h2>${esc(g.title)}</h2><div class="mut">${esc(g.genre || "")} · ${esc(g.platform || "")}</div>
     <div style="margin:8px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${esc(g.stage || "")}</span></div>
+    ${sysMetaHTML(g)}
     <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap"><button class="btn" onclick="editGame('${g.id}')">✏️ Sửa game</button><button class="btn danger" onclick="deleteGame('${g.id}')">🗑 Xóa game</button></div>
     <div class="gdesc" style="font-size:13.5px">${esc(g.desc || "")}</div>
     <div class="kv">
@@ -1602,7 +1664,8 @@ function openGame(id) {
     <h3 style="margin:16px 0 8px">📋 Deal liên quan (bấm để mở deal)</h3>
     ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
     ${relatedTasksHTML("game", g.id)}
-    <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>`);
+    <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>${auditSectionHTML("game", g.id)}`);
+  loadDrawerAudit(document.getElementById("drawer"), "game", id);
 }
 function openLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
@@ -1623,13 +1686,15 @@ function openLead(id) {
       <div class="k">Đối tượng của mảng</div><div>${lineDef(l.line) ? esc(lineDef(l.line).target) : "—"}</div>
       <div class="k">Nội dung</div><div>${esc(l.note || "")}</div>
     </div>
+    ${sysMetaHTML(l)}
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn" onclick="editLead('${l.id}')">✏️ Sửa lead</button><button class="btn danger" onclick="deleteLead('${l.id}')">🗑 Xóa lead</button></div>
     <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (bấm để mở deal)</h3>
     ${relDeals.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}
     ${relatedTasksHTML("lead", l.id)}
     ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="lead_attach_deal" style="flex:1;min-width:220px">${attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : ""}
     <div style="margin-top:16px">${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${esc(lineName(l.line))}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${esc(lineName(l.line))}.</div>`}</div>
-    <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>`);
+    <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>${auditSectionHTML("lead", l.id)}`);
+  loadDrawerAudit(document.getElementById("drawer"), "lead", id);
 }
 function openAddFor(companyId) {
   const c = comp(companyId); if (!c || !c.id) return;
@@ -2656,7 +2721,9 @@ function editTask(id, linkType, linkId) {
     ${field("Hạn ngày (để tính quá hạn tự động)", `<input id="e_tdueDate" type="date" value="${esc(t.dueDate || "")}">`)}
     ${field("Gắn với đối tượng", taskLinkSelectHTML(curVal))}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_tdone" style="width:auto" ${t.done ? "checked" : ""}> Đã xong</label>
+    ${id ? sysMetaHTML(t) + auditSectionHTML("task", t.id) : ""}
     ${formFoot("saveTask", id ? `'${id}'` : "null")}`);
+  if (id) loadDrawerAudit(document.getElementById("editBox"), "task", id);
 }
 function saveTask(id) {
   const v = i => (document.getElementById(i)?.value || "").trim();
@@ -2712,7 +2779,9 @@ function editActivity(id) {
     ${field("Thời gian", `<input id="ea_when" type="date" value="${esc(isValidDateStr(a.when) ? a.when : "")}">` + (a.when && !isValidDateStr(a.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(a.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Nội dung", `<textarea id="ea_text">${esc(a.text || "")}</textarea>`)}
     ${field("Link đúng cuộc hội thoại / tài liệu đó", txt("ea_url", a.url || "", "Dán link thread Gmail / chat Messenger / file Drive"))}
+    ${sysMetaHTML(a)}${auditSectionHTML("activity", a.id)}
     ${formFoot("saveActivity", `'${a.id}'`)}`);
+  loadDrawerAudit(document.getElementById("editBox"), "activity", id);
 }
 function saveActivity(id) {
   const a = S.activities.find(x => x.id === id); if (!a) return;
@@ -2743,6 +2812,9 @@ render();
 window.__savaOnDataRefreshed = function () {
   try {
     S = loadState();
+    /* Dữ liệu máy chủ vừa nạp lại = mốc diff mới (như crmReloadLatest):
+       tránh đóng dấu nhầm thay đổi từ nơi khác cho người dùng hiện tại. */
+    crmPrevSnap = crmSnapshotOf(S);
     crmRev = (S && typeof S._crmRev === "number" && Number.isFinite(S._crmRev)) ? S._crmRev : 0;
     crmStale = false;
     const __b = document.getElementById("crmStaleBanner");

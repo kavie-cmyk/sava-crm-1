@@ -90,6 +90,158 @@ function memberName(s, id) {
   return String(id);
 }
 if (typeof window !== "undefined") { window.memberList = memberList; window.memberName = memberName; window.defaultMembers = defaultMembers; }
+/* === Thời gian cập nhật cuối + lịch sử chỉnh sửa (audit) ===
+   Mọi entity CRM (deals/companies/leads/games/tasks/members/activities) và
+   hồ sơ Publishing (requests) mang 3 trường HỆ THỐNG: createdAt, updatedAt,
+   updatedBy (member id người sửa cuối). KHÔNG form nào có ô nhập cho chúng;
+   đường lưu duy nhất (save() trong index.html, write() trong publishing.js)
+   tự đóng dấu qua stampAndDiff() dưới đây:
+   - Chỉ đóng dấu khi entity THẬT SỰ đổi dữ kiện (so deep trước/sau, bỏ qua
+     chính 3 trường hệ thống + siêu dữ liệu cục bộ _crmRev/_crmTab).
+   - Tạo mới -> đặt cả 3; sửa -> chỉ updatedAt/updatedBy đổi, createdAt bất biến.
+   - Đồng thời sinh diff audit [{field,label,from,to}] — trường tham chiếu
+     (owner/assignee/company/game/line…) lưu kèm nhãn đã resolve tại thời
+     điểm ghi để đối tượng đích bị xoá sau này vẫn đọc được.
+   3 trường đi qua supabase-adapter như field thường qua legacy_extra (mẫu
+   deal.vertical / lead.mainContact) — KHÔNG cần cột/SQL mới.
+   Entity cũ chưa có trường -> hiển thị "—", không bịa thời gian. */
+const SYS_FIELDS = ["createdAt", "updatedAt", "updatedBy"];
+const CRM_ENTITY_TYPES = [["deals", "deal"], ["companies", "company"], ["leads", "lead"], ["games", "game"], ["tasks", "task"], ["members", "member"], ["activities", "activity"]];
+const FIELD_LABELS = {
+  deal: { title: "Tiêu đề", line: "Mảng", stage: "Giai đoạn", owner: "Người phụ trách", company: "Công ty", game: "Game", due: "Hạn chốt", amount: "Giá trị", cur: "Tiền tệ", vertical: "Phân khúc ngành", leads: "Lead gắn kèm", custom: "Thông tin riêng theo mảng", term: "Điều khoản (Term)", contract: "Hợp đồng", idle: "Số ngày chưa cập nhật" },
+  company: { name: "Tên công ty", type: "Loại hình", roles: "Vai trò theo mảng", last: "Tương tác cuối", partnerEval: "Đánh giá Partner (legacy)", partnerEvalMigrated: "Cờ chuyển dữ liệu Partner" },
+  lead: { name: "Tên lead", company: "Công ty", person: "Người đầu mối", phone: "Điện thoại", line: "Mảng", source: "Nguồn", status: "Trạng thái", note: "Ghi chú", when: "Thời điểm", mainContact: "Đầu mối chính" },
+  game: { title: "Tên game", own: "Loại game", company: "Studio sở hữu", genre: "Genre", platform: "Nền tảng", stage: "Giai đoạn phát triển", emoji: "Emoji", desc: "Mô tả", bdNote: "Ghi chú BD", buildUrl: "Link build", trailerUrl: "Link trailer", scores: "Điểm BD /10 (lưu trữ)", verdict: "Kết luận BD (lưu trữ)", mktEval: "Đánh giá MKT /10 (lưu trữ)" },
+  task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
+  member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
+  activity: { deal: "Deal", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
+  request: { kind: "Loại hồ sơ", entityId: "Hồ sơ CRM", requestedBy: "BD phụ trách", assignee: "MKT được giao", due: "Hạn đánh giá", requestNote: "Thông tin đầu vào / yêu cầu BD", source: "Link build / bằng chứng", build: "Build / phiên bản", status: "Trạng thái", intake: "Hồ sơ đầu vào", entitySnapshot: "Dữ liệu chụp hồ sơ" },
+};
+const REF_FIELDS = {
+  deal: { owner: "member", company: "company", game: "game" },
+  lead: { company: "company" },
+  game: { company: "company" },
+  task: { assignee: "member", deal: "deal", company: "company", lead: "lead", game: "game" },
+  activity: { who: "member", deal: "deal" },
+  request: { requestedBy: "member", assignee: "member", entityId: "entity" },
+};
+function cloneForDiff(v) {
+  if (v === undefined) return undefined;
+  try { return JSON.parse(JSON.stringify(v)); } catch (e) { return v; }
+}
+function stripSysFields(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return obj;
+  const out = {};
+  Object.keys(obj).forEach(k => { if (!SYS_FIELDS.includes(k)) out[k] = obj[k]; });
+  return out;
+}
+function deepEqualLoose(a, b) {
+  if (a === b) return true;
+  if (typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b)) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!deepEqualLoose(a[i], b[i])) return false;
+    return true;
+  }
+  const ka = Object.keys(a).filter(k => a[k] !== undefined), kb = Object.keys(b).filter(k => b[k] !== undefined);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) { if (!Object.prototype.hasOwnProperty.call(b, k) || !deepEqualLoose(a[k], b[k])) return false; }
+  return true;
+}
+function resolveRefLabel(state, refKind, id, entityType, entity) {
+  if (id === undefined || id === null || id === "") return "";
+  try {
+    if (refKind === "member") return memberName(state, id);
+    if (refKind === "entity" && entity) {
+      const coll = entity.kind === "company" ? (state && state.companies) : (state && state.games);
+      const t = (Array.isArray(coll) ? coll : []).find(x => x && x.id === id);
+      return t ? String(t.name || t.title || id) : String(id);
+    }
+    const collMap = { company: "companies", game: "games", deal: "deals", lead: "leads" };
+    const coll = state && state[collMap[refKind]];
+    const t = (Array.isArray(coll) ? coll : []).find(x => x && x.id === id);
+    if (t) return String(t.name || t.title || id);
+  } catch (e) {}
+  return String(id);
+}
+function auditValue(state, entityType, entity, field, v) {
+  if (v === undefined || v === null || v === "") return "";
+  const refs = REF_FIELDS[entityType] || {};
+  if (refs[field]) {
+    if (Array.isArray(v)) return v.map(x => resolveRefLabel(state, refs[field], x, entityType, entity)).join(", ");
+    const lbl = resolveRefLabel(state, refs[field], v, entityType, entity);
+    return lbl && lbl !== String(v) ? lbl + " (" + String(v) + ")" : String(v);
+  }
+  if (field === "leads" && Array.isArray(v)) return v.map(x => resolveRefLabel(state, "lead", x, entityType, entity)).join(", ");
+  if (field === "line" && typeof LINES !== "undefined" && LINES[v]) return LINES[v].name;
+  if (typeof v === "boolean") return v ? "Có" : "Không";
+  if (typeof v === "object") { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+  return String(v);
+}
+function diffEntity(state, entityType, before, after) {
+  const labels = FIELD_LABELS[entityType] || {};
+  const b = stripSysFields(before || {}), a = stripSysFields(after || {});
+  const keys = [];
+  Object.keys(b).forEach(k => { if (!keys.includes(k)) keys.push(k); });
+  Object.keys(a).forEach(k => { if (!keys.includes(k)) keys.push(k); });
+  const changes = [];
+  keys.forEach(k => {
+    if (deepEqualLoose(b[k], a[k])) return;
+    changes.push({ field: k, label: labels[k] || k, from: auditValue(state, entityType, after, k, b[k]), to: auditValue(state, entityType, after, k, a[k]) });
+  });
+  return changes;
+}
+/* Đóng dấu + sinh audit cho 1 danh sách entity. beforeMap: Map id -> bản
+   chụp TRƯỚC khi sửa (đã clone). Trả mảng mục audit (chưa ghi). */
+function stampCollection(state, list, beforeMap, entityType, byMemberId, nowIso) {
+  const entries = [];
+  if (!Array.isArray(list)) return entries;
+  const seen = new Set();
+  list.forEach(ent => {
+    if (!ent || typeof ent !== "object" || !ent.id) return;
+    seen.add(String(ent.id));
+    const before = beforeMap ? beforeMap.get(String(ent.id)) : undefined;
+    if (!before) {
+      ent.createdAt = nowIso; ent.updatedAt = nowIso; ent.updatedBy = byMemberId || "";
+      entries.push({ entityType, entityId: String(ent.id), at: nowIso, byMemberId: byMemberId || "", action: "create", changes: diffEntity(state, entityType, {}, ent) });
+      return;
+    }
+    const changes = diffEntity(state, entityType, before, ent);
+    if (!changes.length) return;
+    ent.updatedAt = nowIso; ent.updatedBy = byMemberId || "";
+    if (!ent.createdAt) ent.createdAt = before.createdAt || nowIso;
+    entries.push({ entityType, entityId: String(ent.id), at: nowIso, byMemberId: byMemberId || "", action: "update", changes });
+  });
+  if (beforeMap) beforeMap.forEach((before, id) => {
+    if (seen.has(id)) return;
+    entries.push({ entityType, entityId: id, at: nowIso, byMemberId: byMemberId || "", action: "delete", changes: diffEntity(state, entityType, before, {}) });
+  });
+  return entries;
+}
+function snapshotById(list) {
+  const m = new Map();
+  (Array.isArray(list) ? list : []).forEach(x => { if (x && typeof x === "object" && x.id !== undefined && x.id !== null) m.set(String(x.id), cloneForDiff(x)); });
+  return m;
+}
+/* Người sửa cuối: tên resolve theo members; member đã xoá -> nhãn dự phòng. */
+function updatedByLabel(state, ent) {
+  const id = ent && ent.updatedBy;
+  if (!id) return "—";
+  const m = memberList(state).find(x => x.id === id);
+  if (m && m.name) return m.name;
+  if (Object.prototype.hasOwnProperty.call(USERS, id)) return USERS[id];
+  return "thành viên đã xoá (" + String(id).slice(0, 8) + ")";
+}
+function fmtSysTime(v) {
+  if (!v) return "—";
+  const dt = new Date(v);
+  return Number.isNaN(dt.getTime()) ? String(v) : dt.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+if (typeof window !== "undefined") {
+  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, updatedByLabel, fmtSysTime, cloneForDiff };
+}
 /* === Partner Eval hợp nhất (khung file 2 — Publishing Partner Selection) ===
    Implementation Partner DUY NHẤT dùng chung cho BD (drawer công ty trong
    index.html), module Publishing (adapter trong publishing-score.js) và bridge.

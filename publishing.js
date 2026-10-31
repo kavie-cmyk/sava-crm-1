@@ -159,7 +159,59 @@
     }
     return html;
   }
-  function write(s) { localStorage.setItem(KEY,JSON.stringify(s)); }
+  /* === Đóng dấu thời gian + sinh lịch sử (audit) tại đường lưu Publishing ===
+     write() là đường lưu DUY NHẤT của kho Publishing: chụp bản sao sâu của
+     requests đã lưu lần trước (pubPrevSnap, khởi tạo từ read() lúc nạp
+     module); mỗi lần write, stamp + diff từng request qua
+     SavaSys.stampCollection (shared.js) — CHỈ ở cấp hồ sơ (bỏ qua
+     current/revisions/revision: revision chấm điểm là lịch sử bất biến
+     riêng, KHÔNG nhân đôi vào audit). Request thật sự đổi mới đóng dấu
+     updatedAt/updatedBy (+createdAt khi tạo mới) và sinh đúng 1 mục audit;
+     mục audit ghi qua window.SavaAudit (bảng audit_log) SAU khi
+     localStorage đã ghi, bọc try/catch — lỗi ghi audit không phá lưu chính. */
+  let pubPrevSnap = null;
+  function pubSnapshotOf(store) {
+    try {
+      if (typeof window === 'undefined' || !window.SavaSys) return new Map();
+      const strip = r => { if (!r || typeof r !== 'object') return r; const c = { ...r }; delete c.current; delete c.revisions; delete c.revision; return c; };
+      const m = new Map();
+      ((store && store.requests) || []).forEach(r => { if (r && r.id) m.set(String(r.id), SavaSys.cloneForDiff(strip(r))); });
+      return m;
+    } catch { return new Map(); }
+  }
+  function currentPubMemberId() {
+    try { const u = (typeof window !== 'undefined' && window.SavaAuth && typeof window.SavaAuth.currentUser === 'function') ? window.SavaAuth.currentUser() : null; return u && u.memberId ? String(u.memberId) : ''; } catch { return ''; }
+  }
+  function stampPubAndAudit(s) {
+    let entries = [];
+    try {
+      if (typeof window === 'undefined' || !window.SavaSys || !Array.isArray(s.requests)) return;
+      if (!pubPrevSnap) pubPrevSnap = pubSnapshotOf(null);
+      const nowIso = new Date().toISOString(), by = currentPubMemberId();
+      const stripped = s.requests.map(r => { if (!r || typeof r !== 'object') return r; const c = { ...r }; delete c.current; delete c.revisions; delete c.revision; return c; });
+      entries = SavaSys.stampCollection(crm(), stripped, pubPrevSnap, 'request', by, nowIso);
+      /* stampCollection sửa trên bản stripped (bản sao nông — object lồng
+         intake/entitySnapshot dùng chung tham chiếu với request thật nên
+         diff vẫn đúng); chép 3 trường hệ thống trở lại request thật. */
+      const byId = new Map(stripped.filter(r => r && r.id).map(r => [String(r.id), r]));
+      s.requests.forEach(r => { if (!r || !r.id) return; const st = byId.get(String(r.id)); if (!st) return; for (const f of ['createdAt', 'updatedAt', 'updatedBy']) { if (st[f] !== undefined) r[f] = st[f]; else delete r[f]; } });
+      pubPrevSnap = pubSnapshotOf(s);
+    } catch { entries = []; }
+    if (entries.length) {
+      try {
+        if (typeof window !== 'undefined' && window.SavaAudit && typeof window.SavaAudit.recordBatch === 'function') {
+          const p = window.SavaAudit.recordBatch(entries);
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        }
+      } catch { /* ghi audit lỗi không được phá lưu chính */ }
+    }
+  }
+  try { pubPrevSnap = pubSnapshotOf(read()); } catch { pubPrevSnap = null; }
+  function write(s) { stampPubAndAudit(s); localStorage.setItem(KEY,JSON.stringify(s)); }
+  /* Helper hiển thị dùng chung cho dialog Publishing (audit.js). */
+  const sysMetaPubHTML = r => { try { return (typeof window !== 'undefined' && window.SavaAuditUI) ? window.SavaAuditUI.metaLineHTML(crm(), r) : ''; } catch { return ''; } };
+  const auditSectionPubHTML = r => { try { return (typeof window !== 'undefined' && window.SavaAuditUI) ? window.SavaAuditUI.sectionHTML('request', r.id) : ''; } catch { return ''; } };
+  const loadPubAudit = r => { try { if (typeof window !== 'undefined' && window.SavaAuditUI) window.SavaAuditUI.loadInto($('#editor'), crm(), 'request', r.id); } catch {} };
   function deleteRequest(id) {
     const store = read(), r = store.requests.find(x => x.id === id); if (!r) return;
     const name = label(entity(crm(), r.kind, r.entityId));
@@ -909,14 +961,16 @@
       const histComment = role === 'mkt' ? (hh.comment || '') : (hh.comment || hh.bdComment || '');
       return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(hh.at))} · ${esc(displayName(hh.reviewer))} (${esc((hh.role||'').toUpperCase())}) · ${esc(hh.status||'')}</summary><p>${esc(histRec)} · ${num(histVal,1)}/100 · build ${esc(hh.build||'')}${!isCompany&&effH&&effH.type==='legacy'?' · Khung workbook (cũ)':''}</p>${v2HistLine}<p class="text-break">${esc(histComment)}</p><p class="text-break">${esc(hh.conditions||'')}</p>${entriesHTML}<p class="source-text">Gate: ${esc(gateLine)}</p></details>`;
     }).join('');
-    showDialog(headTyped(dialogTitle,isCompany?'company-review':'game-review')+`<form id="reviewForm"><div class="dialog-body">${companySub}${orphanHTML}<div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(headlineRec)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p><p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${navHTML}${liveInfoHTML(r,s,en)}${intakeHTML}${bdNoteHTML}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&eff.type==='legacy'&&r.revisions.length?' Phiên bản hiện tại là Khung workbook (cũ) — chưa có Market Score v2.':''}${!isCompany&&eff.type==='stale'?' Điểm v2 thuộc mechanic cũ — chờ chấm lại.':''}${!isCompany&&eff.type==='v2-insufficient'?' Điểm v2 chưa đủ dữ liệu (completeness &lt; 80%) — Final hiển thị "—" cho tới khi đủ dữ liệu.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét của MKT':'Ghi chú bổ sung của BD',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
+    showDialog(headTyped(dialogTitle,isCompany?'company-review':'game-review')+`<form id="reviewForm"><div class="dialog-body">${companySub}${orphanHTML}<div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(headlineRec)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p>${sysMetaPubHTML(r)}<p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${navHTML}${liveInfoHTML(r,s,en)}${intakeHTML}${bdNoteHTML}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&eff.type==='legacy'&&r.revisions.length?' Phiên bản hiện tại là Khung workbook (cũ) — chưa có Market Score v2.':''}${!isCompany&&eff.type==='stale'?' Điểm v2 thuộc mechanic cũ — chờ chấm lại.':''}${!isCompany&&eff.type==='v2-insufficient'?' Điểm v2 chưa đủ dữ liệu (completeness &lt; 80%) — Final hiển thị "—" cho tới khi đủ dữ liệu.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét của MKT':'Ghi chú bổ sung của BD',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
       ${professionalSection}
       ${evidenceSection}${dealSection}
       <section class="section"><h3>${isCompany?'6 Hard Gate · xác minh BD':'Hard Gate · xác minh BD'}</h3><p class="mut">Gate độc lập điểm số. Đạt phải có căn cứ; chưa xác minh giữ Chưa xác minh.</p>${isCompany?F.gates.map(([k,t])=>{const g=a.gates?.[k]||{};return role==='bd'?`<details class="criterion"><summary><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></summary><div class="fields">${select('g_'+k,'Trạng thái',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],g.value||'PENDING')}${field('gu_'+k,'Nguồn / ngày',g.source||'')}${area('gn_'+k,'Bằng chứng xác minh',g.note||'')}</div></details>`:`<div class="weight-row"><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></div>`;}).join(''):role==='bd'?`<div class="fields">${select('gate','Hard Gate',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],a.gate||'PENDING')}${field('gateSource','Nguồn / ngày xác minh',a.gateSource||'')}${area('gateNote','Bằng chứng / blocker / điều kiện Đạt',a.gateNote||'')}</div>`:`<p class="mut">${esc(gateLabel(a.gate||'PENDING'))}</p>`}</section>
       <section class="section"><h3>Điều kiện và bước tiếp theo</h3>${role==='mkt'?`<div class="fields">${area('strengths','Điểm mạnh có bằng chứng',a.strengths||'')}${area('risks','Rủi ro chuyên môn',a.risks||'')}${area('conditions','Điều kiện / bằng chứng cần bổ sung',a.conditions||'')}${area('next','Hành động kế tiếp',a.next||'')}</div>`:`<p class="text-break">${esc(a.strengths||'')}</p><p class="text-break">${esc(a.risks||'')}</p><p class="text-break">${esc(a.conditions||'')}</p><p class="text-break">${esc(a.next||'')}</p><div class="fields">${field('build','Build BD bổ sung',r.build||'')}${field('source','Link BD bổ sung',r.source||'','url')}${memberField('assignee','MKT phụ trách','MKT',r.assignee||'')}${field('due','Hạn đánh giá',r.due||'','date')}</div><div id="bd-intake">${intakeFieldsHTML(r.kind,effectiveIntake(r))}</div>`}</section>
+      ${auditSectionPubHTML(r)}
       <section class="section"><h3>Lịch sử đánh giá · ${r.revisions.length} phiên bản</h3>${historyHTML||'<p class="mut">Chưa có phiên bản đánh giá.</p>'}</section><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><span class="mut">${orphan?'Hồ sơ đã gỡ khỏi CRM — chỉ xem, không lưu phiên bản mới':'Lưu thêm phiên bản · giữ lịch sử cũ'}</span><button type="button" class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button>${role==='bd'?`<button type="button" class="btn" data-action="requeue" ${orphan?'disabled':''}>Gửi MKT đánh giá lại</button>`:''}<button class="btn primary" ${orphan?'disabled':''}>${role==='mkt'?'Lưu đánh giá cho BD':'Lưu bổ sung BD'}</button></div></form>`);
+    loadPubAudit(r);
   }
-  
+
   function entryFrom(d,k) {
     const raw=String(d.get('s_'+k)??'').trim(),status=String(d.get('t_'+k)||'Thiếu'),note=String(d.get('n_'+k)||'').trim(),source=String(d.get('u_'+k)||'').trim();
     const score=raw===''?null:Number(raw);

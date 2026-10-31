@@ -419,11 +419,72 @@
     }
   }
 
+  /* ---------- Lịch sử chỉnh sửa (audit_log) ----------
+     Bảng riêng append-only (supabase/audit-log.sql), KHÔNG nằm trong state
+     đồng bộ: ghi bằng insert thuần, đọc theo từng đối tượng khi mở drawer.
+     AN TOÀN KHI BẢNG CHƯA TỒN TẠI (SQL chạy sau): mọi lỗi đều bị nuốt êm —
+     recordBatch không bao giờ ném lỗi vào đường lưu chính (save()/write()
+     gọi nó SAU khi dữ liệu chính đã lưu xong), listFor trả null để UI hiện
+     "Lịch sử chưa khả dụng". Hàng đợi ghi dồn theo đợt (tối đa 1 insert /
+     lần flush) để 1 lần save đụng nhiều entity không tạo nhiều request. */
+  const auditQueue = [];
+  let auditFlushTimer = null, auditFlushing = false;
+  async function flushAudit() {
+    auditFlushTimer = null;
+    if (auditFlushing || !auditQueue.length) return;
+    if (!ctx.client || !ctx.enabled) { auditQueue.length = 0; return; }
+    auditFlushing = true;
+    const batch = auditQueue.splice(0, auditQueue.length);
+    try {
+      const rows = batch.map(e => ({
+        entity_type: e.entityType, entity_id: e.entityId, at: e.at,
+        by_member_id: e.byMemberId || null, action: e.action, changes: Array.isArray(e.changes) ? e.changes : [],
+      }));
+      const { error } = await ctx.client.from('audit_log').insert(rows);
+      if (error) throw error;
+    } catch (err) {
+      /* Nuốt êm có chủ đích: bảng chưa tồn tại / mất mạng / RLS chặn —
+         lịch sử là phụ trợ, tuyệt đối không ảnh hưởng dữ liệu chính. */
+      try { console.warn('[audit] ghi lịch sử thất bại (đã bỏ qua):', err && err.message ? err.message : err); } catch (e2) {}
+    } finally {
+      auditFlushing = false;
+      if (auditQueue.length) scheduleAuditFlush(300);
+    }
+  }
+  function scheduleAuditFlush(delay) {
+    if (auditFlushTimer) return;
+    auditFlushTimer = setTimeout(() => { flushAudit(); }, delay === undefined ? 400 : delay);
+  }
+  function auditRecordBatch(entries) {
+    try {
+      if (!Array.isArray(entries) || !entries.length) return;
+      entries.forEach(e => { if (e && e.entityType && e.entityId) auditQueue.push(e); });
+      scheduleAuditFlush();
+    } catch (e) { /* nuốt êm — xem flushAudit */ }
+  }
+  async function auditListFor(entityType, entityId) {
+    try {
+      if (!ctx.client || !entityType || !entityId) return null;
+      const { data, error } = await ctx.client.from('audit_log')
+        .select('entity_type,entity_id,at,by_member_id,action,changes')
+        .eq('entity_type', entityType).eq('entity_id', String(entityId))
+        .order('at', { ascending: false }).limit(100);
+      if (error) return null;
+      return (data || []).map(r => ({
+        entityType: r.entity_type, entityId: r.entity_id, at: r.at,
+        byMemberId: r.by_member_id || '', action: r.action,
+        changes: Array.isArray(r.changes) ? r.changes : [],
+      }));
+    } catch (e) { return null; }
+  }
+  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, _flush: flushAudit, _queue: auditQueue };
+  if (typeof window !== 'undefined') window.SavaAudit = auditApi;
+
   const api = {
     attach, setEnabled, loadAll, installHook, scheduleSync,
     syncNow: () => scheduleSync(0),
     isReady: () => ctx.ready, CRM_KEY, PUB_KEY, CRM_BACKUP_KEY, PUB_BACKUP_KEY,
-    _ctx: ctx,
+    _ctx: ctx, audit: auditApi,
   };
   if (typeof window !== 'undefined') window.SavaData = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
