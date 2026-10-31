@@ -85,7 +85,10 @@
     const n = Number(v);
     if (v === null || v === undefined || !Number.isFinite(n)) return '';
     const disp = Math.round(n * 10) / 10;
-    for (const th of [65, 80]) { if (n < th && disp >= th) return ` (điểm thô ${fmtLegacyFinal(n)} — chưa qua ngưỡng ${th}, kết luận tính theo điểm thô)`; }
+    /* Thống nhất với bản index.html (FIX-C1 B1): điểm thô làm sạch nhiễu float
+       (64.96000000000001 -> 64.96) kèm giá trị làm tròn hiển thị 1 chữ số —
+       không in "điểm thô 65.0" tự mâu thuẫn với ngưỡng. */
+    for (const th of [65, 80]) { if (n < th && disp >= th) return ` (điểm thô ${String(Number(n.toFixed(6)))} — làm tròn hiển thị ${fmtLegacyFinal(n)} — chưa qua ngưỡng ${th}, kết luận tính theo điểm thô)`; }
     return '';
   }
 

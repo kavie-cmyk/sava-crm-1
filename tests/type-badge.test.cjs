@@ -53,7 +53,7 @@ test('tĩnh: các bề mặt đã rõ loại sẵn giữ nguyên tiêu đề, kh
   }
   const pub = read('publishing.js');
   assert.ok(pub.includes("head('Gửi yêu cầu đánh giá')"), 'dialog gửi yêu cầu giữ head thường');
-  assert.ok(pub.includes("head(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường')"), 'form quan sát giữ head thường');
+  assert.ok(pub.includes("headTyped(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường','market')"), 'form quan sát dùng headTyped kèm badge Mechanic/Thị trường (FIX B8)');
 });
 
 /* ---------- Harness index.html THẬT (mẫu task-context-link.test.cjs) ---------- */

@@ -547,14 +547,14 @@ test('B4 (bridge): summary() nhánh legacy hiện final đúng 1 chữ số th�
   let html = bridge.summary('game', 'gb4');
   assert.ok(html.includes('NO-GO'), 'summary phải giữ nguyên recommendation NO-GO: ' + html);
   assert.ok(html.includes('65.0/100'), 'final 64.96 phải hiện "65.0/100" (đúng 1 chữ số thập phân): ' + html);
-  assert.ok(html.includes('(điểm thô 64.96 — chưa qua ngưỡng 65, kết luận tính theo điểm thô)'),
+  assert.ok(html.includes('(điểm thô 64.96 — làm tròn hiển thị 65.0 — chưa qua ngưỡng 65, kết luận tính theo điểm thô)'),
     'phải kèm ghi chú điểm thô 64.96 chưa qua ngưỡng 65: ' + html);
   /* 79.975 thô -> TEST MORE (chưa qua 80) nhưng bản cũ hiện "80/100" */
   setLegacy(79.975, 'TEST MORE');
   html = bridge.summary('game', 'gb4');
   assert.ok(html.includes('TEST MORE'), 'summary phải giữ nguyên recommendation TEST MORE: ' + html);
   assert.ok(html.includes('80.0/100'), 'final 79.975 phải hiện "80.0/100" (đúng 1 chữ số thập phân): ' + html);
-  assert.ok(html.includes('(điểm thô 79.975 — chưa qua ngưỡng 80, kết luận tính theo điểm thô)'),
+  assert.ok(html.includes('(điểm thô 79.975 — làm tròn hiển thị 80.0 — chưa qua ngưỡng 80, kết luận tính theo điểm thô)'),
     'phải kèm ghi chú điểm thô 79.975 chưa qua ngưỡng 80: ' + html);
   /* Đối chứng: điểm thô đã qua ngưỡng / không chạm ngưỡng khi làm tròn ->
      vẫn 1 chữ số thập phân nhưng KHÔNG ghi chú điểm thô */

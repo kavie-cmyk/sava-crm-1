@@ -124,9 +124,11 @@ test('tĩnh: index.html dùng helper dùng chung ở danh sách + drawer; publis
   assert.ok(html.includes('PublishingBridge.gameBadge(g.id)'), 'vGames chưa dùng gameBadge (= evalBadge game)');
   assert.ok(html.includes('evalRequestButtonHTML'), 'drawer company chưa gắn nút yêu cầu qua helper bridge');
   assert.ok(read('publishing-bridge.js').includes('${evalRequestButtonHTML(\'game\', id)}'), 'drawer game (bridge.summary) chưa gắn nút yêu cầu');
-  /* Đường tạo duy nhất: submitRequest của publishing.js (chống trùng bằng find + mở request sẵn có) */
+  /* Đường tạo duy nhất: submitRequest của publishing.js (chống trùng bằng request
+     canonical qua PublishingBridge.selectRequest — FIX A1/C13, thay .find đầu mảng) */
   const submit = pub.slice(pub.indexOf('function submitRequest'), pub.indexOf('const evidenceLabels'));
-  assert.ok(submit.includes("s.requests.find(r=>r.kind===kind&&r.entityId===entityId)"), 'submitRequest mất chống trùng');
+  assert.ok(submit.includes('canonicalRequest(s.requests,kind,entityId)'), 'submitRequest mất chống trùng');
+  assert.ok(pub.includes('PublishingBridge.selectRequest'), 'canonicalRequest phải delegate PublishingBridge.selectRequest');
   assert.ok(submit.includes('entitySnapshot:entitySnapshotFor(kind,entity(c,kind,entityId))'), 'submitRequest chưa chụp entitySnapshot');
   assert.ok(pub.includes('currentRequesterId()'), 'requestForm chưa mặc định requestedBy = member đang đăng nhập');
   /* BD không ghi kho Publishing trực tiếp ở index.html: không có đường ghi thứ hai */

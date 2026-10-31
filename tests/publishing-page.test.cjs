@@ -68,7 +68,7 @@ test('C13: tên quan sát trùng -> định tuyến bổ sung vào record gốc 
 test('C11/C12/C15: deep-link kind lạ bị chặn; link ngược CRM cho game; request mồ côi khóa lưu', () => {
   assert.ok(src.includes("!['game','company'].includes(kind)"), 'thiếu chặn kind lạ ở deep-link');
   assert.ok(src.includes('index.html?open=game&amp;id='), 'thiếu link ngược CRM cho game');
-  assert.ok(src.includes('Chưa gửi yêu cầu đánh giá — mở game trong CRM'), 'companyNav chưa biến text thành link game CRM');
+  assert.ok(src.includes('Chưa đánh giá — mở game trong CRM'), 'companyNav chưa biến text thành link game CRM');
   assert.ok(src.includes('Hồ sơ đã được gỡ khỏi CRM — chỉ xem, không lưu được phiên bản đánh giá mới.'), 'thiếu guard khóa lưu request mồ côi trong submitReview');
   assert.ok(src.includes("const orphan = !en;"), 'openReview chưa tính trạng thái mồ côi');
 });
