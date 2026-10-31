@@ -166,8 +166,67 @@ function resolveRefLabel(state, refKind, id, entityType, entity) {
   } catch (e) {}
   return String(id);
 }
+/* === Nhãn hiển thị audit (FIX C3+B2) ===
+   Giá trị ghi vào audit_log phải là NHÃN người đọc được của app, không phải
+   mã thô / JSON thô, và TUYỆT ĐỐI không chứa intake.expectations của request
+   (field đã chốt ẩn khỏi MKT, bảo vệ bằng bảng private phía Publishing —
+   audit_log có policy đọc riêng nên expectations lọt vào đây sẽ thành một
+   đường rò rỉ thứ hai). Ba lớp chặn expectations:
+   (1) diffEntity bỏ qua hẳn key "expectations" ở mọi entity;
+   (2) diff field "intake" tách theo TỪNG sub-key và loại "expectations"
+       khỏi danh sách sub-key được diff (kể cả mục create dump toàn bộ);
+   (3) auditValue trả "" cho field "expectations" + tóm tắt object của
+       field "intake" cũng loại sub-key đó — phòng thủ chiều sâu nếu có
+       đường gọi khác truyền nguyên object intake vào. */
+const AUDIT_LEAD_STATUS_LABELS = { new: "Mới", contacted: "Đã liên hệ", qualified: "Đạt chuẩn", converted: "Đã chuyển đổi" };
+const AUDIT_GAME_OWN_LABELS = { ours: "Game của Sava", partner: "Game đối tác" };
+/* Nhãn sub-key intake: đúng bộ nhãn Publishing đang dùng (GAME_INTAKE_LABELS
+   + COMPANY_INTAKE_LABELS trong publishing.js). "expectations" CỐ Ý không
+   có mặt ở đây và bị loại ở tầng diff (xem diffIntake). */
+const AUDIT_INTAKE_LABELS = {
+  mechanicId: "Mechanic khớp dữ liệu thị trường", genre: "Genre", subGenre: "Sub-genre", artStyle: "Art style",
+  coreLoop: "Core loop", gameFeel: "Game feel / archetype", platforms: "Nền tảng", devStage: "Giai đoạn phát triển",
+  monetizationModel: "Mô hình monetization", targetGeo: "Thị trường mục tiêu", metricDownloads: "Downloads (studio báo)",
+  metricRetention: "Retention (studio báo)", metricCpi: "CPI test thực tế (USD)", metricRevenue: "Revenue (studio báo)",
+  storeUrl: "Link store", videoUrl: "Link video / trailer",
+  teamSize: "Quy mô team", country: "Quốc gia", mainGenres: "Genre chính", mainPlatforms: "Nền tảng chính",
+  trackRecord: "Track record", website: "Website studio",
+};
+function auditDealStageLabel(entity, v) {
+  const lineKey = entity && entity.line;
+  const ordered = [];
+  if (lineKey && typeof LINES !== "undefined" && LINES[lineKey]) ordered.push(LINES[lineKey]);
+  if (typeof LINES !== "undefined") Object.keys(LINES).forEach(k => { if (k !== lineKey) ordered.push(LINES[k]); });
+  for (const L of ordered) { const s = L.stages.find(x => x[0] === v); if (s) return s[1]; }
+  return String(v);
+}
+function auditPrimitiveText(v) { return typeof v === "boolean" ? (v ? "Có" : "Không") : String(v); }
+/* Object/array KHÔNG dump JSON nữa: tóm tắt dễ đọc — liệt kê các cặp
+   key: giá trị ở mức NÔNG khi toàn giá trị nguyên thuỷ và đủ ngắn (vd term
+   có rev_share -> hiện "rev_share: …" dạng text), ngược lại "Đã cập nhật
+   (n mục)". Mảng toàn giá trị nguyên thuỷ -> nối ", ". */
+function auditObjectSummary(field, v) {
+  if (Array.isArray(v)) {
+    if (!v.length) return "";
+    if (v.every(x => x === null || typeof x !== "object")) return v.filter(x => x !== null && x !== undefined && x !== "").map(auditPrimitiveText).join(", ");
+    return "Đã cập nhật (" + v.length + " mục)";
+  }
+  let keys = Object.keys(v).filter(k => v[k] !== undefined);
+  if (field === "intake") keys = keys.filter(k => k !== "expectations");
+  if (!keys.length) return "";
+  const parts = [];
+  keys.forEach(k => {
+    const val = v[k];
+    if (val === null || val === "" || typeof val === "object") return;
+    parts.push(k + ": " + auditPrimitiveText(val));
+  });
+  const joined = parts.join("; ");
+  if (parts.length && joined.length <= 120) return joined;
+  return "Đã cập nhật (" + keys.length + " mục)";
+}
 function auditValue(state, entityType, entity, field, v) {
   if (v === undefined || v === null || v === "") return "";
+  if (field === "expectations") return ""; /* chốt bảo mật C3: không đường nào ghi giá trị này vào audit */
   const refs = REF_FIELDS[entityType] || {};
   if (refs[field]) {
     if (Array.isArray(v)) return v.map(x => resolveRefLabel(state, refs[field], x, entityType, entity)).join(", ");
@@ -177,8 +236,33 @@ function auditValue(state, entityType, entity, field, v) {
   if (field === "leads" && Array.isArray(v)) return v.map(x => resolveRefLabel(state, "lead", x, entityType, entity)).join(", ");
   if (field === "line" && typeof LINES !== "undefined" && LINES[v]) return LINES[v].name;
   if (typeof v === "boolean") return v ? "Có" : "Không";
-  if (typeof v === "object") { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+  if (entityType === "deal" && field === "stage") return auditDealStageLabel(entity, v);
+  if (entityType === "lead" && field === "status") return AUDIT_LEAD_STATUS_LABELS[v] || String(v);
+  /* status của request LƯU SẴN bằng nhãn Publishing đang dùng ("Chờ đánh
+     giá" / "Đang đánh giá" / "Chờ bổ sung" / "Hoàn tất") nên giữ nguyên —
+     giá trị lạ cũng giữ nguyên như quy ước nhãn lạ của lead. */
+  if (entityType === "game" && field === "own") return AUDIT_GAME_OWN_LABELS[v] || String(v);
+  if (field === "amount" && typeof v === "number") { try { return money(v, entity && entity.cur); } catch (e) { return String(v); } }
+  if (typeof v === "object") return auditObjectSummary(field, v);
   return String(v);
+}
+/* Diff field intake của request: tách theo TỪNG sub-key, LOẠI BỎ HẲN
+   sub-key "expectations" (không ghi tên, không ghi giá trị). Sub-key còn
+   lại thành mục change riêng với nhãn "Hồ sơ đầu vào — <nhãn sub-key>". */
+function diffIntake(state, entityType, entity, baseLabel, bv, av) {
+  const bObj = (bv && typeof bv === "object" && !Array.isArray(bv)) ? bv : null;
+  const aObj = (av && typeof av === "object" && !Array.isArray(av)) ? av : null;
+  if (!bObj && !aObj) return [{ field: "intake", label: baseLabel, from: auditValue(state, entityType, entity, "intake", bv), to: auditValue(state, entityType, entity, "intake", av) }];
+  const bb = bObj || {}, aa = aObj || {};
+  const subs = [];
+  Object.keys(bb).forEach(k => { if (k !== "expectations" && !subs.includes(k)) subs.push(k); });
+  Object.keys(aa).forEach(k => { if (k !== "expectations" && !subs.includes(k)) subs.push(k); });
+  const out = [];
+  subs.forEach(sk => {
+    if (deepEqualLoose(bb[sk], aa[sk])) return;
+    out.push({ field: "intake." + sk, label: baseLabel + " — " + (AUDIT_INTAKE_LABELS[sk] || sk), from: auditValue(state, entityType, entity, sk, bb[sk]), to: auditValue(state, entityType, entity, sk, aa[sk]) });
+  });
+  return out;
 }
 function diffEntity(state, entityType, before, after) {
   const labels = FIELD_LABELS[entityType] || {};
@@ -188,7 +272,9 @@ function diffEntity(state, entityType, before, after) {
   Object.keys(a).forEach(k => { if (!keys.includes(k)) keys.push(k); });
   const changes = [];
   keys.forEach(k => {
+    if (k === "expectations") return; /* chốt bảo mật C3 */
     if (deepEqualLoose(b[k], a[k])) return;
+    if (k === "intake") { diffIntake(state, entityType, after, labels[k] || "Hồ sơ đầu vào", b[k], a[k]).forEach(c => changes.push(c)); return; }
     changes.push({ field: k, label: labels[k] || k, from: auditValue(state, entityType, after, k, b[k]), to: auditValue(state, entityType, after, k, a[k]) });
   });
   return changes;
@@ -225,13 +311,15 @@ function snapshotById(list) {
   (Array.isArray(list) ? list : []).forEach(x => { if (x && typeof x === "object" && x.id !== undefined && x.id !== null) m.set(String(x.id), cloneForDiff(x)); });
   return m;
 }
-/* Người sửa cuối: tên resolve theo members; member đã xoá -> nhãn dự phòng. */
+/* Người sửa cuối: tên resolve theo members HIỆN TẠI; id không còn trong
+   members -> nhãn "thành viên đã xoá (…)" ĐÚNG format audit.js đang dùng
+   (C9: KHÔNG fallback sang bảng tên legacy USERS nữa — bảng đó hồi sinh
+   tên người đã xoá hẳn như thể họ còn là thành viên hiện tại). */
 function updatedByLabel(state, ent) {
   const id = ent && ent.updatedBy;
   if (!id) return "—";
   const m = memberList(state).find(x => x.id === id);
   if (m && m.name) return m.name;
-  if (Object.prototype.hasOwnProperty.call(USERS, id)) return USERS[id];
   return "thành viên đã xoá (" + String(id).slice(0, 8) + ")";
 }
 function fmtSysTime(v) {
@@ -240,7 +328,7 @@ function fmtSysTime(v) {
   return Number.isNaN(dt.getTime()) ? String(v) : dt.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 }
 if (typeof window !== "undefined") {
-  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, updatedByLabel, fmtSysTime, cloneForDiff };
+  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, updatedByLabel, fmtSysTime, cloneForDiff };
 }
 /* === Partner Eval hợp nhất (khung file 2 — Publishing Partner Selection) ===
    Implementation Partner DUY NHẤT dùng chung cho BD (drawer công ty trong
@@ -674,6 +762,26 @@ function migrateState(s) {
     do { migLeadSeq++; id = "l" + Date.now() + "m" + migLeadSeq; } while (s.leads.some(l => l.id === id));
     return id;
   };
+  /* C7: Lead sinh ra trong migration dưới đây phải mang trường HỆ THỐNG
+     ngay tại thời điểm tạo (createdAt/updatedAt = thời điểm migration;
+     updatedBy = member đang đăng nhập NẾU xác định được qua kênh chuẩn
+     window.SavaAuth.currentUser() tại thời điểm đó, không xác định được
+     thì để "" — KHÔNG bịa). Trước đây lead migrate không có 3 trường này.
+     Về audit: migrateState chạy trong loadState lúc nạp trang, TRƯỚC khi
+     tầng dữ liệu Supabase được bật và TRƯỚC khi danh tính đăng nhập được
+     xác lập (RLS audit_log còn bắt by_member_id khớp member người gọi;
+     hàng đợi SavaAudit bị xoá khi tầng dữ liệu chưa enabled) — KHÔNG có
+     kênh ghi audit chuẩn nào khả thi an toàn tại thời điểm đó, và
+     crmPrevSnap phía index.html được chụp SAU loadState nên save() sau
+     đó cũng không sinh mục create cho lead này. Vì vậy migration chỉ
+     đóng dấu hệ thống tại chỗ, không tự dựng đường ghi audit mới. */
+  const migNowIso = new Date().toISOString();
+  let migBy = "";
+  try {
+    const w = (typeof window !== "undefined" && window) || null;
+    const u = w && w.SavaAuth && typeof w.SavaAuth.currentUser === "function" ? w.SavaAuth.currentUser() : null;
+    if (u && u.memberId) migBy = String(u.memberId);
+  } catch (e) {}
   s.companies.forEach(c => {
     if (!c || typeof c !== "object" || Array.isArray(c)) return;
     if (c.contactLeadMigrated) return;
@@ -702,6 +810,9 @@ function migrateState(s) {
       status: "new",
       note: "",
       when: new Date().toISOString().slice(0, 10),
+      createdAt: migNowIso,
+      updatedAt: migNowIso,
+      updatedBy: migBy,
     });
   });
   return s;
@@ -750,7 +861,17 @@ function loadState() {
   }
 }
 function storeState(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {} }
-function money(n, cur) { if (n == null || typeof n !== "number" || !Number.isFinite(n)) return "—"; return cur === "USD" ? "$" + n.toLocaleString("en-US") : Math.round(n / 1e6).toLocaleString("vi-VN") + "tr ₫"; }
+/* Định dạng tiền CHỈ ở tầng hiển thị (B6): VND < 1tr hiện nguyên số có
+   phân cách nghìn + " ₫" (trước đây làm tròn tới hàng triệu nên 400.000
+   thành "0tr ₫"); VND >= 1tr hiện "Xtr ₫" tối đa 2 chữ số thập phân, cắt
+   số 0 thừa, dấu thập phân theo vi-VN (dấu phẩy — cùng cách pipelineValue
+   trong index.html in "tỷ ₫"); USD tối đa 2 chữ số thập phân. */
+function money(n, cur) {
+  if (n == null || typeof n !== "number" || !Number.isFinite(n)) return "—";
+  if (cur === "USD") return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (Math.abs(n) < 1e6) return n.toLocaleString("vi-VN") + " ₫";
+  return (n / 1e6).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "tr ₫";
+}
 function stageOf(line, key) { return LINES[line].stages.find(s => s[0] === key); }
 function isOpen(d) { return d.stage !== "won" && d.stage !== "lost"; }
 function toast(msg) {
