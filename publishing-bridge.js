@@ -71,7 +71,11 @@
      ngưỡng 65/80 nhưng điểm thô CHƯA qua ngưỡng thì kèm ghi chú rõ điểm
      thô, để không ai hiểu nhầm là đã đạt ngưỡng. Chỉ là quy tắc HIỂN THỊ:
      final thô lấy nguyên từ PublishingScore.game(), không làm tròn trung
-     gian, không đổi phép tính legacy / recommendation. ===== */
+     gian, không đổi phép tính legacy / recommendation.
+     B1 (FIX-3): ghi chú ngưỡng ở bridge KHÔNG còn in chuỗi thô
+     (64.96000000000001) — điểm thô trong ghi chú cũng qua fmtLegacyFinal
+     (đúng 1 chữ số thập phân) như mọi hiển thị khác; phép tính/ngưỡng
+     không đổi. ===== */
   function fmtLegacyFinal(v) {
     const n = Number(v);
     if (v === null || v === undefined || !Number.isFinite(n)) return '—';
@@ -81,7 +85,7 @@
     const n = Number(v);
     if (v === null || v === undefined || !Number.isFinite(n)) return '';
     const disp = Math.round(n * 10) / 10;
-    for (const th of [65, 80]) { if (n < th && disp >= th) return ` (điểm thô ${String(n)} — chưa qua ngưỡng ${th}, kết luận tính theo điểm thô)`; }
+    for (const th of [65, 80]) { if (n < th && disp >= th) return ` (điểm thô ${fmtLegacyFinal(n)} — chưa qua ngưỡng ${th}, kết luận tính theo điểm thô)`; }
     return '';
   }
 
@@ -176,6 +180,21 @@
     return blockHas(c.market, ['size','growth','entry','monetization','ua','economics','rtw','whitespace'])
         || blockHas(c.prototype, ['uaTest','retention','engagement','monetizationTest','gamefeel','tech']);
   }
+  /* FIX-3 (mục đã biết — ghi chú lệch mechanic ở drawer BD): mechanic
+     HIỆN TẠI để so với mechanic đã chấm phải suy từ genre CRM hiện tại
+     của game — đúng helper mechanicIdForGame mà publishing.js đang dùng
+     và đã phơi qua window.PublishingEffective (chỉ có trên trang
+     Publishing/MKT; ở trang CRM không có helper này thì fallback về
+     intake.mechanicId như trước). KHÔNG tính lại điểm, KHÔNG sửa revision. */
+  function crmDerivedMechanicId(record) {
+    try {
+      const fn = (typeof window !== 'undefined' && window.PublishingEffective && typeof window.PublishingEffective.mechanicIdForGame === 'function') ? window.PublishingEffective.mechanicIdForGame : null;
+      if (!fn || !record) return '';
+      const st = crmState();
+      const g = st && Array.isArray(st.games) ? st.games.find(x => x && x.id === record.entityId) : null;
+      return g ? String(fn(g) || '') : '';
+    } catch { return ''; }
+  }
   function gameSummary(id) {
     const empty = { exists: false, requestId: null, status: null, versions: 0, v2: null, legacy: null, mechanicMismatch: false, mechanicDiverged: false, current: null, request: null };
     const record = findLive('game', id);
@@ -200,7 +219,7 @@
              hiệu; khác biệt chỉ được ghi nhận ở mechanicDiverged để bề mặt
              hiển thị kèm ghi chú, không tính lại điểm im lặng. */
           const savedMech = v2In.fromMechanicId ?? v2In.mechanicId ?? null;
-          const curMech = record.intake && typeof record.intake === 'object' ? (record.intake.mechanicId || null) : null;
+          const curMech = crmDerivedMechanicId(record) || (record.intake && typeof record.intake === 'object' ? (record.intake.mechanicId || null) : null);
           if (savedMech && curMech && savedMech !== curMech) {
             const completed = record.status === 'Hoàn tất' || (cur && cur.status === 'Hoàn tất');
             if (completed) mechanicDiverged = true; else mechanicMismatch = true;
@@ -350,7 +369,7 @@
       return `<section style="background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:15px;margin:16px 0"><h3 style="margin:0 0 7px">Đánh giá Partner</h3><p style="margin:0 0 7px">Trạng thái đánh giá: ${evalBadge('company', id)}</p>${result}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><a class="btn" style="text-decoration:none" href="publishing.html?tab=reviews&amp;kind=company&amp;id=${encodeURIComponent(id)}">Mở đánh giá Partner →</a>${evalRequestButtonHTML('company', id)}</div></section>`;
     }
     const gs = gameSummary(id);
-    let status = 'Chưa gửi yêu cầu đánh giá', result = '';
+    let status = 'Chưa đánh giá', result = '';
     if (gs.exists) {
       status = gs.status || status;
       const revCount = gs.versions;
@@ -575,12 +594,27 @@
       try { localStorage.setItem(STORE_KEY_PUB, JSON.stringify(store)); }
       catch { return { migrated: 0, flagged: 0, skipped: 0, error: 'write-failed' }; } /* A4: không ghi được -> không đặt cờ nào */
     }
-    if (crmActions.length) {
-      crmActions.forEach(a => { if (a.value) a.company.partnerEvalMigrated = true; else delete a.company.partnerEvalMigrated; });
+    /* C6 (FIX-3): cờ partnerEvalMigrated CHỈ được đặt cho công ty mà request
+       canonical ĐÃ TỒN TẠI THẬT trong kho Publishing đọc lại từ localStorage
+       sau khi ghi (không tin bản trong bộ nhớ) — cờ không bao giờ được đẩy
+       lên máy chủ cho một công ty không có request canonical. Hành động hồi
+       cờ (value=false) không cần điều kiện này. */
+    let verifiedActions = crmActions;
+    if (crmActions.some(a => a.value)) {
+      let checkStore = storeChanged ? null : store;
+      try {
+        const raw2 = localStorage.getItem(STORE_KEY_PUB);
+        if (raw2) { const parsed2 = JSON.parse(raw2); if (parsed2 && typeof parsed2 === 'object' && !Array.isArray(parsed2) && Array.isArray(parsed2.requests)) checkStore = parsed2; }
+      } catch { /* giữ checkStore như trên: vừa ghi mà đọc lại lỗi -> không đặt cờ đợt này, lần sau thử lại */ }
+      verifiedActions = crmActions.filter(a => !a.value || !!(checkStore && selectRequest(checkStore.requests, 'company', a.company.id)));
+    }
+    const skippedActions = crmActions.length - verifiedActions.length;
+    if (verifiedActions.length) {
+      verifiedActions.forEach(a => { if (a.value) a.company.partnerEvalMigrated = true; else delete a.company.partnerEvalMigrated; });
       try { if (typeof storeState === 'function' && typeof S !== 'undefined') storeState(S); } catch {}
       try { if (typeof render === 'function') render(); } catch {}
     }
-    return { migrated, flagged, skipped: 0 };
+    return { migrated, flagged, skipped: skippedActions };
   }
 
   /* A13: API bridge phơi cho các trang Publishing (đợt 2 nạp publishing-bridge.js
@@ -592,13 +626,53 @@
        hasValidGameV2(current) — định nghĩa "có v2" duy nhất (B3, delegating
        PublishingScore.hasValidV2). */
   function hasValidGameV2(cur) { return v2HasValidScore(cur); }
-  window.PublishingBridge = { summary, gameBadge, partnerSummary, gameSummary, migratePartnerLegacy, selectRequest, requestCurrentHasData, requestHasCanonicalData, hasValidGameV2,
+  /* ===== C6 (FIX-3): migration Partner KHÔNG còn là đường ghi đua với
+     loadAll nữa =====
+     Vấn đề cũ: migrate chạy ngay ở DOMContentLoaded và ghi thẳng hai kho
+     localStorage — nếu nó chạy TRƯỚC khi SavaData.loadAll() nạp dữ liệu
+     máy chủ về cache, loadAll ghi đè cache bằng dữ liệu máy chủ và request
+     vừa migrate (kèm cờ trong kho CRM) mất sạch trước khi đồng bộ kịp đẩy.
+     Cơ chế nay:
+     - Có tầng Supabase (window.SavaData tồn tại trên trang): HOÃN migration
+       tới khi auth báo dữ liệu-sẵn-sàng qua window.__savaOnReady — hook mà
+       supabase-auth.js gọi SAU khi loadAll() thành công VÀ đồng bộ ghi đã
+       bật (cả hai đường boot mở-nhanh + cổng). Migration lúc đó ghi qua
+       chính localStorage.setItem mà SavaData.installHook() đang bọc: hai
+       kho vừa ghi được scheduleSync đẩy lên máy chủ như mọi lần lưu chuẩn
+       khác, không còn cửa sổ nào để loadAll ghi đè mất nữa. Nếu đồng bộ đã
+       sẵn sàng từ trước (SavaData.isReady()), chạy ngay.
+     - Không có tầng Supabase (chạy local thuần / harness không nạp
+       supabase-data.js): giữ hành vi cũ — chạy ngay khi được gọi.
+     - migratePartnerLegacy() gọi TRỰC TIẾP vẫn chạy ngay (đường thủ công
+       + test); chỉ lịch TỰ ĐỘNG + lời gọi từ publishing.js đi qua
+       migratePartnerLegacyWhenReady(). */
+  let partnerMigrateReadyHooked = false;
+  function migratePartnerLegacyWhenReady() {
+    if (typeof window !== 'undefined' && window.SavaData) {
+      if (typeof window.SavaData.isReady === 'function' && window.SavaData.isReady()) { try { migratePartnerLegacy(); } catch {} return { deferred: false }; }
+      if (!partnerMigrateReadyHooked) {
+        partnerMigrateReadyHooked = true;
+        const prevReady = window.__savaOnReady;
+        window.__savaOnReady = function (...args) {
+          try { if (typeof prevReady === 'function') prevReady.apply(this, args); } catch {}
+          try { migratePartnerLegacy(); } catch {}
+        };
+      }
+      return { deferred: true };
+    }
+    try { migratePartnerLegacy(); } catch {}
+    return { deferred: false };
+  }
+  window.PublishingBridge = { summary, gameBadge, partnerSummary, gameSummary, migratePartnerLegacy, migratePartnerLegacyWhenReady, selectRequest, requestCurrentHasData, requestHasCanonicalData, hasValidGameV2,
     /* Trạng thái đánh giá 3 mức + nút yêu cầu (helper dùng chung mọi bề mặt BD) */
     evalStatus, evalStatusFromRequests, evalBadge, evalBadgeForStatus, companyBadge, evalRequestUrl, evalRequestButtonHTML, requestEvalCompleted, requestIsOpen };
   addEventListener('storage', e => { if (e.key === 'sava_publishing_v1') { if (typeof render === 'function') render(); if (typeof refreshDrawer === 'function') refreshDrawer(); } });
-  /* Migration chạy khi trang CRM (index.html) đã nạp xong state S. */
+  /* Migration TỰ ĐỘNG: khi trang CRM đã nạp xong state S. Có tầng Supabase
+     thì việc "nạp xong" tính ở mốc dữ liệu máy chủ đã về (xem C6 ở trên),
+     không phải DOMContentLoaded thuần. Không có document (harness tối
+     thiểu) thì không tự chạy — các test gọi hàm trực tiếp. */
   if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { try { migratePartnerLegacy(); } catch {} });
-    else { try { migratePartnerLegacy(); } catch {} }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { try { migratePartnerLegacyWhenReady(); } catch {} });
+    else { try { migratePartnerLegacyWhenReady(); } catch {} }
   }
 })();

@@ -5,6 +5,7 @@
   const params = new URLSearchParams(location.search);
   let tab = ['market','reviews','framework'].includes(params.get('tab')) ? params.get('tab') : 'market';
   let query = '', category = 'Puzzle', reviewFilter = 'all', reviewKindFilter = 'all', active = null, focusBefore = null;
+  let bdEditMode = false; /* B4 (FIX-3): khối BD trong dialog review mặc định CHẾ ĐỘ XEM (view-first như khối Term); true chỉ khi BD bấm "Sửa hồ sơ". */
   const $ = s => document.querySelector(s);
   const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const num = (v,d=0) => typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString('en-US',{maximumFractionDigits:d}) : '—';
@@ -170,6 +171,12 @@
      mục audit ghi qua window.SavaAudit (bảng audit_log) SAU khi
      localStorage đã ghi, bọc try/catch — lỗi ghi audit không phá lưu chính. */
   let pubPrevSnap = null;
+  /* C4 (FIX-3): cờ STALE phía Publishing, tương đương crmStale phía CRM
+     (index.html): tab khác ghi kho Publishing mới hơn -> tab này bị chặn
+     write() cho tới khi nạp lại dữ liệu mới nhất (pubReloadLatest /
+     __savaOnDataRefreshed). Nếu không, pubPrevSnap cũ khiến lần write()
+     sau đóng dấu thay đổi của tab khác thành của mình. */
+  let pubStale = false;
   function pubSnapshotOf(store) {
     try {
       if (typeof window === 'undefined' || !window.SavaSys) return new Map();
@@ -183,6 +190,8 @@
     try { const u = (typeof window !== 'undefined' && window.SavaAuth && typeof window.SavaAuth.currentUser === 'function') ? window.SavaAuth.currentUser() : null; return u && u.memberId ? String(u.memberId) : ''; } catch { return ''; }
   }
   function stampPubAndAudit(s) {
+    /* C4 stale-guard nằm tại đây (điểm chạm duy nhất của write()): stale thì ném lỗi TRƯỚC khi đóng dấu/ghi audit/lưu — write() bị chặn hoàn toàn. */
+    if (pubStale) throw Error('Dữ liệu Publishing đã được tab khác cập nhật mới hơn — việc lưu đã bị chặn. Hãy bấm "Tải lại dữ liệu mới nhất" ở banner cảnh báo trước khi lưu tiếp.');
     let entries = [];
     try {
       if (typeof window === 'undefined' || !window.SavaSys || !Array.isArray(s.requests)) return;
@@ -207,6 +216,32 @@
     }
   }
   try { pubPrevSnap = pubSnapshotOf(read()); } catch { pubPrevSnap = null; }
+  function pubMarkStale() {
+    if (pubStale) return;
+    pubStale = true;
+    try {
+      if (typeof document !== 'undefined' && typeof document.createElement === 'function' && typeof document.getElementById === 'function' && !document.getElementById('pubStaleBanner')) {
+        const b = document.createElement('div');
+        b.id = 'pubStaleBanner'; b.setAttribute('role', 'alert');
+        b.style.cssText = 'background:#fef2f2;border:1.5px solid #dc2626;color:#991b1b;border-radius:10px;padding:11px 14px;font-size:13.5px;margin-bottom:14px;line-height:1.55';
+        b.innerHTML = '⚠️ <b>Dữ liệu Publishing đã được tab/cửa sổ khác cập nhật mới hơn bản bạn đang xem.</b> Việc lưu ở tab này đã bị CHẶN để tránh ghi đè. <button type="button" onclick="pubReloadLatest()" style="margin-left:8px;background:#dc2626;color:#fff;border:none;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600">Tải lại dữ liệu mới nhất</button>';
+        const host = document.querySelector('#screen') || document.body;
+        if (host && typeof host.insertBefore === 'function') host.insertBefore(b, host.firstChild);
+        else if (host && typeof host.appendChild === 'function') host.appendChild(b);
+      }
+    } catch {}
+    try { notify('⚠️ Tab khác đã cập nhật dữ liệu Publishing — tab này đã bị chặn lưu. Hãy tải lại dữ liệu mới nhất.'); } catch {}
+  }
+  function pubReloadLatest() {
+    try { pubPrevSnap = pubSnapshotOf(read()); } catch {}
+    pubStale = false;
+    try { const b = typeof document !== 'undefined' && typeof document.getElementById === 'function' ? document.getElementById('pubStaleBanner') : null; if (b && typeof b.remove === 'function') b.remove(); } catch {}
+    try { window.S = crm(); } catch {}
+    if ($('#editor').open) closeDialog();
+    render();
+    try { notify('Đã tải lại dữ liệu Publishing mới nhất — bạn sửa tiếp được rồi.'); } catch {}
+  }
+  try { if (typeof window !== 'undefined') window.pubReloadLatest = pubReloadLatest; } catch {}
   function write(s) { stampPubAndAudit(s); localStorage.setItem(KEY,JSON.stringify(s)); }
   /* Helper hiển thị dùng chung cho dialog Publishing (audit.js). */
   const sysMetaPubHTML = r => { try { return (typeof window !== 'undefined' && window.SavaAuditUI) ? window.SavaAuditUI.metaLineHTML(crm(), r) : ''; } catch { return ''; } };
@@ -216,7 +251,7 @@
     const store = read(), r = store.requests.find(x => x.id === id); if (!r) return;
     const name = label(entity(crm(), r.kind, r.entityId));
     const n = (r.revisions || []).length;
-    if (!confirm(`Xóa yêu cầu đánh giá "${name}" (${r.kind === 'company' ? 'company' : 'game'})?\nSẽ xóa vĩnh viễn yêu cầu này cùng ${n} phiên bản đánh giá đã lưu. Hành động này KHÔNG khôi phục được.`)) return;
+    if (!confirm(`Xóa yêu cầu đánh giá "${name}" (${r.kind === 'company' ? 'Đánh giá Partner' : 'Đánh giá Game'})?\nSẽ xóa vĩnh viễn yêu cầu này cùng ${n} phiên bản đánh giá đã lưu. Hành động này KHÔNG khôi phục được.`)) return;
     store.requests = store.requests.filter(x => x.id !== id);
     write(store);
     if ($('#editor').open) closeDialog();
@@ -235,7 +270,15 @@
     render(); notify(isOriginal ? 'Đã gỡ dữ liệu bổ sung, khôi phục bản gốc.' : 'Đã xóa quan sát thị trường.');
   }
   const crm = () => loadState();
-  const isStudio = c => Object.hasOwn(c.roles || {},'publishing') && !/publisher/i.test(c.type || '');
+  /* A1/C13 (FIX-3): chọn request canonical DUY NHẤT qua PublishingBridge.selectRequest
+     (request khớp CUỐI mảng) ở mọi bề mặt của publishing.js; fallback giữ đúng
+     quy tắc cuối-mảng khi bridge chưa nạp (không quay về .find() đầu tiên). */
+  const canonicalRequest = (list, kind, id) => {
+    try { if (typeof window !== 'undefined' && window.PublishingBridge && typeof window.PublishingBridge.selectRequest === 'function') return window.PublishingBridge.selectRequest(list, kind, id); } catch {}
+    const m = (Array.isArray(list) ? list : []).filter(r => r && r.kind === kind && r.entityId === id);
+    return m.length ? m[m.length - 1] : undefined;
+  };
+  /* A12 (FIX-3): dùng isStudioCompany TOÀN CỤC của shared.js (publishing.html/mkt.html đều nạp shared.js trước) — bản sao isStudio kiểm tra có-key đã xoá để thống nhất ca biên roles.publishing falsy/rỗng. */
   const entity = (s,kind,id) => (kind === 'company' ? s.companies : s.games).find(x=>x.id===id);
   const label = x => x?.name || x?.title || 'Hồ sơ đã được gỡ';
   const eligibleGames = s => s.games.filter(g=>g.own === 'ours' || g.own === 'partner');
@@ -374,6 +417,13 @@
     try { const s=crm(); const fn=(typeof window!=='undefined'&&typeof window.memberName==='function')?window.memberName:(typeof memberName!=='undefined'&&typeof memberName==='function'?memberName:null); if (fn) { const n=fn(s,cur); if (n) return String(n); } } catch {}
     const m=memberList().find(x=>String(x.id)===cur); return m?m.name:cur;
   }
+  /* A11 (FIX-3): tên người (requestedBy/assignee/reviewer/by) là LINK sang
+     hồ sơ thành viên trong CRM (?open=member), không còn text chết. Giá trị
+     cũ không phải id member vẫn hiện đúng tên thô qua displayName(). */
+  function memberLinkHTML(v) {
+    const cur = String(v ?? '').trim(); if (!cur) return '';
+    return `<a href="index.html?open=member&amp;id=${encodeURIComponent(cur)}">${esc(displayName(cur))}</a>`;
+  }
   /* ---- Intake (hồ sơ đầu vào BD thu thập) ---- */
   const GAME_INTAKE_LABELS=[['mechanicId','Mechanic khớp dữ liệu thị trường'],['genre','Genre'],['subGenre','Sub-genre'],['artStyle','Art style'],['coreLoop','Core loop'],['gameFeel','Game feel / archetype'],['platforms','Nền tảng'],['devStage','Giai đoạn phát triển'],['monetizationModel','Mô hình monetization'],['targetGeo','Thị trường mục tiêu'],['metricDownloads','Downloads (studio báo)'],['metricRetention','Retention (studio báo)'],['metricCpi','CPI test thực tế (USD)'],['metricRevenue','Revenue (studio báo)'],['storeUrl','Link store'],['videoUrl','Link video / trailer'],['expectations','Kỳ vọng publishing']];
   const COMPANY_INTAKE_LABELS=[['teamSize','Quy mô team'],['country','Quốc gia'],['mainGenres','Genre chính'],['mainPlatforms','Nền tảng chính'],['trackRecord','Track record'],['website','Website studio']];
@@ -404,7 +454,7 @@
     }
     return '';
   }
-  if (typeof window !== 'undefined') window.PublishingEffective = {...(window.PublishingEffective || {}), mechanicIdForGame, isCompletedRequest, effectiveIntake, effectiveMechanicId, crmMechanicId, savedMechanicId, entitySnapshotFor, currentRequesterId, splitCrmGenre};
+  if (typeof window !== 'undefined') window.PublishingEffective = {...(window.PublishingEffective || {}), mechanicIdForGame, isCompletedRequest, effectiveIntake, effectiveMechanicId, crmMechanicId, savedMechanicId, entitySnapshotFor, currentRequesterId, splitCrmGenre, canonicalRequest, memberLinkHTML, isPubStale: () => pubStale, pubPrevSnapSize: () => (pubPrevSnap ? pubPrevSnap.size : 0)};
   /* ===== ĐỒNG BỘ THÔNG TIN LIÊN QUAN CRM <-> ĐÁNH GIÁ (chốt bổ sung) =====
      Khảo sát mô hình thật (trước khi sửa):
      - LIVE theo id (đã đúng sẵn): tên game/company ở thẻ review
@@ -504,10 +554,13 @@
   function liveInfoHTML(r, s, en) {
     const snap = r.entitySnapshot && typeof r.entitySnapshot === 'object' && !Array.isArray(r.entitySnapshot) ? r.entitySnapshot : null;
     const row = (k, v) => `<div class="mk-dl-row"><dt>${esc(k)}</dt><dd>${esc(v === undefined || v === null || String(v).trim() === '' ? '—' : String(v))}</dd></div>`;
+    const rowHTML = (k, html) => `<div class="mk-dl-row"><dt>${esc(k)}</dt><dd>${html || '—'}</dd></div>`;
     let rows = '', note = '';
     if (r.kind === 'game') {
       if (en) {
-        rows = row('Tên game (CRM hiện tại)', label(en)) + row('Mô tả', en.desc || '') + row('Genre / Sub-genre', en.genre || '') + row('Nền tảng', en.platform || '') + row('Giai đoạn', en.stage || '') + row('Link build', en.buildUrl || '') + row('Link trailer', en.trailerUrl || '');
+        const studioCo = en.company ? (s && Array.isArray(s.companies) ? s.companies.find(c => c && c.id === en.company) : null) : null;
+        const studioRow = en.company ? rowHTML('Studio sở hữu', `<a href="index.html?open=company&amp;id=${encodeURIComponent(en.company)}">${esc(studioCo ? label(studioCo) : 'Hồ sơ đã được gỡ')}</a>`) : row('Studio sở hữu', '');
+        rows = row('Tên game (CRM hiện tại)', label(en)) + studioRow + row('Mô tả', en.desc || '') + row('Genre / Sub-genre', en.genre || '') + row('Nền tảng', en.platform || '') + row('Giai đoạn', en.stage || '') + row('Link build', en.buildUrl || '') + row('Link trailer', en.trailerUrl || '');
       } else if (snap) {
         note = `<p class="mut">Hồ sơ game gốc đã được gỡ khỏi CRM — thông tin dưới đây là dữ liệu chụp trong yêu cầu lúc tạo (snapshot), điểm/kết luận đã lưu vẫn giữ nguyên.</p>`;
         rows = row('Tên game (snapshot)', snap.name || '') + row('Mô tả (snapshot)', snap.desc || '') + row('Genre / Sub-genre (snapshot)', snap.genre || '') + row('Nền tảng (snapshot)', snap.platform || '') + row('Link build (snapshot)', snap.buildUrl || '') + row('Link trailer (snapshot)', snap.trailerUrl || '');
@@ -534,14 +587,18 @@
            MAIN_CONTACT_LABEL của shared.js — cùng một chuỗi hiển thị với
            phía CRM, ở dạng text thuần vì hàng này được esc() khi render. */
         const cLeads = (s && Array.isArray(s.leads) ? s.leads : []).filter(l => l && l.company === en.id);
-        const leadsText = cLeads.length ? cLeads.map(l => {
-          const bits = [String(l.name || '')];
-          if (l.person && l.person !== l.name) bits.push(String(l.person));
-          if (l.phone) bits.push(String(l.phone));
-          if (l.mainContact) bits.push(MAIN_CONTACT_LABEL);
-          return bits.filter(Boolean).join(' · ');
+        /* A11 (FIX-3): từng lead là LINK sang hồ sơ lead trong CRM
+           (?open=lead&id=<id của lead thật>), không còn chuỗi text nối ";". */
+        const leadsHTML = cLeads.length ? cLeads.map(l => {
+          const display = String(l.name || l.person || 'Lead');
+          const bits = [];
+          if (l.person && l.person !== l.name && l.person !== display) bits.push(esc(l.person));
+          if (l.phone) bits.push(esc(l.phone));
+          if (l.mainContact) bits.push(esc(MAIN_CONTACT_LABEL));
+          const link = l.id ? `<a href="index.html?open=lead&amp;id=${encodeURIComponent(l.id)}">${esc(display)}</a>` : esc(display);
+          return [link, ...bits].filter(Boolean).join(' · ');
         }).join(' ; ') : '';
-        rows = row('Tên công ty (CRM hiện tại)', label(en)) + row('Loại hình', en.type || '') + row('Đầu mối liên hệ — lead của công ty (CRM hiện tại)', leadsText);
+        rows = row('Tên công ty (CRM hiện tại)', label(en)) + row('Loại hình', en.type || '') + rowHTML('Đầu mối liên hệ — lead của công ty (CRM hiện tại)', leadsHTML);
       } else if (snap) {
         note = `<p class="mut">Hồ sơ công ty gốc đã được gỡ khỏi CRM — thông tin dưới đây là dữ liệu chụp trong yêu cầu lúc tạo (snapshot), điểm/kết luận đã lưu vẫn giữ nguyên.</p>`;
         rows = row('Tên công ty (snapshot)', snap.name || '') + row('Loại hình (snapshot)', snap.type || '');
@@ -651,8 +708,8 @@
   function companyNavHTML(r,s,allRequests) {
     const games=(s.games||[]).filter(g=>g && g.company===r.entityId);
     const rowsHtml=games.length?games.map(g=>{
-      const greq=(allRequests||[]).find(x=>x.kind==='game'&&x.entityId===g.id);
-      if (!greq) return `<div class="mk-nav-row"><span>${esc(label(g))}</span><a href="index.html?open=game&amp;id=${encodeURIComponent(g.id)}">Chưa gửi yêu cầu đánh giá — mở game trong CRM</a></div>`;
+      const greq=canonicalRequest(allRequests||[],'game',g.id);
+      if (!greq) return `<div class="mk-nav-row"><span>${esc(label(g))}</span><a href="index.html?open=game&amp;id=${encodeURIComponent(g.id)}">Chưa đánh giá — mở game trong CRM</a></div>`;
       const eff=effectiveGameResult(greq);
       const txt=eff.type==='stale'?eff.recommendation:`${eff.label}: ${eff.final===null||eff.final===undefined?'—':num(eff.final,1)}/100 · ${eff.recommendation}`;
       return `<div class="mk-nav-row"><span>${esc(label(g))}</span><span class="mut">${esc(txt)}</span><button type="button" class="btn" data-review="${esc(greq.id)}">Mở đánh giá game</button></div>`;
@@ -761,7 +818,7 @@
     const close=d.querySelector('[data-close]'); if(close) close.focus();
   }
   function closeDialog() { $('#editor').close(); }
-  $('#editor').addEventListener('close',()=>{ if($('#editor').open)return; document.body.style.overflow=''; active=null; if(focusBefore?.isConnected) focusBefore.focus(); });
+  $('#editor').addEventListener('close',()=>{ if($('#editor').open)return; document.body.style.overflow=''; active=null; bdEditMode=false; if(focusBefore?.isConnected) focusBefore.focus(); });
   $('#editor').addEventListener('click',e=>{if(e.target === $('#editor')){const b=e.target.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)closeDialog();}});
   const head = title => `<div class="dialog-head"><h2 id="editorTitle">${esc(title)}</h2><button class="close" data-close aria-label="Đóng">×</button></div>`;
   /* Nhãn LOẠI ở vùng tiêu đề dialog chi tiết: cùng helper dùng chung
@@ -801,7 +858,7 @@
     const r=observations().find(x=>x.id===id);if(!r)return;
     const original=DATA.records.find(x=>x.id===id);
     const h=r.history||{},c=r.cpi||{};
-    showDialog(headTyped(r.name,'market')+`<div class="dialog-body"><div class="chips">${badge(r.category)}<span class="badge">${esc(r.date)} · ${esc(r.geo)}</span></div><p class="sub">${esc(r.platform)}</p><div class="summary-result"><div><small>Downloads / ngày</small><strong>${num(r.downloads)}</strong></div><div><small>Revenue / ngày</small><strong>${usd(r.revenue)}</strong></div><div><small>Top 3 revenue concentration</small><strong>${pct(r.top3)}</strong></div></div><section class="section"><h3>Benchmark UA</h3><p class="mut">${esc(r.cpiScope||'Chưa có CPI cùng phạm vi trong file.')}</p><div class="chips"><span class="badge">P25 ${usd(c.p25)}</span><span class="badge">Median ${usd(c.median)}</span><span class="badge">P75 ${usd(c.p75)}</span><span class="badge">Valid titles ${num(c.valid)} / ${num(c.eligible)}</span></div><p class="mut">CPI title = paid spend / paid installs. Median/P25/P75 giữa các title, không tính bằng total downloads.</p></section><section class="section"><h3>Lịch sử cohort quan sát</h3><p class="mut">${esc(r.historyPeriod||'Chưa nhập lịch sử cùng cohort.')}</p><div class="table-scroll"><table><thead><tr><th>Chỉ số</th><th>30D</th><th>90D</th><th>12M theo nguồn</th></tr></thead><tbody><tr><td>Downloads</td><td>${num(h.dl30)}</td><td>${num(h.dl90)}</td><td>${num(h.dl12)}</td></tr><tr><td>Revenue USD</td><td>${usd(h.rev30)}</td><td>${usd(h.rev90)}</td><td>${usd(h.rev12)}</td></tr></tbody></table></div><p class="mut">DL growth 3M: ${pct(h.dlGrowth3)} · Rev growth 3M: ${pct(h.revGrowth3)} · Rev growth 6M: ${pct(h.revGrowth6)}</p><p class="mut">RPD cùng cohort: ${usd(h.rpd)} · Không phải LTV.</p>${r.historyNote?`<details><summary class="mut">Ghi chú cohort / giới hạn nguồn</summary><p class="source-text">${esc(r.historyNote)}</p></details>`:''}</section>${detailExtrasHTML(r)}<section class="section"><h3>Chất lượng và nguồn</h3><p class="text-break">${esc(r.note)}</p><p class="mut">Evidence: ${esc(r.evidenceType)} · Confidence: ${num(r.confidence)}/5</p><p class="source-text">${esc(DATA.source)} · ${(r.provenance||[]).map(esc).join(' · ')}</p>${safeLink(r.url)}${original&&!r.original?`<details><summary>Bản gốc ${esc(original.date)}</summary><p>DL/ngày ${num(original.downloads)} · Revenue/ngày ${usd(original.revenue)}</p></details>`:''}${r.audit?.length?`<details><summary>Lịch sử cập nhật (${r.audit.length})</summary>${r.audit.map(a=>`<p class="source-text">${esc(stamp(a.at))} · ${esc(displayName(a.by))} · ${esc(a.date)} · ${esc(a.note)} · DL/ngày ${num(a.downloads)} · Rev/ngày ${usd(a.revenue)} · ${esc(a.url)}${a.evidenceType?` · Evidence: ${esc(a.evidenceType)}`:''}${a.confidence!=null?` · Confidence: ${num(a.confidence)}/5`:''}${Array.isArray(a.provenance)&&a.provenance.length?` · Nguồn gốc: ${a.provenance.map(esc).join(' · ')}`:''}</p>`).join('')}</details>`:''}</section></div><div class="dialog-foot">${r.original?'':`<button class="btn danger" data-delete-market="${esc(id)}">${DATA.records.some(x=>x.id===id)?'Gỡ dữ liệu bổ sung (về bản gốc)':'Xóa quan sát'}</button>`}<button class="btn primary" data-market-edit="${esc(id)}">Bổ sung dữ liệu mới</button></div>`);
+    showDialog(headTyped(r.name,'market')+`<div class="dialog-body"><div class="chips">${badge(r.category)}<span class="badge">${esc(r.date)} · ${esc(r.geo)}</span></div><p class="sub">${esc(r.platform)}</p><div class="summary-result"><div><small>Downloads / ngày</small><strong>${num(r.downloads)}</strong></div><div><small>Revenue / ngày</small><strong>${usd(r.revenue)}</strong></div><div><small>Top 3 revenue concentration</small><strong>${pct(r.top3)}</strong></div></div><section class="section"><h3>Benchmark UA</h3><p class="mut">${esc(r.cpiScope||'Chưa có CPI cùng phạm vi trong file.')}</p><div class="chips"><span class="badge">P25 ${usd(c.p25)}</span><span class="badge">Median ${usd(c.median)}</span><span class="badge">P75 ${usd(c.p75)}</span><span class="badge">Valid titles ${num(c.valid)} / ${num(c.eligible)}</span></div><p class="mut">CPI title = paid spend / paid installs. Median/P25/P75 giữa các title, không tính bằng total downloads.</p></section><section class="section"><h3>Lịch sử cohort quan sát</h3><p class="mut">${esc(r.historyPeriod||'Chưa nhập lịch sử cùng cohort.')}</p><div class="table-scroll"><table><thead><tr><th>Chỉ số</th><th>30D</th><th>90D</th><th>12M theo nguồn</th></tr></thead><tbody><tr><td>Downloads</td><td>${num(h.dl30)}</td><td>${num(h.dl90)}</td><td>${num(h.dl12)}</td></tr><tr><td>Revenue USD</td><td>${usd(h.rev30)}</td><td>${usd(h.rev90)}</td><td>${usd(h.rev12)}</td></tr></tbody></table></div><p class="mut">DL growth 3M: ${pct(h.dlGrowth3)} · Rev growth 3M: ${pct(h.revGrowth3)} · Rev growth 6M: ${pct(h.revGrowth6)}</p><p class="mut">RPD cùng cohort: ${usd(h.rpd)} · Không phải LTV.</p>${r.historyNote?`<details><summary class="mut">Ghi chú cohort / giới hạn nguồn</summary><p class="source-text">${esc(r.historyNote)}</p></details>`:''}</section>${detailExtrasHTML(r)}<section class="section"><h3>Chất lượng và nguồn</h3><p class="text-break">${esc(r.note)}</p><p class="mut">Evidence: ${esc(r.evidenceType)} · Confidence: ${num(r.confidence)}/5</p><p class="source-text">${esc(DATA.source)} · ${(r.provenance||[]).map(esc).join(' · ')}</p>${safeLink(r.url)}${original&&!r.original?`<details><summary>Bản gốc ${esc(original.date)}</summary><p>DL/ngày ${num(original.downloads)} · Revenue/ngày ${usd(original.revenue)}</p></details>`:''}${r.audit?.length?`<details><summary>Lịch sử cập nhật (${r.audit.length})</summary>${r.audit.map(a=>`<p class="source-text">${esc(stamp(a.at))} · ${memberLinkHTML(a.by)} · ${esc(a.date)} · ${esc(a.note)} · DL/ngày ${num(a.downloads)} · Rev/ngày ${usd(a.revenue)} · ${esc(a.url)}${a.evidenceType?` · Evidence: ${esc(a.evidenceType)}`:''}${a.confidence!=null?` · Confidence: ${num(a.confidence)}/5`:''}${Array.isArray(a.provenance)&&a.provenance.length?` · Nguồn gốc: ${a.provenance.map(esc).join(' · ')}`:''}</p>`).join('')}</details>`:''}</section></div><div class="dialog-foot">${r.original?'':`<button class="btn danger" data-delete-market="${esc(id)}">${DATA.records.some(x=>x.id===id)?'Gỡ dữ liệu bổ sung (về bản gốc)':'Xóa quan sát'}</button>`}<button class="btn primary" data-market-edit="${esc(id)}">Bổ sung dữ liệu mới</button></div>`);
   }
   function safeLink(url) {try{const u=new URL(url);if(!['https:','http:'].includes(u.protocol))return '';return `<a href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">Mở nguồn ↗</a>`;}catch{return '';}}
   function marketForm(id) {
@@ -815,7 +872,7 @@
     const catField=nameRec
       ? `<input type="hidden" name="category" value="${esc(catVal)}"><label>Nhóm (tự động theo mechanic)<select name="categoryLocked" disabled>${options(['Puzzle','Simulation'],catVal)}</select></label>`
       : `<label>Nhóm<select name="category">${options(['Puzzle','Simulation'],catVal)}</select></label><span data-category-lock hidden></span>`;
-    showDialog(head(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường')+`<form id="marketForm"><div class="dialog-body"><p class="mut">Thêm bản quan sát có ngày và nguồn. Snapshot gốc luôn giữ lại. Dữ liệu mới không tự kế thừa concentration, growth hoặc CPI của ngày cũ.</p><div class="fields">${nameField}${catField}${field('date','Ngày snapshot','','date','required')}${selectLegacy('geo','Thị trường',GEO_LIST,old?.geo||'US')}${selectLegacy('platform','Nền tảng',['Android','iOS','Android + iOS'],old?.platform||'')}${field('downloads','Downloads / ngày','','number','min="0" step="any"')}${field('revenue','Revenue USD / ngày','','number','min="0" step="any"')}${field('url','Source URL','','url','required')}${memberField('by','Người cập nhật',null,'',{required:true})}${selectLegacy('confidence','Confidence',[['1','1'],['2','2'],['3','3'],['4','4'],['5','5']],old?.confidence!=null?String(old.confidence):'','required')}${selectLegacy('evidenceType','Loại bằng chứng',EVIDENCE_TYPES,old?.evidenceType||'Fact')}${area('note','Phạm vi / phương pháp / ghi chú')}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Lưu quan sát</button></div></form>`);
+    showDialog(headTyped(old?'Bổ sung quan sát · '+old.name:'Thêm quan sát thị trường','market')+`<form id="marketForm"><div class="dialog-body"><p class="mut">Thêm bản quan sát có ngày và nguồn. Snapshot gốc luôn giữ lại. Dữ liệu mới không tự kế thừa concentration, growth hoặc CPI của ngày cũ.</p><div class="fields">${nameField}${catField}${field('date','Ngày snapshot','','date','required')}${selectLegacy('geo','Thị trường',GEO_LIST,old?.geo||'US')}${selectLegacy('platform','Nền tảng',['Android','iOS','Android + iOS'],old?.platform||'')}${field('downloads','Downloads / ngày','','number','min="0" step="any"')}${field('revenue','Revenue USD / ngày','','number','min="0" step="any"')}${field('url','Source URL','','url','required')}${memberField('by','Người cập nhật',null,'',{required:true})}${selectLegacy('confidence','Confidence',[['1','1'],['2','2'],['3','3'],['4','4'],['5','5']],old?.confidence!=null?String(old.confidence):'','required')}${selectLegacy('evidenceType','Loại bằng chứng',EVIDENCE_TYPES,old?.evidenceType||'Fact')}${area('note','Phạm vi / phương pháp / ghi chú')}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Lưu quan sát</button></div></form>`);
   }
   function submitMarket(e) {
     e.preventDefault();const form=e.target,d=new FormData(form),s=read();
@@ -850,7 +907,7 @@
   function renderReviews() {
     const data=read(),s=crm();
     const rows=data.requests.filter(r=>reviewFilter==='all'||r.status===reviewFilter).filter(r=>reviewKindFilter==='all'||r.kind===reviewKindFilter).filter(r=>!query||(label(entity(s,r.kind,r.entityId))+' '+r.kind).toLowerCase().includes(query));
-    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc tiến độ">${options([['all','Tất cả tiến độ'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select><select id="reviewKindFilter" aria-label="Lọc loại hồ sơ">${options([['all','Tất cả loại'],['company','Company'],['game','Game']],reviewKindFilter)}</select></div><div class="card-grid">${rows.map(r=>{
+    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc trạng thái">${options([['all','Tất cả trạng thái'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select><select id="reviewKindFilter" aria-label="Lọc loại hồ sơ">${options([['all','Tất cả loại'],['company','Company'],['game','Game']],reviewKindFilter)}</select></div><div class="card-grid">${rows.map(r=>{
       const en=entity(s,r.kind,r.entityId),v=r.current||{};
       const isCo=r.kind==='company';
       const eff=isCo?null:effectiveGameResult(r);
@@ -861,8 +918,20 @@
       return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / NĂNG LỰC SẢN XUẤT':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${num(value,1)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
     }).join('')||`<div class="panel empty full"><h3>${data.requests.length?'Không có hồ sơ khớp bộ lọc':'Chưa có yêu cầu đánh giá'}</h3><p class="mut">${role==='bd'?'Chọn company hoặc game đã có trong CRM để giao MKT đánh giá.':'BD gửi yêu cầu company hoặc game từ CRM; hàng chờ sẽ xuất hiện tại đây.'}</p></div>`}</div>`;
   }
+  /* A14 (FIX-3): option hồ sơ trong picker yêu cầu đánh giá — game đối tác
+     kèm tên STUDIO SỞ HỮU để BD chọn đúng ngữ cảnh; game của Sava giữ dấu
+     hiệu " · Sava" như cũ. Dùng chung cho form mở đầu + handler đổi kind. */
+  function entityOptionHTML(st, kind, x, selectedId = '') {
+    const sel = x.id === selectedId ? 'selected' : '';
+    if (kind === 'game') {
+      if (x.own === 'ours') return `<option value="${esc(x.id)}" ${sel}>${esc(label(x))} · Sava</option>`;
+      const co = (st.companies || []).find(c => c && c.id === x.company);
+      return `<option value="${esc(x.id)}" ${sel}>${esc(label(x))}${co ? ` · Studio: ${esc(label(co))}` : ''}</option>`;
+    }
+    return `<option value="${esc(x.id)}" ${sel}>${esc(label(x))}</option>`;
+  }
   function requestForm(kind='company',id='') {
-    const s=crm();const companies=s.companies.filter(isStudio),games=eligibleGames(s);
+    const s=crm();const companies=s.companies.filter(isStudioCompany),games=eligibleGames(s);
     /* C16: tạo request cho game đã chọn -> prefill mechanicId suy từ
        game.genre (mechanicIdForGame); chỉ là giá trị khởi tạo trong form,
        BD sửa được trước khi gửi. */
@@ -874,14 +943,14 @@
     const meReqId = currentRequesterId();
     const meMember = meReqId ? memberList().find(m => m.id === meReqId) : null;
     const reqRoleFilter = meMember && meMember.role && meMember.role !== 'BD' ? null : 'BD';
-    showDialog(head('Gửi yêu cầu đánh giá')+`<form id="requestForm"><div class="dialog-body"><p class="mut">Chỉ lấy hồ sơ đang có trong CRM. Không nhập company, game hay deal mẫu từ workbook. Bộ company hiện dành cho studio/indie developer.</p><div class="fields">${select('kind','Loại đánh giá',[['company','Năng lực sản xuất company'],['game','Đánh giá từng game']],kind)}<label>Hồ sơ<select name="entityId" required><option value="">Chọn hồ sơ CRM</option>${(kind==='company'?companies:games).map(x=>`<option value="${esc(x.id)}" ${x.id===id?'selected':''}>${esc(label(x))}${kind==='game'&&x.own==='ours'?' · Sava':''}</option>`).join('')}</select></label>${memberField('requestedBy','BD phụ trách',reqRoleFilter,meReqId,{required:true})}${memberField('assignee','MKT được giao (nếu có)','MKT','')}${field('due','Hạn đánh giá','','date')}${field('build','Build / phiên bản hiện tại','','text')}${field('source','Link build / thư mục bằng chứng','','url')}${area('requestNote','Thông tin đầu vào / yêu cầu BD')}</div><div id="intakeBox">${intakeFieldsHTML(kind,prefillIntake)}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Gửi MKT</button></div></form>`);
+    showDialog(head('Gửi yêu cầu đánh giá')+`<form id="requestForm"><div class="dialog-body"><p class="mut">Chỉ lấy hồ sơ đang có trong CRM. Không nhập company, game hay deal mẫu từ workbook. Bộ company hiện dành cho studio/indie developer.</p><div class="fields">${select('kind','Loại đánh giá',[['company','Năng lực sản xuất company'],['game','Đánh giá từng game']],kind)}<label>Hồ sơ<select name="entityId" required><option value="">Chọn hồ sơ CRM</option>${(kind==='company'?companies:games).map(x=>entityOptionHTML(s,kind,x,id)).join('')}</select></label>${memberField('requestedBy','BD phụ trách',reqRoleFilter,meReqId,{required:true})}${memberField('assignee','MKT được giao (nếu có)','MKT','')}${field('due','Hạn đánh giá','','date')}${field('build','Build / phiên bản hiện tại','','text')}${field('source','Link build / thư mục bằng chứng','','url')}${area('requestNote','Thông tin đầu vào / yêu cầu BD')}</div><div id="intakeBox">${intakeFieldsHTML(kind,prefillIntake)}</div><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary">Gửi MKT</button></div></form>`);
   }
   function submitRequest(e) {
     e.preventDefault();if(role!=='bd')throw Error('Yêu cầu mới do BD gửi.');
     const d=new FormData(e.target),s=read(),c=crm(),kind=d.get('kind'),entityId=d.get('entityId');
     if(!['company','game'].includes(kind)||!entity(c,kind,entityId))throw Error('Chọn hồ sơ có trong CRM.');
-    if(kind==='company'&&!isStudio(entity(c,kind,entityId)))throw Error('Khung này chỉ áp dụng studio/indie.');
-    const exists=s.requests.find(r=>r.kind===kind&&r.entityId===entityId);
+    if(kind==='company'&&!isStudioCompany(entity(c,kind,entityId)))throw Error('Khung này chỉ áp dụng studio/indie.');
+    const exists=canonicalRequest(s.requests,kind,entityId);
     if(exists){closeDialog();openReview(exists.id);notify('Đã mở hồ sơ đánh giá hiện có; build mới lưu bằng phiên bản tiếp theo.');return;}
     s.requests.push({id:'REV-'+uuid(),kind,entityId,requestedBy:d.get('requestedBy'),assignee:d.get('assignee'),due:d.get('due'),requestNote:d.get('requestNote'),source:d.get('source'),build:d.get('build'),intake:readIntake(d,kind,{}),status:'Chờ đánh giá',requestedAt:new Date().toISOString(),current:null,revisions:[],revision:0,entitySnapshot:entitySnapshotFor(kind,entity(c,kind,entityId))});
     write(s);closeDialog();tab='reviews';render();notify('Đã gửi yêu cầu vào hàng chờ MKT.');
@@ -959,18 +1028,43 @@
       /* D5: MKT không thấy bdComment trong lịch sử — chỉ thấy comment chung
          (nếu có); BD thấy cả hai như hiện tại (comment ưu tiên, fallback bdComment). */
       const histComment = role === 'mkt' ? (hh.comment || '') : (hh.comment || hh.bdComment || '');
-      return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(hh.at))} · ${esc(displayName(hh.reviewer))} (${esc((hh.role||'').toUpperCase())}) · ${esc(hh.status||'')}</summary><p>${esc(histRec)} · ${num(histVal,1)}/100 · build ${esc(hh.build||'')}${!isCompany&&effH&&effH.type==='legacy'?' · Khung workbook (cũ)':''}</p>${v2HistLine}<p class="text-break">${esc(histComment)}</p><p class="text-break">${esc(hh.conditions||'')}</p>${entriesHTML}<p class="source-text">Gate: ${esc(gateLine)}</p></details>`;
+      return `<details class="history-entry"><summary>v${r.revisions.length-i} · ${esc(stamp(hh.at))} · ${memberLinkHTML(hh.reviewer)} (${esc((hh.role||'').toUpperCase())}) · ${esc(hh.status||'')}</summary><p>${esc(histRec)} · ${num(histVal,1)}/100 · build ${esc(hh.build||'')}${!isCompany&&effH&&effH.type==='legacy'?' · Khung workbook (cũ)':''}</p>${v2HistLine}<p class="text-break">${esc(histComment)}</p><p class="text-break">${esc(hh.conditions||'')}</p>${entriesHTML}<p class="source-text">Gate: ${esc(gateLine)}</p></details>`;
     }).join('');
-    showDialog(headTyped(dialogTitle,isCompany?'company-review':'game-review')+`<form id="reviewForm"><div class="dialog-body">${companySub}${orphanHTML}<div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(headlineRec)}</div><p class="mut">BD: ${esc(displayName(r.requestedBy))} · MKT: ${esc(r.assignee?displayName(r.assignee):'Chưa giao')} · Hạn: ${esc(r.due||'Chưa đặt')}</p>${sysMetaPubHTML(r)}<p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${navHTML}${liveInfoHTML(r,s,en)}${intakeHTML}${bdNoteHTML}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&eff.type==='legacy'&&r.revisions.length?' Phiên bản hiện tại là Khung workbook (cũ) — chưa có Market Score v2.':''}${!isCompany&&eff.type==='stale'?' Điểm v2 thuộc mechanic cũ — chờ chấm lại.':''}${!isCompany&&eff.type==='v2-insufficient'?' Điểm v2 chưa đủ dữ liệu (completeness &lt; 80%) — Final hiển thị "—" cho tới khi đủ dữ liệu.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Tiến độ xử lý',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét của MKT':'Ghi chú bổ sung của BD',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
+    /* B4 (FIX-3) view-first cho khối BD: mặc định TÓM TẮT chỉ-đọc
+       (Build/Link/MKT/Hạn dạng dl + intakeSummaryHTML) + nút "Sửa hồ sơ";
+       bấm nút mới render form sửa (fields + intakeFieldsHTML) kèm nút Hủy
+       (mở lại dialog từ dữ kiện đã lưu = bỏ thay đổi). Lưu thành công:
+       submitReview đặt bdEditMode=false trước khi mở lại -> về chế độ xem.
+       Chế độ xem KHÔNG render input của khối này; submitReview chỉ ghi các
+       field BD khi chúng có mặt trong form nên xem = giữ nguyên dữ kiện. */
+    const bdViewHTML = `<div id="bd-intake" class="mk-bd-view"><dl class="mk-dl"><div class="mk-dl-row"><dt>Build BD bổ sung</dt><dd>${esc(r.build || '—')}</dd></div><div class="mk-dl-row"><dt>Link BD bổ sung</dt><dd>${esc(r.source || '—')}</dd></div><div class="mk-dl-row"><dt>MKT phụ trách</dt><dd>${r.assignee ? memberLinkHTML(r.assignee) : 'Chưa giao'}</dd></div><div class="mk-dl-row"><dt>Hạn đánh giá</dt><dd>${esc(r.due || '—')}</dd></div></dl>${intakeSummaryHTML(r)}<p><button type="button" class="btn" data-action="bd-edit">Sửa hồ sơ</button></p></div>`;
+    const bdEditHTML = `<div class="fields">${field('build','Build BD bổ sung',r.build||'')}${field('source','Link BD bổ sung',r.source||'','url')}${memberField('assignee','MKT phụ trách','MKT',r.assignee||'')}${field('due','Hạn đánh giá',r.due||'','date')}</div><div id="bd-intake">${intakeFieldsHTML(r.kind,effectiveIntake(r))}</div><p><button type="button" class="btn" data-action="bd-cancel-edit">Hủy sửa hồ sơ</button></p>`;
+    const bdBlockHTML = bdEditMode ? bdEditHTML : bdViewHTML;
+    showDialog(headTyped(dialogTitle,isCompany?'company-review':'game-review')+`<form id="reviewForm"><div class="dialog-body">${companySub}${orphanHTML}<div class="chips">${badge(isCompany?'Company · năng lực sản xuất':'Game · sản phẩm')}${badge(r.status)}${badge(headlineRec)}</div><p class="mut">BD: ${memberLinkHTML(r.requestedBy)} · MKT: ${r.assignee?memberLinkHTML(r.assignee):'Chưa giao'} · Hạn: ${esc(r.due||'Chưa đặt')}</p>${sysMetaPubHTML(r)}<p class="text-break">${esc(r.requestNote)}</p><p class="source-text">Build ${esc(r.build||'Chưa nhận')} · ${esc(r.source||'')}</p>${navHTML}${liveInfoHTML(r,s,en)}${intakeHTML}${bdNoteHTML}${v2PanelHTML(r,a)}${resultHTML}<p class="source-text">Kết quả trên là bản đã lưu. Lưu phiên bản để tính lại; ô chưa có căn cứ giữ NE.${!isCompany&&eff.type==='legacy'&&r.revisions.length?' Phiên bản hiện tại là Khung workbook (cũ) — chưa có Market Score v2.':''}${!isCompany&&eff.type==='stale'?' Điểm v2 thuộc mechanic cũ — chờ chấm lại.':''}${!isCompany&&eff.type==='v2-insufficient'?' Điểm v2 chưa đủ dữ liệu (completeness &lt; 80%) — Final hiển thị "—" cho tới khi đủ dữ liệu.':''}</p><div class="fields">${memberField('reviewer','Người cập nhật',null,'',{required:true})}${role==='mkt'?select('status','Trạng thái',['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],r.status):''}${role==='mkt'?field('build','Build / phiên bản chấm',a.build||r.build||''):''}${area('comment',role==='mkt'?'Nhận xét của MKT':'Ghi chú bổ sung của BD',role==='mkt'?a.comment||'':a.bdComment||'')}</div>
       ${professionalSection}
       ${evidenceSection}${dealSection}
       <section class="section"><h3>${isCompany?'6 Hard Gate · xác minh BD':'Hard Gate · xác minh BD'}</h3><p class="mut">Gate độc lập điểm số. Đạt phải có căn cứ; chưa xác minh giữ Chưa xác minh.</p>${isCompany?F.gates.map(([k,t])=>{const g=a.gates?.[k]||{};return role==='bd'?`<details class="criterion"><summary><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></summary><div class="fields">${select('g_'+k,'Trạng thái',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],g.value||'PENDING')}${field('gu_'+k,'Nguồn / ngày',g.source||'')}${area('gn_'+k,'Bằng chứng xác minh',g.note||'')}</div></details>`:`<div class="weight-row"><span>${esc(t)}</span><b>${esc(gateLabel(g.value||'PENDING'))}</b></div>`;}).join(''):role==='bd'?`<div class="fields">${select('gate','Hard Gate',[['PENDING','Chưa xác minh'],['PASS','Đạt'],['FAIL','Không đạt']],a.gate||'PENDING')}${field('gateSource','Nguồn / ngày xác minh',a.gateSource||'')}${area('gateNote','Bằng chứng / blocker / điều kiện Đạt',a.gateNote||'')}</div>`:`<p class="mut">${esc(gateLabel(a.gate||'PENDING'))}</p>`}</section>
-      <section class="section"><h3>Điều kiện và bước tiếp theo</h3>${role==='mkt'?`<div class="fields">${area('strengths','Điểm mạnh có bằng chứng',a.strengths||'')}${area('risks','Rủi ro chuyên môn',a.risks||'')}${area('conditions','Điều kiện / bằng chứng cần bổ sung',a.conditions||'')}${area('next','Hành động kế tiếp',a.next||'')}</div>`:`<p class="text-break">${esc(a.strengths||'')}</p><p class="text-break">${esc(a.risks||'')}</p><p class="text-break">${esc(a.conditions||'')}</p><p class="text-break">${esc(a.next||'')}</p><div class="fields">${field('build','Build BD bổ sung',r.build||'')}${field('source','Link BD bổ sung',r.source||'','url')}${memberField('assignee','MKT phụ trách','MKT',r.assignee||'')}${field('due','Hạn đánh giá',r.due||'','date')}</div><div id="bd-intake">${intakeFieldsHTML(r.kind,effectiveIntake(r))}</div>`}</section>
+      <section class="section"><h3>Điều kiện và bước tiếp theo</h3>${role==='mkt'?`<div class="fields">${area('strengths','Điểm mạnh có bằng chứng',a.strengths||'')}${area('risks','Rủi ro chuyên môn',a.risks||'')}${area('conditions','Điều kiện / bằng chứng cần bổ sung',a.conditions||'')}${area('next','Hành động kế tiếp',a.next||'')}</div>`:`<p class="text-break">${esc(a.strengths||'')}</p><p class="text-break">${esc(a.risks||'')}</p><p class="text-break">${esc(a.conditions||'')}</p><p class="text-break">${esc(a.next||'')}</p>${bdBlockHTML}`}</section>
       ${auditSectionPubHTML(r)}
       <section class="section"><h3>Lịch sử đánh giá · ${r.revisions.length} phiên bản</h3>${historyHTML||'<p class="mut">Chưa có phiên bản đánh giá.</p>'}</section><div id="formError" class="error" role="alert"></div></div><div class="dialog-foot"><span class="mut">${orphan?'Hồ sơ đã gỡ khỏi CRM — chỉ xem, không lưu phiên bản mới':'Lưu thêm phiên bản · giữ lịch sử cũ'}</span><button type="button" class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button>${role==='bd'?`<button type="button" class="btn" data-action="requeue" ${orphan?'disabled':''}>Gửi MKT đánh giá lại</button>`:''}<button class="btn primary" ${orphan?'disabled':''}>${role==='mkt'?'Lưu đánh giá cho BD':'Lưu bổ sung BD'}</button></div></form>`);
     loadPubAudit(r);
   }
 
+  /* B15 (FIX-3): revision hiện tại có ĐIỂM thật không (v2 hợp lệ, hoặc
+     entry legacy có điểm hợp lệ, hoặc Evidence Quality) — chỉ khi có điểm
+     thì requeue đổi build mới xoá điểm và mới cần confirm. */
+  function currentHasScores(cur) {
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) return false;
+    try { if (typeof F.hasValidV2 === 'function' && F.hasValidV2(cur)) return true; } catch {}
+    const entries = cur.entries && typeof cur.entries === 'object' && !Array.isArray(cur.entries) ? cur.entries : {};
+    for (const e of Object.values(entries)) {
+      if (!e || typeof e !== 'object') continue;
+      const n = typeof e.score === 'number' ? e.score : (String(e.score ?? '').trim() === '' ? NaN : Number(e.score));
+      if (Number.isFinite(n) && n >= 1 && n <= 5) return true;
+    }
+    return cur.quality !== null && cur.quality !== undefined && String(cur.quality).trim() !== '';
+  }
+  if (typeof window !== 'undefined') window.PublishingEffective = {...(window.PublishingEffective || {}), currentHasScores};
   function entryFrom(d,k) {
     const raw=String(d.get('s_'+k)??'').trim(),status=String(d.get('t_'+k)||'Thiếu'),note=String(d.get('n_'+k)||'').trim(),source=String(d.get('u_'+k)||'').trim();
     const score=raw===''?null:Number(raw);
@@ -985,10 +1079,27 @@
     if(!r||r.revision!==active.revision)throw Error('Hồ sơ đã được cập nhật ở tab khác. Đóng và mở lại trước khi lưu.');
     /* C15: request mồ côi (entity đã xóa khỏi CRM) — khóa lưu revision mới kể cả khi nút bị bật lại bằng tay. */
     if(!entity(crm(),r.kind,r.entityId))throw Error('Hồ sơ đã được gỡ khỏi CRM — chỉ xem, không lưu được phiên bản đánh giá mới.');
-    const a=structuredClone(r.current||{entries:{}});a.entries ||= {};const val=k=>String(d.get(k)||'').trim();
+    const val=k=>String(d.get(k)||'').trim();
+    /* B15 (FIX-3): requeue với build MỚI khác build đã ghi (build của
+       revision hiện tại) và revision hiện tại CÓ điểm -> nhánh xoá điểm
+       bên dưới sẽ làm trống entries/scoresV2/quality/gate: hỏi confirm
+       TRƯỚC khi đụng dữ kiện, nêu rõ revision cũ vẫn giữ trong lịch sử.
+       Build không đổi hoặc chưa có điểm -> hành vi cũ, không hỏi. */
+    if (requeue && r.kind === 'game') {
+      const newBuild = d.get('build') !== null ? val('build') : String(r.build || '');
+      const recordedBuild = String((r.current && typeof r.current === 'object' && r.current.build) || '');
+      if (newBuild !== recordedBuild && currentHasScores(r.current)) {
+        const ok = (typeof confirm === 'function') ? confirm(`Build mới "${newBuild || '—'}" khác build đã ghi "${recordedBuild || '—'}".\nGửi MKT đánh giá lại sẽ làm TRỐNG điểm hiện tại của bản đánh giá này (phiên bản cũ vẫn giữ nguyên trong lịch sử đánh giá). Tiếp tục?`) : true;
+        if (!ok) return;
+      }
+    }
+    const a=structuredClone(r.current||{entries:{}});a.entries ||= {};
     /* Đồng bộ mechanic khi lưu (request đang mở): mechanic hiệu lực theo CRM
-       hiện tại tại thời điểm lưu; tính TRƯỚC khi save này đổi status. */
-    const effMechBeforeSave = r.kind==='game' && !isCompletedRequest(r) ? effectiveMechanicId(r) : '';
+       hiện tại tại thời điểm lưu; tính TRƯỚC khi save này đổi status.
+       C1 (FIX-3): việc đồng bộ này CHỈ phía BD/Admin — intake là dữ kiện
+       phía BD và trigger DB cấm MKT đổi intake, nên đường lưu của MKT
+       tuyệt đối không ghi đè bất kỳ field intake nào. */
+    const effMechBeforeSave = role !== 'mkt' && r.kind==='game' && !isCompletedRequest(r) ? effectiveMechanicId(r) : '';
     if(role==='mkt') {
       const keys=r.kind==='company'?['track','team',...F.production.map(([k])=>k),'data','collaboration','strategy','pipeline','history']:[...F.market,...F.prototype].map(([k])=>k);
       /* A4 + N14: đếm điểm v2 được nhập TRƯỚC. Có >=1 điểm v2 -> KHÔNG đọc lại ô legacy
@@ -1043,7 +1154,14 @@
         }
       }
     } else {
-      a.bdComment=val('comment');r.build=val('build');r.source=val('source');r.assignee=val('assignee');r.due=val('due');
+      a.bdComment=val('comment');
+      /* B4 (FIX-3): khối BD ở chế độ XEM không có input build/source/
+         assignee/due trong form — chỉ ghi khi field thật sự có mặt, xem
+         là giữ nguyên dữ kiện đã lưu. */
+      if(d.get('build')!==null)r.build=val('build');
+      if(d.get('source')!==null)r.source=val('source');
+      if(d.get('assignee')!==null)r.assignee=val('assignee');
+      if(d.get('due')!==null)r.due=val('due');
       const newIntake=readIntake(d,r.kind,undefined); if(newIntake!==undefined) r.intake=newIntake;
       if(r.kind==='company') {
         a.entries.deal=entryFrom(d,'deal');a.entries.legalEvidence=entryFrom(d,'legalEvidence');a.gates ||= {};
@@ -1063,7 +1181,7 @@
     a.reviewer=val('reviewer');a.role=role;a.at=new Date().toISOString();a.frameworkVersion=F.version;
     if (effMechBeforeSave) r.intake = { ...((r.intake && typeof r.intake === 'object') ? r.intake : {}), mechanicId: effMechBeforeSave };
     r.current=a;r.revisions.push(structuredClone(a));r.revision++;r.status=a.status;
-    write(s);const id=r.id;closeDialog();render();openReview(id);notify(requeue?'Đã đưa lại vào hàng chờ MKT.':'Đã lưu phiên bản đánh giá; BD và MKT thấy cùng kết quả.');
+    write(s);const id=r.id;bdEditMode=false;closeDialog();render();openReview(id);notify(requeue?'Đã đưa lại vào hàng chờ MKT.':'Đã lưu phiên bản đánh giá; BD và MKT thấy cùng kết quả.');
   }
   function renderFramework() {
     const weights = rows => rows.map(([k,t,w])=>`<div class="weight-row"><span>${esc(t)}</span><b>${w}%</b></div>`).join('');
@@ -1079,7 +1197,9 @@
       if(b.dataset.deleteRequest){deleteRequest(b.dataset.deleteRequest);return;}
       if(b.dataset.deleteMarket){deleteMarketObs(b.dataset.deleteMarket);return;}
       if(b.dataset.marketEdit){const id=b.dataset.marketEdit;closeDialog();marketForm(id);return;}
-      if(b.dataset.review){openReview(b.dataset.review);return;}
+      if(b.dataset.action==='bd-edit'){bdEditMode=true;if(active&&active.id)openReview(active.id);return;}
+      if(b.dataset.action==='bd-cancel-edit'){bdEditMode=false;if(active&&active.id)openReview(active.id);return;}
+      if(b.dataset.review){bdEditMode=false;openReview(b.dataset.review);return;}
       if(b.dataset.action==='market-new')marketForm();
       if(b.dataset.action==='request')requestForm();
       if(b.dataset.action==='requeue')submitReview(null,true);
@@ -1123,8 +1243,8 @@
       if(sel&&mid) sel.value=mid;
     }
     if(e.target.name==='kind'&&e.target.form?.id==='requestForm') {
-      const select=e.target.form.elements.entityId,s=crm(),records=e.target.value==='company'?s.companies.filter(isStudio):eligibleGames(s);
-      select.innerHTML='<option value="">Chọn hồ sơ CRM</option>'+records.map(x=>`<option value="${esc(x.id)}">${esc(label(x))}</option>`).join('');
+      const select=e.target.form.elements.entityId,s=crm(),records=e.target.value==='company'?s.companies.filter(isStudioCompany):eligibleGames(s);
+      select.innerHTML='<option value="">Chọn hồ sơ CRM</option>'+records.map(x=>entityOptionHTML(s,e.target.value,x)).join('');
       const box=e.target.form.querySelector('#intakeBox'); if(box) box.innerHTML=intakeFieldsHTML(e.target.value,{});
     }
     if(e.target.closest('.criterion')){
@@ -1132,14 +1252,45 @@
       if(scoreEl&&statusEl){const v=scoreEl.value===''?null:Number(scoreEl.value);box.querySelector('summary b').textContent=F.valid(v)&&F.scorableStatuses.includes(statusEl.value)?num(v,1)+'/5':'NE';}
     }
   });
-  addEventListener('storage',e=>{if([KEY,STORE_KEY].includes(e.key)&&!$('#editor').open)render();});
+  addEventListener('storage',e=>{
+    if(!e||![KEY,STORE_KEY].includes(e.key))return;
+    if(e.key===KEY){
+      /* C4: kho Publishing đổi ở tab khác. Dialog đang mở (đang sửa trên
+         dữ kiện cũ) -> đánh dấu stale + chặn write(); không dialog ->
+         nạp lại tại chỗ: reset baseline pubPrevSnap theo dữ kiện vừa nạp
+         rồi render, không cần chặn. */
+      if($('#editor').open){ pubMarkStale(); return; }
+      try { pubPrevSnap = pubSnapshotOf(read()); } catch {}
+      pubStale = false;
+      render(); return;
+    }
+    if(!$('#editor').open)render();
+  });
   /* Boot mở-nhanh (supabase-auth.js): dữ liệu MỚI từ Supabase đã về cache
      trong lúc trang hiện bằng cache cũ -> render lại TẠI CHỖ, không
      reload. read()/crm() đọc tươi từ localStorage mỗi lần render nên
      chỉ cần render lại + làm mới window.S cho bridge. Dialog đang mở
      thì bỏ qua (giống listener 'storage' ở trên) để không nuốt bản sửa
      người dùng đang gõ. */
-  try { window.__savaOnDataRefreshed = () => { if ($('#editor').open) return; try { window.S = crm(); } catch {} render(); }; } catch {}
+  try { window.__savaOnDataRefreshed = () => {
+    /* C4 (FIX-3): dữ liệu máy chủ vừa nạp lại = mốc diff MỚI như
+       crmReloadLatest phía index (crmPrevSnap = crmSnapshotOf(S)): reset
+       baseline TRƯỚC mọi nhánh rẽ — kể cả khi dialog đang mở và ta bỏ qua
+       render — để lần write() sau không đóng dấu/ghi audit thay đổi của
+       đồng đội thành của mình và không ghi đè createdAt. */
+    try { pubPrevSnap = pubSnapshotOf(read()); } catch {}
+    pubStale = false;
+    try { const b = typeof document !== 'undefined' && typeof document.getElementById === 'function' ? document.getElementById('pubStaleBanner') : null; if (b && typeof b.remove === 'function') b.remove(); } catch {}
+    if ($('#editor').open) return; try { window.S = crm(); } catch {} render();
+  }; } catch {}
+  /* C6 (FIX-3): sau khi auth báo dữ liệu-sẵn-sàng (__savaOnReady, chạy SAU
+     loadAll + bật đồng bộ; wrapper của bridge — đăng ký trước — chạy
+     migration Partner ở đó), baseline cũng được reset theo dữ kiện vừa
+     nạp/migrate xong để migration không bị write() sau đóng dấu nhầm. */
+  try {
+    const prevSavaReady = window.__savaOnReady;
+    window.__savaOnReady = (...args) => { try { if (typeof prevSavaReady === 'function') prevSavaReady(...args); } catch {} try { pubPrevSnap = pubSnapshotOf(read()); } catch {} };
+  } catch {}
   try {
     /* A13: Partner canonical migrate được cả khi chỉ mở Publishing/MKT
        trước CRM: publishing.html/mkt.html nạp publishing-bridge.js, trang
@@ -1147,7 +1298,7 @@
        rồi gọi PublishingBridge.migratePartnerLegacy() ngay khi khởi tạo.
        Khối E4 cũ (tìm global tự do không tồn tại) đã gỡ hẳn. */
     try { window.S = crm(); } catch {}
-    try { if (typeof window !== 'undefined' && window.PublishingBridge && typeof window.PublishingBridge.migratePartnerLegacy === 'function') window.PublishingBridge.migratePartnerLegacy(); } catch {}
+    try { if (typeof window !== 'undefined' && window.PublishingBridge && typeof window.PublishingBridge.migratePartnerLegacyWhenReady === 'function') window.PublishingBridge.migratePartnerLegacyWhenReady(); else if (typeof window !== 'undefined' && window.PublishingBridge && typeof window.PublishingBridge.migratePartnerLegacy === 'function') window.PublishingBridge.migratePartnerLegacy(); } catch {}
     render();
     const kind=params.get('kind'),id=params.get('id');
     /* C11: deep-link publishing.html?kind=<lạ> -> KHÔNG mở form sai loại:
@@ -1157,7 +1308,7 @@
       $('#screen').insertAdjacentHTML('afterbegin', `<section class="panel mk-alert" role="alert"><h3>Liên kết không hợp lệ</h3><p>Loại hồ sơ “${esc(kind)}” trong liên kết không tồn tại (chỉ có game và company). Đã hiển thị danh sách mặc định, không mở form nào.</p></section>`);
       notify('Loại hồ sơ trong liên kết không hợp lệ — đã về danh sách mặc định.');
     } else if (kind && id) {
-      const existing=read().requests.find(r=>r.kind===kind&&r.entityId===id);
+      const existing=canonicalRequest(read().requests,kind,id);
       tab='reviews';render();if(existing)openReview(existing.id);else if(role==='bd'&&entity(crm(),kind,id))requestForm(kind,id);
     }
   }catch(e){$('#screen').innerHTML=`<section class="panel"><p class="error">${esc(e.message)}</p></section>`;}
