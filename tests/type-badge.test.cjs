@@ -3,7 +3,7 @@
      (shared.js; CSS định nghĩa giống hệt trong index.html + publishing.css).
      Bộ icon/tên TÁI SỬ DỤNG bộ chip liên kết việc của commit 732fcc8
      (TASK_LINK_META: 📋 Deal / 🏢 Công ty / 📥 Lead / 🎮 Game), mở rộng cùng
-     phong cách: ✅ Công việc / 👤 Thành viên / 🕘 Hoạt động /
+     phong cách: ✅ Việc / 👤 Thành viên / 🕘 Hoạt động /
      📊 Mechanic / 🏢 Đánh giá Partner / 🎮 Đánh giá Game (phía Publishing,
      theo kind của request — đúng cách gọi sẵn có của app).
    - Bề mặt GẮN badge: drawer Deal/Company/Lead/Game/Member (index.html),
@@ -32,7 +32,7 @@ test('tĩnh: typeBadgeHTML là helper duy nhất trong shared.js, tái sử dụ
     assert.ok(idx.includes(`{ icon: "${icon}", noun: "${noun}"`), 'TASK_LINK_META mất cặp ' + icon + ' ' + noun);
     assert.ok(shared.includes(`icon: "${icon}", noun: "${noun}"`), 'badge phải tái sử dụng cặp ' + icon + ' ' + noun + ' của TASK_LINK_META');
   }
-  for (const s of ['✅", noun: "Công việc"', '👤", noun: "Thành viên"', '🏢", noun: "Đánh giá Partner"', '🎮", noun: "Đánh giá Game"', '📊", noun: "Mechanic / Thị trường"']) {
+  for (const s of ['✅", noun: "Việc"', '👤", noun: "Thành viên"', '🏢", noun: "Đánh giá Partner"', '🎮", noun: "Đánh giá Game"', '📊", noun: "Mechanic / Thị trường"']) {
     assert.ok(shared.includes('icon: "' + s), 'thiếu nhãn mở rộng trong TYPE_BADGE_META: ' + s);
   }
   assert.ok(!idx.includes('function typeBadgeHTML'), 'index.html không được định nghĩa lại helper');
@@ -104,7 +104,7 @@ test('index: helper typeBadgeHTML render đúng từng loại + loại lạ -> r
   assert.ok(b('company').includes('🏢 Công ty'));
   assert.ok(b('lead').includes('📥 Lead'));
   assert.ok(b('game').includes('🎮 Game'));
-  assert.ok(b('task').includes('✅ Công việc'));
+  assert.ok(b('task').includes('✅ Việc'));
   assert.ok(b('member').includes('👤 Thành viên'));
   assert.equal(b('khong-co-loai-nay'), '');
 });
@@ -139,15 +139,15 @@ test('index: tên đối tượng rỗng/thiếu -> badge vẫn hiện đúng lo
   run("openLead('l1')"); assert.ok(getEl('drawer').innerHTML.includes('data-type="lead"'), 'lead không tên vẫn có badge Lead');
 });
 
-test('index: form việc (editTask) hiện badge Công việc cho cả sửa việc có sẵn và tạo mới', () => {
+test('index: form việc (editTask) hiện badge Việc cho cả sửa việc có sẵn và tạo mới', () => {
   const { run, getEl } = loadIndex();
   run("editTask('t1')");
   let form = getEl('editBox').innerHTML;
-  assert.ok(form.includes('data-type="task"') && form.includes('✅ Công việc'), 'form sửa việc thiếu badge Công việc');
-  assert.ok(form.indexOf('class="type-badge"') < form.indexOf('id="e_ttitle"'), 'badge Công việc phải ở vùng đầu form, trước ô nội dung việc');
+  assert.ok(form.includes('data-type="task"') && form.includes('✅ Việc'), 'form sửa việc thiếu badge Việc');
+  assert.ok(form.indexOf('class="type-badge"') < form.indexOf('id="e_ttitle"'), 'badge Việc phải ở vùng đầu form, trước ô nội dung việc');
   run('editTask(null)');
   form = getEl('editBox').innerHTML;
-  assert.ok(form.includes('data-type="task"'), 'form tạo việc thiếu badge Công việc');
+  assert.ok(form.includes('data-type="task"'), 'form tạo việc thiếu badge Việc');
 });
 
 test('index: one-pager Partner hiện badge Công ty ngay cạnh tên công ty', () => {

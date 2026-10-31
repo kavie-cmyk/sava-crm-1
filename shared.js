@@ -513,7 +513,8 @@ function mainContactBadgeHTML(l) {
    dùng chung cho cả BD publishing.html và MKT mkt.html). Bộ icon + tên gọi
    TÁI SỬ DỤNG đúng bộ chip liên kết việc đã ship ở commit 732fcc8
    (TASK_LINK_META trong index.html: 📋 Deal / 🏢 Công ty / 📥 Lead / 🎮 Game)
-   và mở rộng cùng phong cách cho các loại còn lại: ✅ Công việc (nhãn mục
+   và mở rộng cùng phong cách cho các loại còn lại: ✅ Việc (thống nhất từ
+   vựng Task = "Việc" toàn app, P5 đợt 7 quyết định; khớp nhãn mục
    "✅ Việc liên quan" sẵn có), 👤 Thành viên (icon drawer member sẵn có),
    🕘 Hoạt động, 📊 Mechanic (mục thị trường phía Publishing). Hai loại hồ sơ
    đánh giá phía Publishing dùng đúng cách gọi của app: request kind=company
@@ -526,7 +527,7 @@ const TYPE_BADGE_META = {
   company: { icon: "🏢", noun: "Công ty", color: "#0f766e" },
   lead: { icon: "📥", noun: "Lead", color: "#b45309" },
   game: { icon: "🎮", noun: "Game", color: "#7c3aed" },
-  task: { icon: "✅", noun: "Công việc", color: "#15803d" },
+  task: { icon: "✅", noun: "Việc", color: "#15803d" },
   member: { icon: "👤", noun: "Thành viên", color: "#475569" },
   activity: { icon: "🕘", noun: "Hoạt động", color: "#64748b" },
   market: { icon: "📊", noun: "Mechanic / Thị trường", color: "#137e90" },
@@ -872,6 +873,24 @@ function money(n, cur) {
   if (Math.abs(n) < 1e6) return n.toLocaleString("vi-VN") + " ₫";
   return (n / 1e6).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "tr ₫";
 }
+/* === Định dạng điểm TỔNG /100 — helper DUY NHẤT toàn app (P4, đợt 7 quyết định) ===
+   Mọi bề mặt in điểm TỔNG của khung Game (Final v2 + Final legacy/Khung
+   workbook cũ) và điểm TỔNG Partner Fit đều qua helper này: LUÔN đúng 1 chữ
+   số thập phân (80 -> "80.0", 64.96 -> "65.0" — làm tròn chỉ ở tầng hiển
+   thị, không đổi giá trị tính / ngưỡng / nhãn quyết định). Điểm THÀNH PHẦN
+   (Market, Prototype, từng tiêu chí, điểm /5) và % completeness/coverage
+   KHÔNG dùng helper này — giữ định dạng riêng như cũ. Thiếu dữ liệu
+   (null / undefined / rỗng / không phải số hữu hạn) -> "—" như mẫu hiển
+   thị chung của app. shared.js được nạp TRƯỚC publishing-score.js /
+   publishing-bridge.js / publishing.js ở cả 3 trang (index.html,
+   publishing.html, mkt.html) nên mọi phía đều đọc được qua window. */
+function fmtFinalScore(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+if (typeof window !== "undefined") { window.fmtFinalScore = fmtFinalScore; }
 function stageOf(line, key) { return LINES[line].stages.find(s => s[0] === key); }
 function isOpen(d) { return d.stage !== "won" && d.stage !== "lost"; }
 function toast(msg) {

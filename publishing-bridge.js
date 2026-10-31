@@ -64,6 +64,13 @@
     return st.companies.find(c => c && c.id === id) || null;
   }
   const fmt1 = n => (n === null || n === undefined || !Number.isFinite(Number(n))) ? '—' : Number(n).toLocaleString('en-US', {maximumFractionDigits: 1});
+  /* P4 (đợt 7 quyết định): điểm TỔNG /100 (Final v2 + Partner Fit) in qua
+     helper DUY NHẤT window.fmtFinalScore của shared.js (luôn đúng 1 chữ số
+     thập phân, vd 80 -> "80.0"); shared.js nạp trước bridge ở mọi trang.
+     Harness tối thiểu chưa nạp shared.js -> fallback fmtLegacyFinal cục bộ
+     bên dưới (cùng quy tắc 1 thập phân cố định). fmt1 ở trên CHỈ còn dùng
+     cho % coverage (điểm thành phần, giữ nguyên định dạng cũ). */
+  const fmtFinalScore = (typeof window !== 'undefined' && typeof window.fmtFinalScore === 'function') ? window.fmtFinalScore : fmtLegacyFinal;
   /* ===== B4: hiển thị điểm legacy (khung workbook cũ) — bản sao cục bộ của
      fmtLegacyFinal/legacyThresholdNote trong index.html (bridge không import
      được helper từ index.html nên chép đúng logic + câu chữ ở đây): luôn
@@ -77,6 +84,11 @@
      (đúng 1 chữ số thập phân) như mọi hiển thị khác; phép tính/ngưỡng
      không đổi. ===== */
   function fmtLegacyFinal(v) {
+    /* P4: khi shared.js đã nạp (mọi trang thật), điểm Final legacy đi qua
+       helper DUY NHẤT window.fmtFinalScore để chuỗi khớp tuyệt đối với
+       phía index.html/publishing.js; bản sao cục bộ dưới đây chỉ là
+       fallback cho harness cắt đoạn chưa nạp shared.js. */
+    if (typeof window !== 'undefined' && typeof window.fmtFinalScore === 'function') return window.fmtFinalScore(v);
     const n = Number(v);
     if (v === null || v === undefined || !Number.isFinite(n)) return '—';
     return n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -366,7 +378,7 @@
       } else {
         const cp = ps.computed;
         result = `<p style="font-size:13px;margin:0">${esc(ps.status || '')}</p>` +
-          `<p style="margin:7px 0">Partner Fit: <b>${cp.partnerFit == null ? '—' : fmt1(cp.partnerFit)}/100</b> · ${esc(cp.classification || '—')} · Kết luận: <b>${esc(cp.conclusion || '—')}</b></p>` +
+          `<p style="margin:7px 0">Partner Fit: <b>${cp.partnerFit == null ? '—' : fmtFinalScore(cp.partnerFit)}/100</b> · ${esc(cp.classification || '—')} · Kết luận: <b>${esc(cp.conclusion || '—')}</b></p>` +
           `<p style="margin:7px 0" class="mut">Hard Gate: ${esc(cp.hardGate || '—')} · Evidence: ${cp.coveragePct == null ? '—' : fmt1(cp.coveragePct)}% · ${ps.versions} phiên bản</p>`;
       }
       return `<section style="background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:15px;margin:16px 0"><h3 style="margin:0 0 7px">Đánh giá Partner</h3><p style="margin:0 0 7px">Trạng thái đánh giá: ${evalBadge('company', id)}</p>${result}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px"><a class="btn" style="text-decoration:none" href="publishing.html?tab=reviews&amp;kind=company&amp;id=${encodeURIComponent(id)}">Mở đánh giá Partner →</a>${evalRequestButtonHTML('company', id)}</div></section>`;
@@ -388,7 +400,7 @@
         if (v2.decision == null || lowCompleteness) {
           result = `<p style="margin:7px 0">Chưa đủ dữ liệu để kết luận · <b>— (chưa đủ dữ liệu · ${esc(lowName)} ${lowPct}%)</b> · ${revCount} phiên bản</p>`;
         } else {
-          result = `<p style="margin:7px 0">${esc(v2.decision)} (Market Score v2) · Final v2 <b>${v2.final == null ? '—' : fmt1(v2.final)}/100</b> · ${revCount} phiên bản</p>`;
+          result = `<p style="margin:7px 0">${esc(v2.decision)} (Market Score v2) · Final v2 <b>${v2.final == null ? '—' : fmtFinalScore(v2.final)}/100</b> · ${revCount} phiên bản</p>`;
         }
         if (gs.mechanicDiverged) result += `<p style="margin:7px 0">⚠️ Mechanic hiện tại khác mechanic đã chấm — điểm/kết luận trên giữ nguyên theo mechanic đã chấm (bản đã hoàn thành), không tính lại.</p>`;
       } else if (gs.legacy) {
