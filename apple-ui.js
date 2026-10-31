@@ -141,7 +141,7 @@
         const field = label.nextElementSibling;
         if (field?.matches('input[id],select[id],textarea[id]')) label.htmlFor = field.id;
       });
-      document.querySelectorAll('.task input[type=checkbox]').forEach(input => input.setAttribute('aria-label', 'Hoàn thành: ' + (input.closest('.task').querySelector('.tt')?.textContent || 'công việc')));
+      document.querySelectorAll('.task input[type=checkbox]').forEach(input => input.setAttribute('aria-label', 'Hoàn thành: ' + (input.closest('.task').querySelector('.tt')?.textContent || 'việc')));
       document.querySelectorAll('.crit input[type=range]').forEach(input => input.setAttribute('aria-label', input.closest('.crit').firstElementChild.textContent));
       document.querySelectorAll('.dcard[onclick],.gcard[onclick],.funnel-row[onclick],.activity-item[onclick],tr[onclick],.task .tt[onclick]').forEach(el => {
         el.setAttribute('tabindex', '0');

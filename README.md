@@ -11,7 +11,7 @@ CRM nội bộ cho team 3 người của Sava Meta — 4 mảng kinh doanh, mỗ
 
 | Trang | Dành cho | Thấy gì |
 |-------|----------|---------|
-| `index.html` | **BD** | Toàn bộ CRM: dashboard, pipeline 4 mảng, khách hàng, games, leads, công việc; deal game có khối **Term rev-share + link hợp đồng**; xem được kết quả đánh giá của MKT trong chi tiết game |
+| `index.html` | **BD** | Toàn bộ CRM: dashboard, pipeline 4 mảng, khách hàng, games, leads, việc; deal game có khối **Term rev-share + link hợp đồng**; xem được kết quả đánh giá của MKT trong chi tiết game |
 | `mkt.html` | **Marketing** | **Chỉ** các game đối tác BD mang về (mảng Publishing) để đánh giá tiềm năng thị trường: 5 tiêu chí chấm điểm + kết luận Nên nhận / Cân nhắc / Không nên nhận + nhận xét. Không thấy deal, term, hợp đồng hay các mảng khác |
 
 Hai trang dùng chung dữ liệu qua `shared.js` (+ localStorage khi chạy prototype):

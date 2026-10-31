@@ -477,7 +477,7 @@ Deno.serve(async (req: Request) => {
         const c = refCheck.counts;
         const parts: string[] = [];
         if (c.deals) parts.push(c.deals + " deal đang phụ trách");
-        if (c.tasks) parts.push(c.tasks + " công việc được giao");
+        if (c.tasks) parts.push(c.tasks + " việc được giao");
         if (c.activities) parts.push(c.activities + " hoạt động đã ghi");
         if (c.publishing_requests) parts.push(c.publishing_requests + " yêu cầu đánh giá Publishing (người yêu cầu / người được giao)");
         if (c.publishing_revisions) parts.push(c.publishing_revisions + " bản chấm Publishing do thành viên này thực hiện");
