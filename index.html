@@ -53,6 +53,8 @@
   .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:700; color:#fff; }
   .pill.gray { background:#f1f5f9; color:#475569; }
   .chip { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:600; margin:1px 2px 1px 0; color:#fff; }
+  /* Nhãn loại đối tượng (shared.js typeBadgeHTML) — định nghĩa GIỐNG HỆT publishing.css */
+  .type-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:700;margin:1px 2px 1px 0;color:#fff;letter-spacing:.2px}
   .mut { color: var(--mut); font-size:12.5px; }
   .overdue { color:#dc2626; font-weight:700; }
   /* Kanban */
@@ -1083,6 +1085,7 @@ function openMember(id) {
   const deals = S.deals.filter(d => d.owner === id);
   const openDeals = deals.filter(isOpen);
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
+    <div style="margin-bottom:4px">${typeBadgeHTML("member")}</div>
     <h2>👤 ${esc(m.name)}</h2><div class="mut">${esc(m.id)} · ${m.active ? "Đang hoạt động" : "Đã ngừng hoạt động"}</div>
     <div class="kv">
       <div class="k">Vai trò</div><div><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></div>
@@ -1235,7 +1238,7 @@ function openDeal(id) {
        <div class="k">Xác suất stage</div><div>${st[2]}% → giá trị có trọng số: <b>${hasAmt ? money(Math.round(d.amount*st[2]/100), d.cur) : "—"}</b></div>
        <div class="k">Link HĐ / báo giá</div><div>${(d.contract&&d.contract.url)?"📄 Đã gắn link (mở trong deal)":"Chưa gắn — bản thật gắn link Drive ở đây"}</div>`;
   document.getElementById("drawer").innerHTML = `<button class="x" onclick="closeDrawer()">✕</button>
-    <span class="chip" style="background:${L.color}">${L.name}</span>
+    ${typeBadgeHTML("deal")} <span class="chip" style="background:${L.color}">${L.name}</span>
     <h2>${esc(d.title)}</h2><div class="mut">${c.id ? `<a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${esc(c.name)} →</a>` : `${esc(c.name)}`} · ${esc(c.type)}${g?` · <a href="#" onclick="openGame('${g.id}'); return false" title="Mở game">🎮 ${esc(g.title)} →</a>`:""}</div>
     <div style="display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap"><button class="btn" onclick="editDeal('${d.id}')">✏️ Sửa thông tin deal</button><button class="btn danger" onclick="deleteDeal('${d.id}')">🗑 Xóa deal</button></div>
     <div class="kv">
@@ -1457,7 +1460,7 @@ function partnerPagerHTML(c) {
     <div class="mut">Đọc từ đánh giá Partner canonical (module Publishing). Điểm /100 không gồm Hard Gate; kết luận cuối mới áp cả 2 gate.</div>
     <h3 style="margin:16px 0 6px">A. Tổng quan công ty</h3>
     <div class="kv">
-      <div class="k">Công ty</div><div><b>${esc(c.name)}</b> · ${esc(c.type || "")}</div>
+      <div class="k">Công ty</div><div>${typeof typeBadgeHTML === "function" ? typeBadgeHTML("company") + " " : ""}<b>${esc(c.name)}</b> · ${esc(c.type || "")}</div>
       <div class="k">Đầu mối liên hệ (lead)</div><div>${pagerLeadsHTML}</div>
       <div class="k">Vai trò theo mảng</div><div>${roleChips || "—"}</div>
       <div class="k">Deal / game</div><div>${deals.length} deal · ${gamesOwned.length} game sở hữu</div>
@@ -1518,6 +1521,7 @@ function openCompany(id) {
   const acts = S.activities.filter(a => dealIds.includes(a.deal));
   const tasks = S.tasks.filter(t => dealIds.includes(t.deal) && !t.done);
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
+    <div style="margin-bottom:4px">${typeBadgeHTML("company")}</div>
     <h2>🏢 ${esc(c.name)}</h2><div class="mut">${esc(c.type)} · Tương tác cuối: ${esc(c.last)}</div>
     <div style="margin:10px 0">${roleChips}</div>
     <div class="kv">
@@ -1579,6 +1583,7 @@ function openGame(id) {
   }
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <div style="font-size:36px">${esc(g.emoji || "")}</div>
+    <div style="margin-bottom:4px">${typeBadgeHTML("game")}</div>
     <h2>${esc(g.title)}</h2><div class="mut">${esc(g.genre || "")} · ${esc(g.platform || "")}</div>
     <div style="margin:8px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${esc(g.stage || "")}</span></div>
     <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap"><button class="btn" onclick="editGame('${g.id}')">✏️ Sửa game</button><button class="btn danger" onclick="deleteGame('${g.id}')">🗑 Xóa game</button></div>
@@ -1607,7 +1612,7 @@ function openLead(id) {
   const relDeals = dealsForLead(l.id);
   const attachDeals = S.deals.filter(d => !(Array.isArray(d.leads) && d.leads.includes(l.id)));
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
-    <span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>
+    ${typeBadgeHTML("lead")} <span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>
     <h2>📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}</div>
     <div class="kv">
       <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
@@ -2644,6 +2649,7 @@ function editTask(id, linkType, linkId) {
   const curVal = curLink ? curLink.type + ":" + curLink.id : "";
   const chipLine = curLink ? `<div style="margin-bottom:10px">🔗 Việc này gắn với: <span class="chip" style="background:#0ea5e9">${curLink.icon} ${esc(curLink.noun)}: ${esc(curLink.label)}</span> <span class="mut">(đổi hoặc gỡ liên kết ở ô "Gắn với đối tượng" bên dưới)</span></div>` : "";
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa việc" : "✅ Thêm việc"}</h3>
+    <div style="margin-bottom:8px">${typeBadgeHTML("task")}</div>
     ${chipLine}
     ${field("Nội dung việc", txt("e_ttitle", t.title))}
     ${field("Người làm", ownerSel("e_tassignee", t.assignee))}

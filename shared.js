@@ -265,6 +265,40 @@ function isMainContact(l) { return !!(l && l.mainContact); }
 function mainContactBadgeHTML(l) {
   return isMainContact(l) ? ` <span class="chip" style="background:#d97706">${MAIN_CONTACT_LABEL}</span>` : "";
 }
+/* === Nhãn LOẠI đối tượng ở vùng tiêu đề khi MỞ chi tiết (drawer/dialog) ===
+   Một helper DUY NHẤT (typeBadgeHTML) + một class CSS DUY NHẤT (.type-badge,
+   định nghĩa giống hệt nhau trong index.html và publishing.css) cho mọi bề
+   mặt mở một mục: drawer Deal/Company/Lead/Game/Member, form việc, one-pager
+   Partner (phía BD) và dialog review + chi tiết mechanic (phía Publishing,
+   dùng chung cho cả BD publishing.html và MKT mkt.html). Bộ icon + tên gọi
+   TÁI SỬ DỤNG đúng bộ chip liên kết việc đã ship ở commit 732fcc8
+   (TASK_LINK_META trong index.html: 📋 Deal / 🏢 Công ty / 📥 Lead / 🎮 Game)
+   và mở rộng cùng phong cách cho các loại còn lại: ✅ Công việc (nhãn mục
+   "✅ Việc liên quan" sẵn có), 👤 Thành viên (icon drawer member sẵn có),
+   🕘 Hoạt động, 📊 Mechanic (mục thị trường phía Publishing). Hai loại hồ sơ
+   đánh giá phía Publishing dùng đúng cách gọi của app: request kind=company
+   là "Đánh giá Partner" (đúng tiền tố tiêu đề dialog sẵn có) và kind=game
+   là "Đánh giá Game". Badge CHỈ chứa loại (không chứa tên đối tượng) nên
+   tên rỗng/thiếu — app tự fallback "—" ở tiêu đề — badge vẫn hiện đúng.
+   Màu nền truyền qua style inline theo đúng tiền lệ .chip của app. */
+const TYPE_BADGE_META = {
+  deal: { icon: "📋", noun: "Deal", color: "#2563eb" },
+  company: { icon: "🏢", noun: "Công ty", color: "#0f766e" },
+  lead: { icon: "📥", noun: "Lead", color: "#b45309" },
+  game: { icon: "🎮", noun: "Game", color: "#7c3aed" },
+  task: { icon: "✅", noun: "Công việc", color: "#15803d" },
+  member: { icon: "👤", noun: "Thành viên", color: "#475569" },
+  activity: { icon: "🕘", noun: "Hoạt động", color: "#64748b" },
+  market: { icon: "📊", noun: "Mechanic / Thị trường", color: "#137e90" },
+  "company-review": { icon: "🏢", noun: "Đánh giá Partner", color: "#0f766e" },
+  "game-review": { icon: "🎮", noun: "Đánh giá Game", color: "#7c3aed" },
+};
+function typeBadgeHTML(type) {
+  const m = TYPE_BADGE_META[type];
+  if (!m) return "";
+  return `<span class="type-badge" data-type="${type}" style="background:${m.color}">${m.icon} ${m.noun}</span>`;
+}
+if (typeof window !== "undefined") { window.TYPE_BADGE_META = TYPE_BADGE_META; window.typeBadgeHTML = typeBadgeHTML; }
 /* Thực thi radio Ở TẦNG DỮ LIỆU: gọi NGAY SAU khi gán dữ liệu lead trong
    đường lưu lead (saveLead ở index.html) — mọi đường sửa lead đi qua
    saveLead đều nhất quán, không phụ thuộc UI. Lead chưa gắn công ty
