@@ -150,6 +150,13 @@
      DDL. Đừng thêm chúng vào TASK_KNOWN khi chưa có cột thật, extrasOf sẽ
      làm rơi field. Bảng tasks KHÔNG có CHECK trên legacy_extra và cụm tasks
      vẫn chỉ cấp policy admin+bd (MKT không đọc được task nào). */
+  /* FIX C10: task.dueDate KHÔNG có cặp cột due_date + *_raw như deal.due /
+     lead.when / request.due / contract.signed (bảng tasks chỉ có cột
+     due_date, không có due_raw). Giá trị ISO vừa khít cột -> đi cột như cũ;
+     giá trị KHÔNG vừa khít (chữ tự do như 'tuần sau', hoặc ISO kèm hậu tố)
+     được giữ NGUYÊN VĂN trong legacy_extra dưới khoá 'dueDate_raw' khi ghi
+     và khôi phục nguyên vẹn khi đọc (xem hai chiều bên dưới) — đúng tinh
+     thần cặp raw/date: raw luôn thắng khi đọc lại (pairBack). */
   const TASK_KNOWN = ['id', 'title', 'assignee', 'deal', 'due', 'dueDate', 'done', 'overdue'];
   const ACTIVITY_KNOWN = ['id', 'deal', 'type', 'who', 'when', 'text', 'url'];
   const MEMBER_KNOWN = ['id', 'name', 'role', 'active'];
@@ -248,11 +255,18 @@
     });
     (Array.isArray(s.tasks) ? s.tasks : []).forEach(t => {
       if (!isObj(t) || !t.id) return;
+      /* FIX C10: tách dueDate thành cặp date/raw như datePair() — cột
+         due_date chỉ nhận phần ISO; raw khác cột (chữ tự do / có hậu tố)
+         thì giữ nguyên văn ở legacy_extra.dueDate_raw. ISO thuần
+         (raw === date) không lưu raw thừa: đường cột là đủ. */
+      const dd = datePair(t.dueDate);
+      const taskExtra = extrasOf(t, TASK_KNOWN);
+      if (dd.raw && dd.date !== dd.raw) taskExtra.dueDate_raw = dd.raw;
       rows.tasks.push({
         id: t.id, title: String(t.title || ''), assignee_id: nullIfEmpty(t.assignee),
         deal_id: nullIfEmpty(t.deal), due_label: String(t.due || ''),
-        due_date: isoDatePart(t.dueDate), done: !!t.done, overdue_stored: !!t.overdue,
-        legacy_extra: extrasOf(t, TASK_KNOWN),
+        due_date: dd.date, done: !!t.done, overdue_stored: !!t.overdue,
+        legacy_extra: taskExtra,
       });
     });
     (Array.isArray(s.activities) ? s.activities : []).forEach(a => {
@@ -359,6 +373,10 @@
       };
       if (t.deal_id) o.deal = t.deal_id;
       state.tasks.push(mergeExtras(o, t));
+      /* FIX C10: raw (nếu có) thắng cột date như pairBack() ở mọi field
+         raw/date khác; khoá dueDate_raw là chi tiết lưu trữ của adapter,
+         không rò lên state của app. */
+      if (o.dueDate_raw !== undefined) { o.dueDate = pairBack(t.due_date, o.dueDate_raw); delete o.dueDate_raw; }
     });
     arr('activities').forEach(a => {
       const o = {
