@@ -52,6 +52,9 @@
   tr:hover td { background:#f8fafc; }
   .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:700; color:#fff; }
   .pill.gray { background:#f1f5f9; color:#475569; }
+  /* Leads chia theo trạng thái: mỗi trạng thái là 1 block ngang xếp dọc */
+  .lead-status-block { margin-bottom:12px; }
+  .lead-status-block .panel-title { margin-bottom:10px; }
   .chip { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:600; margin:1px 2px 1px 0; color:#fff; }
   /* Nhãn loại đối tượng (shared.js typeBadgeHTML) — định nghĩa GIỐNG HỆT publishing.css */
   .type-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:700;margin:1px 2px 1px 0;color:#fff;letter-spacing:.2px}
@@ -741,17 +744,61 @@ function vGames() {
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">Game Studio: game của Sava. Publishing: game của đối tác.</div>`;
 }
 
-function vLeads() {
-  const rows = S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query))).map(l => {
-    const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status] || ["—","#64748b"];
-    const lc = leadCompany(l);
-    const relDeals = dealsForLead(l.id);
-    const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
-    return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${st[0]}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
+/* ===== Leads chia theo trạng thái (vLeads) =====
+   Tập trạng thái lead + thứ tự vòng đời — NGUỒN SỰ THẬT duy nhất cho view
+   Lead phía BD, khớp đúng các nơi khác đang dùng cùng từ vựng này:
+   form sửa lead editLead (ô chọn e_lstatus, cùng thứ tự), drawer lead
+   openLead, thẻ leadMini, convertLead (đặt "converted") và
+   revertLeadIfOrphaned (hồi về "qualified"). KHÔNG thêm/đổi trạng thái
+   ở đây mà không sửa đồng bộ các nơi đó.
+     new       "Mới"           — lead vừa vào, chưa xử lý
+     contacted "Đã liên hệ"    — đã liên hệ với đầu mối
+     qualified "Đạt chuẩn"     — đã đủ chuẩn để chuyển thành deal
+     converted "Đã chuyển đổi" — đã chuyển thành deal trong pipeline
+   Lead có status ngoài tập này (dữ liệu cũ/lạ, hoặc thiếu status) KHÔNG
+   bị ẩn: vLeads gom chúng vào block "Khác / Chưa rõ trạng thái" ở cuối
+   và pill trong hàng hiện nguyên giá trị đã lưu (hoặc "—" khi thiếu). */
+const LEAD_STATUSES = [
+  { key: "new", label: "Mới", color: "#f59e0b" },
+  { key: "contacted", label: "Đã liên hệ", color: "#38bdf8" },
+  { key: "qualified", label: "Đạt chuẩn", color: "#22c55e" },
+  { key: "converted", label: "Đã chuyển đổi", color: "#64748b" },
+];
+const LEAD_STATUS_UNKNOWN = { key: "__unknown__", label: "Khác / Chưa rõ trạng thái", color: "#64748b" };
+function leadStatusDef(status) { return LEAD_STATUSES.find(s => s.key === status) || null; }
+/* Một hàng lead trong bảng của một block trạng thái — giữ nguyên mọi
+   thông tin/thao tác của hàng lead trước đây: bấm hàng mở drawer lead,
+   chip ★ Đầu mối chính, link công ty, chip mảng, nguồn, thời gian, pill
+   trạng thái, deal liên quan (bấm mở deal), nút Chuyển thành deal. */
+function leadRowHTML(l) {
+  const def = leadStatusDef(l.status);
+  const st = def ? [def.label, def.color] : [(l.status ? String(l.status) : "—"), "#64748b"];
+  const lc = leadCompany(l);
+  const relDeals = dealsForLead(l.id);
+  const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
+  return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
+}
+function vLeads() {
+  const filtered = S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)));
+  /* Đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
+     "all") — cùng quy ước ẩn-cột-rỗng-khi-đang-lọc của vTasksByMember:
+     khi đang lọc, block nào không còn lead khớp thì ẨN hẳn; khi không
+     lọc, mọi block trạng thái đều hiện kể cả khi rỗng. */
+  const filtering = !!query || curLine !== "all";
+  const groups = LEAD_STATUSES.map(def => ({ ...def, leads: filtered.filter(l => l.status === def.key) }));
+  const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
+  if (unknownLeads.length) groups.push({ ...LEAD_STATUS_UNKNOWN, leads: unknownLeads });
+  const blocks = groups.map(g => {
+    if (!g.leads.length && filtering) return "";
+    const body = g.leads.length
+      ? `<div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${g.leads.map(leadRowHTML).join("")}</table></div>`
+      : `<div class="mut">Chưa có lead nào ở trạng thái này.</div>`;
+    return `<section class="panel lead-status-block" data-lead-status="${g.key}"><div class="panel-title"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.leads.length} lead</span></h3></div>${body}</section>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${rows}</table></div>
-  <div class="mut" style="margin-top:10px">💡 <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div></div>`;
+  const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div>${blocks}${emptyFiltered}
+  <div class="mut" style="margin-top:10px">💡 Lead được chia thành từng block theo trạng thái (Mới → Đã liên hệ → Đạt chuẩn → Đã chuyển đổi). <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div>`;
 }
 function convertLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
