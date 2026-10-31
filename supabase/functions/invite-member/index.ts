@@ -27,10 +27,18 @@
 //                                     xoá dòng profiles. KHÔNG xoá dòng
 //                                     members ở đây — app tự xoá qua
 //                                     đường save/diff-sync sau khi action
-//                                     này thành công (và app đã chặn xoá
-//                                     khi member còn tham chiếu nghiệp vụ
-//                                     trước khi gọi). Member chưa có tài
-//                                     khoản -> trả ok ngay (had_account
+//                                     này thành công. FIX C9: function TỰ
+//                                     kiểm tra lại tham chiếu nghiệp vụ
+//                                     phía server (deals.owner_id /
+//                                     tasks.assignee_id / activities.
+//                                     actor_id / publishing_requests.
+//                                     requested_by+assignee_id /
+//                                     publishing_revisions.reviewer_id)
+//                                     TRƯỚC khi xoá — còn bất kỳ tham
+//                                     chiếu nào -> 409 kèm counts theo
+//                                     loại, KHÔNG xoá gì (không chỉ tin
+//                                     client chặn trước). Member chưa có
+//                                     tài khoản -> trả ok ngay (had_account
 //                                     =false), không gọi auth admin.
 //
 // Quy ước response: thành công {ok:true, ...}; lỗi {error:'...'} với
@@ -119,6 +127,80 @@ async function findUserByEmail(admin: SupabaseClient, email: string): Promise<Us
     if (users.length < 100) break;
   }
   return null;
+}
+
+/* FIX C9 — kiểm tra tham chiếu nghiệp vụ của 1 member ở tầng DB (service
+   role), đối chiếu đúng tên bảng/cột trong supabase/schema.sql:
+     deals.owner_id                 (app: deal.owner)
+     tasks.assignee_id              (app: task.assignee)
+     activities.actor_id            (app: activity.who)
+     publishing_requests.requested_by / publishing_requests.assignee_id
+                                    (app: request.requestedBy / .assignee)
+     publishing_revisions.reviewer_id
+                                    (app: revision.reviewer — cột có thật)
+   Trả { counts, error }: error != null khi một truy vấn trả lỗi qua kênh
+   error của supabase-js (khi đó caller chặn xoá và trả 500 — fail-closed).
+   Lời gọi NÉM ngoại lệ (khác hợp đồng supabase-js, vd harness mock thiếu
+   bảng) được coi như không có dòng nào để các harness cũ thiếu bảng phụ
+   vẫn chạy được; đường thật của Supabase báo lỗi qua field error. */
+type RefCounts = {
+  deals: number;
+  tasks: number;
+  activities: number;
+  publishing_requests: number;
+  publishing_revisions: number;
+};
+
+async function fetchRefRows(
+  admin: SupabaseClient,
+  table: string,
+  selectCol: string,
+  column: string,
+  memberId: string,
+): Promise<{ rows: Record<string, unknown>[] | null; error: string | null }> {
+  try {
+    const { data, error } = await admin.from(table).select(selectCol).eq(column, memberId);
+    if (error) return { rows: null, error: error.message || String(error) };
+    return { rows: (data || []) as Record<string, unknown>[], error: null };
+  } catch {
+    return { rows: [], error: null };
+  }
+}
+
+async function countMemberReferences(
+  admin: SupabaseClient,
+  memberId: string,
+): Promise<{ counts: RefCounts; total: number; error: string | null }> {
+  const counts: RefCounts = { deals: 0, tasks: 0, activities: 0, publishing_requests: 0, publishing_revisions: 0 };
+  const specs: Array<[keyof RefCounts, string, string, string]> = [
+    ["deals", "deals", "id", "owner_id"],
+    ["tasks", "tasks", "id", "assignee_id"],
+    ["activities", "activities", "id", "actor_id"],
+    ["publishing_revisions", "publishing_revisions", "request_id", "reviewer_id"],
+  ];
+  for (const [key, table, selectCol, column] of specs) {
+    const r = await fetchRefRows(admin, table, selectCol, column, memberId);
+    if (r.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng " + table + ": " + r.error };
+    counts[key] = (r.rows || []).length;
+  }
+  /* publishing_requests: hai cột người — đếm theo DÒNG (một request mà cả
+     requested_by lẫn assignee_id đều là member này chỉ tính 1), khử trùng
+     theo id khi cả hai truy vấn cùng trả một dòng. Dòng mock/harness không
+     có id thì đếm thẳng từng dòng trả về của mỗi phía rồi lấy max — không
+     xảy ra trên DB thật (id là khoá chính, luôn có). */
+  const byReq = await fetchRefRows(admin, "publishing_requests", "id", "requested_by", memberId);
+  if (byReq.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng publishing_requests: " + byReq.error };
+  const byAsg = await fetchRefRows(admin, "publishing_requests", "id", "assignee_id", memberId);
+  if (byAsg.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng publishing_requests: " + byAsg.error };
+  const reqIds = new Set<string>();
+  let reqNoId = 0;
+  for (const row of [...(byReq.rows || []), ...(byAsg.rows || [])]) {
+    if (row && row.id !== undefined && row.id !== null) reqIds.add(String(row.id));
+    else reqNoId++;
+  }
+  counts.publishing_requests = reqIds.size + reqNoId;
+  const total = counts.deals + counts.tasks + counts.activities + counts.publishing_requests + counts.publishing_revisions;
+  return { counts, total, error: null };
 }
 
 async function listAllUsers(admin: SupabaseClient): Promise<User[]> {
@@ -381,6 +463,28 @@ Deno.serve(async (req: Request) => {
       const { data: member, error: mErr } = await admin.from("members").select("id,name,role,active").eq("id", memberId).maybeSingle();
       if (mErr) return fail(req, 500, "Không đọc được thành viên: " + mErr.message);
       if (!member) return fail(req, 404, "Không tìm thấy thành viên cần xoá.");
+
+      /* FIX C9: kiểm tra LẠI tham chiếu phía server TRƯỚC khi xoá bất cứ
+         thứ gì — không tin hoàn toàn việc client đã chặn trước (client có
+         thể cũ/bị bỏ qua). Còn tham chiếu -> 409 + counts theo loại và
+         KHÔNG xoá auth user / profiles / members nào cả. Truy vấn kiểm
+         tra lỗi -> 500 fail-closed (chưa kiểm chứng được thì không xoá). */
+      const refCheck = await countMemberReferences(admin, memberId);
+      if (refCheck.error) {
+        return fail(req, 500, "Chưa xoá được " + member.name + " vì chưa kiểm tra xong tham chiếu nghiệp vụ: " + refCheck.error + " — thử lại sau.", { member_id: memberId });
+      }
+      if (refCheck.total > 0) {
+        const c = refCheck.counts;
+        const parts: string[] = [];
+        if (c.deals) parts.push(c.deals + " deal đang phụ trách");
+        if (c.tasks) parts.push(c.tasks + " công việc được giao");
+        if (c.activities) parts.push(c.activities + " hoạt động đã ghi");
+        if (c.publishing_requests) parts.push(c.publishing_requests + " yêu cầu đánh giá Publishing (người yêu cầu / người được giao)");
+        if (c.publishing_revisions) parts.push(c.publishing_revisions + " bản chấm Publishing do thành viên này thực hiện");
+        return fail(req, 409,
+          "Không xoá được " + member.name + " vì còn tham chiếu nghiệp vụ: " + parts.join("; ") + ". Hãy chuyển/gỡ các mục đó hoặc dùng Ngừng hoạt động thay vì xoá.",
+          { member_id: memberId, references: c, counts: c });
+      }
 
       // Mọi dòng profiles gắn với member (thiết kế cho phép 1 member gắn
       // nhiều auth user — xem schema.sql): xoá TỪNG auth user qua admin

@@ -190,7 +190,16 @@
 
   /* ---------- Đồng bộ diff ---------- */
   function attach(client, role) { ctx.client = client; ctx.role = role; }
-  function setEnabled(v) { ctx.enabled = !!v; if (v) ctx.ready = true; }
+  function setEnabled(v) {
+    ctx.enabled = !!v;
+    if (v) {
+      ctx.ready = true;
+      /* FIX C8: mục audit sinh trong cửa sổ boot-nhanh (enabled=false)
+         được GIỮ trong hàng đợi — bật tầng dữ liệu là lúc flush chúng,
+         nếu không chúng sẽ nằm kẹt vô thời hạn tới lần ghi audit kế. */
+      try { if (typeof auditQueue !== 'undefined' && auditQueue.length) scheduleAuditFlush(0); } catch (e) {}
+    }
+  }
 
   function scheduleSync(delay) {
     if (!ctx.enabled) return;
@@ -428,12 +437,25 @@
      "Lịch sử chưa khả dụng". Hàng đợi ghi dồn theo đợt (tối đa 1 insert /
      lần flush) để 1 lần save đụng nhiều entity không tạo nhiều request. */
   const auditQueue = [];
+  /* FIX C8: trần hàng đợi audit — khi insert liên tục lỗi (vd bảng chưa
+     tồn tại) các mục được giữ lại để thử lần sau, nhưng không được phình
+     vô hạn trong một phiên dài: vượt trần thì bỏ mục CŨ NHẤT. */
+  const AUDIT_QUEUE_MAX = 500;
+  function trimAuditQueue() {
+    if (auditQueue.length > AUDIT_QUEUE_MAX) auditQueue.splice(0, auditQueue.length - AUDIT_QUEUE_MAX);
+  }
   let auditFlushTimer = null, auditFlushing = false;
   async function flushAudit() {
     auditFlushTimer = null;
     if (auditFlushing || !auditQueue.length) return;
-    if (!ctx.client || !ctx.enabled) { auditQueue.length = 0; return; }
+    /* FIX C8: tầng dữ liệu chưa bật (cửa sổ boot-nhanh: người dùng đã sửa
+       và save() đã sinh audit, nhưng setEnabled(true) chưa tới) — GIỮ
+       NGUYÊN hàng đợi, TUYỆT ĐỐI không xoá. Các thay đổi đó được
+       localDirty đẩy lên server ngay sau đó; audit của chúng phải sống
+       tới khi enabled để flush cùng. setEnabled(true) sẽ gọi lại flush. */
+    if (!ctx.client || !ctx.enabled) return;
     auditFlushing = true;
+    let batchFailed = false;
     const batch = auditQueue.splice(0, auditQueue.length);
     try {
       const rows = batch.map(e => ({
@@ -443,12 +465,24 @@
       const { error } = await ctx.client.from('audit_log').insert(rows);
       if (error) throw error;
     } catch (err) {
-      /* Nuốt êm có chủ đích: bảng chưa tồn tại / mất mạng / RLS chặn —
-         lịch sử là phụ trợ, tuyệt đối không ảnh hưởng dữ liệu chính. */
-      try { console.warn('[audit] ghi lịch sử thất bại (đã bỏ qua):', err && err.message ? err.message : err); } catch (e2) {}
+      batchFailed = true;
+      /* FIX C8: insert lỗi (bảng chưa tồn tại / mất mạng / RLS chặn) —
+         ĐƯA LẠI batch vào ĐẦU hàng đợi (giữ thứ tự, trước các mục mới
+         phát sinh trong lúc đang flush) để lần flush sau thử lại, có áp
+         trần AUDIT_QUEUE_MAX (bỏ cũ nhất khi vượt). */
+      auditQueue.unshift(...batch);
+      trimAuditQueue();
+      /* Nuốt êm có chủ đích: lịch sử là phụ trợ, tuyệt đối không ảnh
+         hưởng dữ liệu chính — lỗi chỉ được ghi warn, không ném ra. */
+      try { console.warn('[audit] ghi lịch sử thất bại (đã giữ lại để thử sau):', err && err.message ? err.message : err); } catch (e2) {}
     } finally {
       auditFlushing = false;
-      if (auditQueue.length) scheduleAuditFlush(300);
+      /* Chỉ lên lịch tiếp khi batch vừa rồi THÀNH CÔNG mà đã có mục mới
+         tới trong lúc flush. Batch THẤT BẠI thì KHÔNG thử lại ngay theo
+         vòng 300ms (bảng chưa tồn tại sẽ lỗi y hệt, gây vòng lặp request
+         vô hạn) — mục đã giữ trong hàng đợi sẽ được flush ở lần kích
+         hoạt tiếp theo: recordBatch() kế tiếp hoặc setEnabled(true). */
+      if (!batchFailed && auditQueue.length) scheduleAuditFlush(300);
     }
   }
   function scheduleAuditFlush(delay) {
@@ -459,6 +493,7 @@
     try {
       if (!Array.isArray(entries) || !entries.length) return;
       entries.forEach(e => { if (e && e.entityType && e.entityId) auditQueue.push(e); });
+      trimAuditQueue();
       scheduleAuditFlush();
     } catch (e) { /* nuốt êm — xem flushAudit */ }
   }
@@ -477,7 +512,7 @@
       }));
     } catch (e) { return null; }
   }
-  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, _flush: flushAudit, _queue: auditQueue };
+  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
   if (typeof window !== 'undefined') window.SavaAudit = auditApi;
 
   const api = {
