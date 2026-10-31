@@ -254,6 +254,10 @@
     <select id="f_stage"></select>
     <label>Người phụ trách</label>
     <div id="f_ownerWrap"></div>
+    <div id="f_leadsWrap">
+      <label>Lead đầu mối gắn vào deal (lead của công ty đã chọn — công ty có ★ Đầu mối chính thì lead đó được điền sẵn, bỏ tick/thêm tự do trước khi lưu)</label>
+      <div id="f_leadsBox"></div>
+    </div>
     <div style="display:flex; gap:8px; margin-top:16px; justify-content:flex-end">
       <button class="btn ghost" onclick="closeAdd()">Hủy</button>
       <button class="btn" onclick="saveDeal()">Lưu deal</button>
@@ -443,6 +447,46 @@ function leadMini(l) {
     <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person && l.person !== l.name ? " · 👤 " + esc(l.person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
+/* === Khối đầu mối trong DRAWER DEAL ===
+   deal.leads là nguồn sự thật DUY NHẤT cho đầu mối LÀM VIỆC của deal; lead
+   của công ty (leadsForCompany) chỉ là nhóm THAM CHIẾU. Hai renderer dưới
+   đây CHỈ dùng trong drawer deal (kv tóm tắt + khối "Đầu mối phía đối tác")
+   — các bề mặt khác giữ nguyên companyLeadsHTML / leadMini như cũ. */
+/* Khóa so sánh "gần trùng" giữa name và person của lead: bỏ hoa/thường,
+   khoảng trắng, dấu câu và dấu tiếng Việt — "Mr. B" vs "Mr.B" coi là MỘT. */
+function leadNameKey(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+/* person chỉ đáng hiện riêng khi KHÁC hẳn tên lead (theo mẫu leadMini:
+   person là thông tin phụ sau tên). Trùng / gần trùng tên -> "" (không lặp). */
+function leadPersonShown(l) {
+  const p = String((l && l.person) || "").trim();
+  if (!p) return "";
+  return leadNameKey(p) === leadNameKey(l && l.name) ? "" : p;
+}
+/* Dòng đầu mối gọn cho ô kv của drawer deal — cùng dữ kiện như
+   companyLeadsHTML (tên + thẻ main + person nếu khác + SĐT) nhưng person
+   gần trùng tên thì không lặp lại lần hai. */
+function dealLeadContactLineHTML(l) {
+  const bits = [esc(leadDisplayName(l)) + mainContactBadgeHTML(l)];
+  const person = leadPersonShown(l);
+  if (person) bits.push(esc(person));
+  if (l.phone) bits.push("📞 " + esc(l.phone));
+  return bits.join(" · ");
+}
+/* Thẻ lead trong drawer deal: dựng ĐÚNG mẫu leadMini (tên người là chính,
+   công ty + person + SĐT là phụ, chip mảng + trạng thái), chỉ khác ở chỗ
+   person gần trùng tên lead thì không hiện lại. */
+function dealLeadMiniHTML(l) {
+  const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
+  const person = leadPersonShown(l);
+  return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
+    <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
+}
+/* Nút "＋ Gắn vào deal" ngay tại khối đầu mối của drawer deal: đi qua ĐÚNG
+   đường gắn/lưu hiện có (attachLeadToDeal -> save()) rồi dựng lại drawer. */
+function attachLeadFromDealBlock(leadId, dealId) { attachLeadToDeal(leadId, dealId); openDeal(dealId); }
 function attachLeadToDeal(leadId, dealId) {
   const d = S.deals.find(x => x.id === dealId); const l = S.leads.find(x => x.id === leadId);
   if (!d || !l) { toast("Không tìm thấy lead/deal để gắn"); return; }
@@ -1280,11 +1324,19 @@ function openDeal(id) {
      mở form tạo việc với liên kết deal điền sẵn. */
   const dealTasksBox = relatedTasksHTML("deal", d.id);
   const attachedLeads = leadsForDeal(d);
+  const attachedIdSet = new Set(attachedLeads.map(l => l.id));
+  /* Nhóm THAM CHIẾU: lead thuộc công ty của deal nhưng CHƯA gắn vào deal —
+     lead đã gắn KHÔNG lặp lại ở nhóm này. */
+  const companyLeadsAll = d.company ? leadsForCompany(d.company) : [];
+  const companyUnattached = companyLeadsAll.filter(l => !attachedIdSet.has(l.id));
   const attachCandidates = S.leads.filter(l => !(Array.isArray(d.leads) && d.leads.includes(l.id)))
     .sort((a, b) => ((b.company === d.company) - (a.company === d.company)) || ((b.line === d.line) - (a.line === d.line)));
-  const leadsBox = `<h3 style="margin:18px 0 8px">📥 Lead đầu mối</h3>
+  const leadsBox = `<h3 style="margin:18px 0 8px">📥 Đầu mối phía đối tác</h3>
     <div class="mut" style="margin-bottom:8px">Một deal có thể được tiếp cận qua nhiều lead. Bấm vào lead để mở chi tiết lead.</div>
-    ${attachedLeads.map(l => `<div style="margin-bottom:6px">${leadMini(l)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào.</div>'}
+    <div style="font-weight:600;margin-bottom:6px">Đã gắn vào deal này</div>
+    ${attachedLeads.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào vào deal này.</div>'}
+    <div style="font-weight:600;margin:12px 0 6px">Lead của công ty (chưa gắn vào deal này — chỉ để tham chiếu)</div>
+    ${companyUnattached.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="attachLeadFromDealBlock('${l.id}','${d.id}')">＋ Gắn vào deal</button></div>`).join("") || (companyLeadsAll.length ? '<div class="mut">Tất cả lead của công ty đã được gắn vào deal này.</div>' : '<div class="mut">Công ty này chưa có lead nào.</div>')}
     ${attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="deal_attach_lead" style="flex:1;min-width:220px">${attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)}${l.company === d.company ? " (cùng công ty)" : (l.line === d.line ? " (cùng mảng)" : "")}${l.mainContact ? " · " + MAIN_CONTACT_LABEL : ""}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào chưa gắn để chọn.</div>'}`;
   /* D3: stage lạ/thiếu không có trong L.stages -> thêm option dự phòng mang đúng giá trị đã lưu */
   const stageOpts = (L.stages.some(s => s[0] === d.stage) ? "" : `<option value="${esc(d.stage || "")}" selected>${esc(st[1])} (${st[2]}%)</option>`) + L.stages.map(s => `<option value="${s[0]}" ${s[0]===d.stage?'selected':''}>${s[1]} (${s[2]}%)</option>`).join("");
@@ -1350,7 +1402,7 @@ function openDeal(id) {
       ${valueRows}
       <div class="k">Người phụ trách</div><div>${esc(memberName(S, d.owner))}</div>
       <div class="k">Ngày dự kiến chốt</div><div>${esc(d.due || "—")}</div>
-      <div class="k">Đầu mối phía đối tác (lead của công ty)</div><div>${companyLeadsHTML(c.id)}</div>
+      <div class="k">Đầu mối phía đối tác (đã gắn vào deal)</div><div>${attachedLeads.length ? attachedLeads.map(dealLeadContactLineHTML).join("<br>") : '<span class="mut">Chưa gắn lead nào vào deal này — gắn ở khối “Đầu mối phía đối tác” bên dưới</span>'}</div>
       ${d.line === "metaverse" ? `<div class="k">Phân khúc ngành</div><div>${esc(dealVerticalLabel(d))}</div>` : ""}
       ${fields}
     </div>
@@ -1759,8 +1811,59 @@ function openAddFor(companyId) {
 /* Prefill cho convertLead (S4): khi mở form từ 1 lead, saveDeal sẽ gắn các lead
    này vào deal mới và đánh dấu lead "converted". Mở form bình thường -> null. */
 let pendingDealLeads = null;
+/* Lựa chọn lead trong form TẠO deal, ghi theo TỪNG công ty
+   (dealFormLeadSelByCompany[companyId] = [leadId...]). Ô chọn chỉ liệt kê
+   lead của công ty đang chọn; lần đầu dựng danh sách cho một công ty thì
+   ĐIỀN SẴN lead ★ Đầu mối chính của công ty đó (nếu có). User tick/bỏ tick
+   thì ghi vào map của đúng công ty đó — đổi công ty qua lại KHÔNG ghi đè
+   lựa chọn tay của từng công ty. Đóng/mở lại form thì reset toàn bộ. */
+let dealFormLeadSelByCompany = {};
+function dealFormMainLeadId(companyId) {
+  const m = (companyId ? leadsForCompany(companyId) : []).find(l => l.mainContact);
+  return m ? m.id : "";
+}
+function renderDealFormLeads() {
+  const box = document.getElementById("f_leadsBox"); if (!box) return;
+  const sel = document.getElementById("f_company");
+  const compId = sel ? sel.value : "";
+  if (!compId) { box.innerHTML = '<div class="mut">Chọn công ty để xem lead của công ty và gắn vào deal.</div>'; return; }
+  if (compId === "__new__") { box.innerHTML = '<div class="mut">Công ty mới chưa có lead — deal sẽ chưa gắn lead nào.</div>'; return; }
+  const ls = leadsForCompany(compId);
+  if (!ls.length) {
+    box.innerHTML = '<div class="mut">Công ty này chưa có lead nào.</div>';
+    if (!Object.prototype.hasOwnProperty.call(dealFormLeadSelByCompany, compId)) dealFormLeadSelByCompany[compId] = [];
+    return;
+  }
+  if (!Object.prototype.hasOwnProperty.call(dealFormLeadSelByCompany, compId)) {
+    const mainId = dealFormMainLeadId(compId);
+    dealFormLeadSelByCompany[compId] = mainId ? [mainId] : [];
+  }
+  const chosen = dealFormLeadSelByCompany[compId];
+  box.innerHTML = ls.map(l => {
+    const person = leadPersonShown(l);
+    return `<label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px;margin:4px 0"><input type="checkbox" style="width:auto" onchange="toggleDealFormLead('${l.id}', this.checked)" ${chosen.includes(l.id) ? "checked" : ""}> <span>${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""}</span></label>`;
+  }).join("");
+}
+function toggleDealFormLead(leadId, checked) {
+  const sel = document.getElementById("f_company");
+  const compId = sel ? sel.value : "";
+  if (!compId || compId === "__new__") return;
+  const cur = new Set(Array.isArray(dealFormLeadSelByCompany[compId]) ? dealFormLeadSelByCompany[compId] : []);
+  if (checked) cur.add(leadId); else cur.delete(leadId);
+  dealFormLeadSelByCompany[compId] = [...cur];
+}
+/* Lựa chọn hiệu lực cho 1 công ty tại lúc lưu: map đã có (prefill tự động
+   hoặc user chọn tay) thì dùng map; chưa từng dựng (đường gọi lạ) thì áp
+   đúng quy tắc điền sẵn — main của công ty, không có main thì rỗng. */
+function dealFormLeadSelection(companyId) {
+  if (!companyId) return [];
+  if (Object.prototype.hasOwnProperty.call(dealFormLeadSelByCompany, companyId)) return [...dealFormLeadSelByCompany[companyId]];
+  const mainId = dealFormMainLeadId(companyId);
+  return mainId ? [mainId] : [];
+}
 function openAdd(prefill) {
   pendingDealLeads = null;
+  dealFormLeadSelByCompany = {};
   const sel = document.getElementById("f_line");
   sel.innerHTML = Object.entries(LINES).map(([k,v]) => `<option value="${k}" ${k===curLine?'selected':''}>${v.name}</option>`).join("");
   /* Reset ô phân khúc ngành mỗi lần mở form tạo (tránh sót lựa chọn lần trước) */
@@ -1775,9 +1878,15 @@ function openAdd(prefill) {
     if (prefill.line && LINES[prefill.line]) { sel.value = prefill.line; fillStages(); }
     if (prefill.companyId) { document.getElementById("f_company").value = prefill.companyId; onDealCompanyChange(); }
     if (prefill.title) document.getElementById("f_title").value = prefill.title;
-    if (Array.isArray(prefill.leads) && prefill.leads.length) pendingDealLeads = [...prefill.leads];
+    if (Array.isArray(prefill.leads) && prefill.leads.length) {
+      pendingDealLeads = [...prefill.leads];
+      /* Prefill (convertLead) cũng là lựa chọn khởi tạo của ô chọn lead:
+         seed vào map để form hiện đúng lead đã tick và user bỏ được. */
+      if (prefill.companyId) dealFormLeadSelByCompany[prefill.companyId] = [...prefill.leads];
+    }
     fillDealGames();
   }
+  renderDealFormLeads();
   onDealFormGameChange();
   document.getElementById("modal").classList.add("on");
 }
@@ -1818,6 +1927,10 @@ function onDealCompanyChange() {
   const w = document.getElementById("f_newCompanyWrap");
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
   fillDealGames();
+  /* Danh sách lead gắn vào deal dựng lại theo công ty mới: công ty chưa có
+     lựa chọn riêng thì điền sẵn ★ Đầu mối chính của nó; công ty user đã
+     chọn tay trước đó thì giữ nguyên lựa chọn của công ty đó. */
+  renderDealFormLeads();
 }
 /* Ô chọn game trong form tạo deal: mảng game mới hiện.
    Publishing: chỉ liệt kê game đối tác (own='partner') thuộc đúng công ty đã chọn
@@ -1848,7 +1961,7 @@ function onDealFormGameChange() {
   const selG = document.getElementById("f_game"), nw = document.getElementById("f_newGameWrap");
   if (nw) nw.style.display = selG && selG.value === "__new__" ? "" : "none";
 }
-function closeAdd() { pendingDealLeads = null; document.getElementById("modal").classList.remove("on"); }
+function closeAdd() { pendingDealLeads = null; dealFormLeadSelByCompany = {}; document.getElementById("modal").classList.remove("on"); }
 function saveDeal() {
   const title = document.getElementById("f_title").value.trim(); if (!title) { toast("Nhập tên deal trước đã"); return; }
   const line = document.getElementById("f_line").value;
@@ -1908,17 +2021,22 @@ function saveDeal() {
   if (line === "publishing" && !gameId) { toast("Deal Publishing bắt buộc gắn 1 game — chọn game của công ty hoặc tạo game mới ngay trong form"); return; }
   const nd = { id:"d"+Date.now(), line, title, company:c.id, leads:[], stage:document.getElementById("f_stage").value, owner:(document.getElementById("f_owner") ? document.getElementById("f_owner").value : defaultOwnerId()), due:"", idle:0, custom:{} };
   if (line === "metaverse" && verticalVal) { nd.vertical = verticalVal; ensureVertical(verticalVal); }
-  /* N4: deal tạo từ convertLead (prefill) — CHỈ gắn pendingDealLeads + đánh dấu
-     lead "converted" khi line VÀ company của deal cuối cùng khớp lead
-     (lead.line, lead.company). Lệch -> tạo deal thường, lead giữ nguyên. */
+  /* Lead gắn vào deal mới lấy từ Ô CHỌN LEAD trong form
+     (dealFormLeadSelection: đã điền sẵn ★ Đầu mối chính của công ty, user
+     tick/bỏ tự do) — chỉ nhận lead thuộc ĐÚNG công ty đã resolve ở trên. */
+  nd.leads = dealFormLeadSelection(c.id).filter(lid => { const l = S.leads.find(x => x.id === lid); return l && l.company === c.id; });
+  /* N4: deal tạo từ convertLead (prefill) — CHỈ đánh dấu lead "converted"
+     khi line VÀ company của deal cuối cùng khớp lead (lead.line,
+     lead.company) VÀ lead vẫn nằm trong lựa chọn cuối của form (user bỏ
+     tick trong form thì tôn trọng: không gắn, không converted). Lệch
+     line/company -> gỡ lead prefill khỏi deal mới, lead giữ nguyên. */
   let leadMismatch = false;
   if (pendingDealLeads && pendingDealLeads.length) {
     const leadObjs = pendingDealLeads.map(lid => S.leads.find(x => x.id === lid)).filter(Boolean);
     const allMatch = leadObjs.length > 0 && leadObjs.every(l => l.line === line && l.company === c.id);
     if (allMatch) {
-      nd.leads = [...pendingDealLeads];
-      leadObjs.forEach(ll => { ll.status = "converted"; });
-    } else { leadMismatch = true; }
+      leadObjs.forEach(ll => { if (nd.leads.includes(ll.id)) ll.status = "converted"; });
+    } else { leadMismatch = true; nd.leads = nd.leads.filter(lid => !pendingDealLeads.includes(lid)); }
     pendingDealLeads = null;
   }
   if (gameId) nd.game = gameId;
