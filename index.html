@@ -185,9 +185,10 @@
 <button data-view="companies" class=""><i data-icon="company"></i><span>Khách hàng</span></button>
 <button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
-<button data-view="tasks" class=""><i data-icon="check"></i><span>Công việc</span></button>
+<button data-view="tasks" class=""><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="tasksByMember" class=""><i data-icon="team"></i><span>Việc theo người</span></button>
-<button data-view="members" class=""><i data-icon="company"></i><span>Thành viên</span></button></nav>
+<button data-view="members" class=""><i data-icon="company"></i><span>Thành viên</span></button>
+<button data-view="auditHistory" class="audit-admin-only" style="display:none"><i data-icon="clock"></i><span>Lịch sử tổng</span></button></nav>
   <div class="side-nav-cards">
     <a href="publishing.html" class="nav-card"><span class="nav-card-icon"><i data-icon="chart"></i></span><span class="nav-card-text"><strong>Thị trường &amp; Đánh giá game</strong><small>Dữ liệu thị trường, chấm điểm game và đối tác</small></span><i data-icon="arrow"></i></a>
     <a href="mkt.html" class="nav-card"><span class="nav-card-icon"><i data-icon="game"></i></span><span class="nav-card-text"><strong>Trang của Marketing</strong><small>MKT vào đây đánh giá Company &amp; Game</small></span><i data-icon="arrow"></i></a>
@@ -204,10 +205,10 @@
   </header>
   <details class="prototype-note">
     <summary><span class="status-dot" aria-hidden="true"></span><b>Bản dùng thử</b><span class="note-secondary">Dữ liệu CRM trên Supabase · Đăng nhập theo vai</span><span class="note-more">Thông tin dữ liệu<i data-icon="chevron"></i></span></summary>
-    <p>Dữ liệu CRM lưu trên Supabase — đăng nhập bắt buộc và phân quyền Admin/BD/MKT ở máy chủ; trình duyệt chỉ giữ bản cache gương, bản gốc localStorage trước khi nối Supabase được giữ làm sao lưu trên máy. Marketing xem/cập nhật thị trường, đánh giá năng lực studio và từng game trong phân hệ Game &amp; Publishing.</p>
+    <p>Dữ liệu CRM lưu trên Supabase — đăng nhập bắt buộc và phân quyền Admin/BD/MKT ở máy chủ; trình duyệt chỉ giữ bản cache gương, bản gốc localStorage trước khi nối Supabase được giữ làm sao lưu trên máy. Marketing xem/cập nhật thị trường, Đánh giá Partner và đánh giá từng game trong phân hệ Game &amp; Publishing.</p>
   </details>
   <div class="toolbar">
-    <div class="page-heading"><h1 id="viewTitle">Tổng quan</h1><p class="page-description" id="viewDescription">Theo dõi cơ hội, đối tác và công việc của team.</p></div>
+    <div class="page-heading"><h1 id="viewTitle">Tổng quan</h1><p class="page-description" id="viewDescription">Theo dõi cơ hội, đối tác và việc của team.</p></div>
     <div class="page-actions"><div class="search-control"><i data-icon="search"></i><input id="search" aria-label="Tìm kiếm trong mục đang xem" placeholder="Tìm kiếm trong mục này…" autocomplete="off"><kbd>/</kbd><button id="clearSearch" class="clear-search" aria-label="Xóa tìm kiếm"><i data-icon="close"></i></button></div><button class="btn" onclick="openAdd()"><i data-icon="plus"></i>Thêm deal</button></div>
   </div>
   <div class="linetabs" id="linetabs" role="group" aria-label="Lọc theo mảng kinh doanh"></div>
@@ -218,9 +219,10 @@
 <button data-view="companies" class="" aria-label="Khách hàng"><i data-icon="company"></i><span>Khách hàng</span></button>
 <button data-view="games" class="" aria-label="Games"><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class="" aria-label="Leads"><i data-icon="inbox"></i><span>Leads</span></button>
-<button data-view="tasks" class="" aria-label="Công việc"><i data-icon="check"></i><span>Công việc</span></button>
+<button data-view="tasks" class="" aria-label="Việc"><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="tasksByMember" class="" aria-label="Việc theo người"><i data-icon="team"></i><span>Việc theo người</span></button>
-<button data-view="members" class="" aria-label="Thành viên"><i data-icon="company"></i><span>Thành viên</span></button></nav>
+<button data-view="members" class="" aria-label="Thành viên"><i data-icon="company"></i><span>Thành viên</span></button>
+<button data-view="auditHistory" class="audit-admin-only" style="display:none" aria-label="Lịch sử tổng"><i data-icon="clock"></i><span>Lịch sử tổng</span></button></nav>
 
 
 <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
@@ -278,6 +280,39 @@
 <script src="publishing-bridge.js"></script>
 <script>
 let S = loadState();
+/* ===== P2 (đợt 7 quyết định): migration MỘT LẦN chuẩn hoá status lead theo deal =====
+   Bất biến mới: lead đang gắn ≥1 deal thì status phải là "converted". Dữ
+   liệu có sẵn từ trước quyết định này có thể còn lead đã gắn deal mà status
+   chưa "converted" -> chuẩn hoá tại đây. Marker state.leadDealStatusMigrated
+   (đặt trên state, sống qua storeState/localStorage như các field lạ khác
+   của state) đảm bảo chạy đúng 1 lần trên mỗi kho dữ liệu; thao tác là
+   idempotent nên kể cả khi marker bị mất qua một vòng đồng bộ thì chạy lại
+   cũng không đổi thêm gì. TUYỆT ĐỐI KHÔNG hồi status của lead "converted"
+   không có deal nào (có thể là thao tác tay của user).
+   Vị trí: migrateState nằm trong shared.js (ngoài phạm vi sửa của đợt này)
+   nên migration này chạy ngay sau loadState() ở phía index — TRƯỚC khi
+   crmPrevSnap được chụp — và ghi lại bằng storeState (đúng đường loadState
+   tự ghi migrateState), KHÔNG qua save(): không sinh audit, không tăng rev.
+   Lead bị đổi được đóng dấu hệ thống tại chỗ theo tiền lệ C7: updatedAt =
+   thời điểm migration, updatedBy = member đang đăng nhập nếu xác định
+   được qua window.SavaAuth.currentUser(), không thì "" — không bịa. */
+function migrateLeadDealStatusesOnce(state) {
+  if (!state || typeof state !== "object" || state.leadDealStatusMigrated) return 0;
+  state.leadDealStatusMigrated = true;
+  const deals = Array.isArray(state.deals) ? state.deals : [];
+  const attached = new Set();
+  deals.forEach(d => { if (d && Array.isArray(d.leads)) d.leads.forEach(lid => attached.add(String(lid))); });
+  if (!attached.size || !Array.isArray(state.leads)) return 0;
+  const migNowIso = new Date().toISOString();
+  let migBy = "";
+  try { const u = (typeof window !== "undefined" && window.SavaAuth && typeof window.SavaAuth.currentUser === "function") ? window.SavaAuth.currentUser() : null; if (u && u.memberId) migBy = String(u.memberId); } catch (e) {}
+  let changed = 0;
+  state.leads.forEach(l => {
+    if (l && attached.has(String(l.id)) && l.status !== "converted") { l.status = "converted"; l.updatedAt = migNowIso; l.updatedBy = migBy; changed++; }
+  });
+  return changed;
+}
+try { const __migHadMarker = !!S.leadDealStatusMigrated; const __migChanged = migrateLeadDealStatusesOnce(S); if (__migChanged > 0 || (!__migHadMarker && S.leadDealStatusMigrated)) storeState(S); } catch (e) {}
 /* Cảnh báo dữ liệu hỏng (S1a, phía UI): shared.js đặt window.CRM_LOAD_ISSUE khi
    localStorage bị JSON hỏng và loadState buộc phải chạy tạm với dữ liệu trống.
    Hiển thị banner cố định ở đầu app để người dùng KHÔNG lưu đè lên dữ liệu thật
@@ -411,6 +446,7 @@ function save() {
     const info = crmRawRev(localStorage.getItem(STORE_KEY));
     if (info && info.rev > crmRev && info.tab !== CRM_TAB_ID) { crmMarkStale(); return; }
   } catch (e) {}
+  sanitizeNewCrossCompanyLeads();
   stampCrmAndAudit();
   crmRev += 1;
   S._crmRev = crmRev;
@@ -495,11 +531,15 @@ function dealLeadContactLineHTML(l) {
 /* Thẻ lead trong drawer deal: dựng ĐÚNG mẫu leadMini (tên người là chính,
    công ty + person + SĐT là phụ, chip mảng + trạng thái), chỉ khác ở chỗ
    person gần trùng tên lead thì không hiện lại. */
-function dealLeadMiniHTML(l) {
+function dealLeadMiniHTML(l, dealCompanyId) {
   const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
   const person = leadPersonShown(l);
+  /* P1: liên kết chéo ĐÃ TỒN TẠI (lead khác công ty với deal đang xem) vẫn
+     hiển thị/gỡ được — chỉ thêm hậu tố nhẹ "(khác công ty)" ngay sau tên
+     công ty của lead để biết nó là liên kết cũ, không gắn thêm được nữa. */
+  const crossNote = dealCompanyId && l.company !== dealCompanyId ? " (khác công ty)" : "";
   return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
-    <div class="c">🏢 ${esc(leadCompanyName(l))}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${crossNote}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 /* Nút "＋ Gắn vào deal" ngay tại khối đầu mối của drawer deal: đi qua ĐÚNG
@@ -508,8 +548,13 @@ function attachLeadFromDealBlock(leadId, dealId) { attachLeadToDeal(leadId, deal
 function attachLeadToDeal(leadId, dealId) {
   const d = S.deals.find(x => x.id === dealId); const l = S.leads.find(x => x.id === leadId);
   if (!d || !l) { toast("Không tìm thấy lead/deal để gắn"); return; }
+  /* P1: CHỈ gắn được lead cùng công ty với deal (deal chưa có công ty thì
+     không gắn được lead nào) — chặn ngay tại hàm gắn, chốt cuối ở save(). */
+  const chk = canAttachLeadToDeal(leadId, dealId);
+  if (!chk.ok) { toast(chk.reason); return; }
   if (!Array.isArray(d.leads)) d.leads = [];
   if (!d.leads.includes(leadId)) d.leads.push(leadId);
+  syncLeadDealStatus(leadId); /* P2: gắn vào deal -> lead thành "converted" trong CÙNG lần lưu */
   save(); render();
   toast("Đã gắn lead " + leadDisplayName(l) + " vào deal: " + d.title);
 }
@@ -568,6 +613,69 @@ function stagePairSafe(line, stage) {
   if (L) { const s = L.stages.find(x => x[0] === stage); if (s) return s; }
   return [stage || "", stage ? String(stage) : "—", 0];
 }
+/* ===== P1+P2 (đợt 7 quyết định): Lead ↔ Deal — CHỈ cùng công ty + status theo deal =====
+   Quy tắc duy nhất của P1: lead được gắn vào deal ⟺ lead.company === deal.company.
+   Mọi đường thay đổi deal.leads (dropdown trong drawer deal, nút ＋ Gắn ở khối
+   "Lead của công ty", checkbox trong form tạo deal, attach từ drawer lead,
+   convertLead) đều đi qua canAttachLeadToDeal / attachLeadToDeal ở đây; đường
+   LƯU (save) còn một chốt cuối — sanitizeNewCrossCompanyLeads — phân biệt:
+   - liên kết chéo MỚI thêm (chưa có trong bản chụp crmPrevSnap của deal đó,
+     hoặc deal mới tạo): BỊ TỪ CHỐI — gỡ khỏi deal.leads ngay trước khi đóng
+     dấu/ghi, kèm toast nêu rõ lead + deal;
+   - liên kết chéo ĐÃ TỒN TẠI từ trước (có sẵn trong bản chụp): GIỮ NGUYÊN —
+     không lần lưu nào được tự xoá chúng; chúng vẫn hiện ở nhóm "Đã gắn vào
+     deal này" kèm hậu tố "(khác công ty)" và gỡ tay được như thường.
+   Deal chưa có công ty -> không gắn được lead nào (canAttach trả lý do rõ). */
+function leadDealCompanyMismatch(l, d) { return !!(l && d && d.company && l.company !== d.company); }
+function canAttachLeadToDeal(leadId, dealId) {
+  const d = S.deals.find(x => x.id === dealId); const l = S.leads.find(x => x.id === leadId);
+  if (!d || !l) return { ok: false, reason: "Không tìm thấy lead/deal để gắn" };
+  if (!d.company) return { ok: false, reason: `Deal "${d.title}" chưa có công ty — hãy sửa deal để chọn công ty trước, rồi mới gắn được lead của công ty đó` };
+  if (!l.company) return { ok: false, reason: `Lead "${leadDisplayName(l)}" chưa gắn công ty — hãy gắn công ty cho lead trước, rồi mới gắn vào deal được` };
+  if (l.company !== d.company) return { ok: false, reason: `Không gắn được: lead "${leadDisplayName(l)}" thuộc công ty khác với deal "${d.title}" — chỉ gắn được lead cùng công ty với deal` };
+  return { ok: true };
+}
+/* Chốt chặn TẠI ĐƯỜNG LƯU (mẫu validate game↔công ty của saveDeal): gọi ở đầu
+   save(), TRƯỚC stampCrmAndAudit, để liên kết bị từ chối không sinh dấu/audit
+   như một thay đổi thật. Chỉ đụng liên kết chéo MỚI so với crmPrevSnap; liên
+   kết chéo có sẵn trong bản chụp (kể cả khi deal vừa ĐỔI công ty ở lần sửa
+   này — liên kết vẫn là "đã tồn tại" so với bản chụp) thì giữ nguyên vẹn. */
+function sanitizeNewCrossCompanyLeads() {
+  try {
+    if (!Array.isArray(S.deals)) return;
+    const prevDeals = crmPrevSnap && crmPrevSnap.deals ? crmPrevSnap.deals : null;
+    const blocked = [];
+    S.deals.forEach(d => {
+      if (!d || !Array.isArray(d.leads) || !d.leads.length) return;
+      const before = prevDeals ? prevDeals.get(String(d.id)) : null;
+      const beforeLeads = new Set(before && Array.isArray(before.leads) ? before.leads.map(String) : []);
+      d.leads = d.leads.filter(lid => {
+        const l = S.leads.find(x => x.id === lid);
+        if (!l) return true; /* id mồ côi (lead đã xoá): giữ nguyên như cũ, không thuộc quy tắc công ty */
+        const cross = d.company ? (l.company !== d.company) : true; /* deal không công ty: không lead nào gắn được */
+        if (!cross) return true;
+        if (beforeLeads.has(String(lid))) return true; /* liên kết chéo ĐÃ TỒN TẠI: tuyệt đối không tự xoá */
+        blocked.push({ lead: l, deal: d });
+        return false;
+      });
+    });
+    if (blocked.length) toast("⚠️ Đã từ chối gắn lead khác công ty: " + blocked.map(b => `"${leadDisplayName(b.lead)}" vào deal "${b.deal.title}"`).join("; ") + " — chỉ gắn được lead cùng công ty với deal.");
+  } catch (e) { /* chốt chặn lỗi không được phá đường lưu chính */ }
+}
+/* ===== P2: bất biến status lead theo deal — helper TRUNG TÂM duy nhất =====
+   lead nằm trong deal.leads của ≥1 deal còn tồn tại -> "converted"; không còn
+   deal nào -> lead đang "converted" hồi "qualified". Mọi đường gắn/gỡ/xoá
+   deal/sửa form deal/convertLead đều gọi helper này cho các lead bị ảnh
+   hưởng, mutate state TRƯỚC save() của thao tác chính để MỘT lần lưu ghi cả
+   thay đổi deal lẫn status lead (stamp + audit diff sinh như sửa tay bình
+   thường; helper tự nó KHÔNG gọi save -> không đệ quy). */
+function syncLeadDealStatus(leadId) {
+  const l = S.leads.find(x => x.id === leadId);
+  if (!l) return;
+  if (dealsForLead(l.id).length > 0) { if (l.status !== "converted") l.status = "converted"; }
+  else if (l.status === "converted") l.status = "qualified";
+}
+function syncLeadDealStatuses(leadIds) { [...new Set(leadIds || [])].forEach(syncLeadDealStatus); }
 /* ===== B4 (đợt 3): hiển thị điểm legacy (khung workbook cũ) =====
    Điểm final thô 64.96 trước đây qua fmtNum1 hiện thành "65" — trông như đã
    qua ngưỡng TEST MORE 65 trong khi kết luận vẫn NO-GO (79.975 -> "80" mà vẫn
@@ -575,6 +683,12 @@ function stagePairSafe(line, stage) {
    và khi số đã làm tròn chạm ngưỡng 65/80 nhưng điểm thô CHƯA qua ngưỡng thì
    kèm ghi chú rõ điểm thô, để không ai hiểu nhầm là đã đạt ngưỡng. */
 function fmtLegacyFinal(v) {
+  /* P4: khi shared.js đã nạp (mọi trang thật), điểm Final legacy đi qua
+     helper DUY NHẤT window.fmtFinalScore để chuỗi khớp tuyệt đối với
+     phía publishing-bridge.js/publishing.js; bản sao cục bộ dưới đây chỉ
+     là fallback cho harness cắt đoạn chưa nạp shared.js (đúng tiền lệ
+     fmtLegacyFinal của publishing-bridge.js). */
+  if (typeof window !== "undefined" && typeof window.fmtFinalScore === "function") return window.fmtFinalScore(v);
   const n = Number(v);
   if (v === null || v === undefined || !Number.isFinite(n)) return "—";
   return n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -599,8 +713,11 @@ function legacyThresholdNote(v) {
    deal) nó quay về Đạt chuẩn để BD xử lý tiếp, không giả vờ là lead mới tinh
    và cũng không kẹt ở "converted" khi chẳng còn deal nào. */
 function revertLeadIfOrphaned(leadId) {
-  const l = S.leads.find(x => x.id === leadId);
-  if (l && l.status === "converted" && dealsForLead(l.id).length === 0) l.status = "qualified";
+  /* P2: tên cũ giữ cho các call site sẵn có (gỡ lead / xoá deal) — nay uỷ
+     quyền helper trung tâm syncLeadDealStatus: mất deal cuối -> hồi
+     "qualified" như cũ; chiều ngược lại (còn deal) cũng được helper giữ
+     ở "converted" cho nhất quán bất biến. */
+  syncLeadDealStatus(leadId);
 }
 </script>
 <script>
@@ -621,11 +738,14 @@ document.getElementById("search").addEventListener("input", e => { query = e.tar
 function render() {
   lineTabs();
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === curView));
-  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", tasks:"Công việc", tasksByMember:"Việc theo người", members:"Thành viên" };
-  const descriptions = { dash:"Theo dõi cơ hội, đối tác và công việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và công việc." };
+  /* P6: mục nav "Lịch sử tổng" CHỈ Admin thấy — ẩn/hiện theo vai ở mỗi lần
+     render, đúng mẫu gate theo vai của view Thành viên (isAdminViewer). */
+  document.querySelectorAll(".audit-admin-only").forEach(el => { el.style.display = isAdminViewer() ? "" : "none"; });
+  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", auditHistory:"Lịch sử tổng" };
+  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
-  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers })[curView]();
+  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers, auditHistory:vAuditHistory })[curView]();
 }
 
 function pipelineValue(ds) {
@@ -661,13 +781,13 @@ function vDash() {
     return `<section class="panel line-panel" style="--line-accent:${L.color}"><div class="line-panel-heading"><span class="line-symbol">${SavaUI.icon(icons[k])}</span><div><h3>${L.name}</h3><p>${L.target}</p></div><button class="icon-button line-open" onclick="curLine='${k}';setView('board')" aria-label="Mở pipeline ${L.name}">${SavaUI.icon('arrow')}</button></div><div class="line-total"><strong>${open.length}</strong><span>deal đang mở</span></div><div class="line-value">${GAME_LINES.includes(k)?'Hợp tác theo thỏa thuận rev share':pipelineValue(open)+' · Giá trị dự kiến'}</div>${rows}</section>`;
   }).join('');
   const scopedTasks = S.tasks.filter(t=>!t.done&&(curLine==='all'||(S.deals.find(x=>x.id===t.deal)||{}).line===curLine)&&(!query||(t.title+' '+(S.deals.find(x=>x.id===t.deal)||{}).title).toLowerCase().includes(query)));
-  const tasks = scopedTasks.slice(0,5).map(taskRow).join('') || '<div class="empty-state">Không có công việc phù hợp.</div>';
+  const tasks = scopedTasks.slice(0,5).map(taskRow).join('') || '<div class="empty-state">Không có việc phù hợp.</div>';
   const activityIcons = {Meeting:'meeting',Note:'note',Call:'call',Email:'mail',Demo:'cube'};
   const activities = S.activities.filter(a=>(curLine==='all'||(S.deals.find(x=>x.id===a.deal)||{}).line===curLine)&&(!query||(a.text+' '+(S.deals.find(x=>x.id===a.deal)||{}).title).toLowerCase().includes(query))).slice(0,4).map(a=>{
     const d = S.deals.find(x=>x.id===a.deal);
     return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(d?d.title:a.type)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
-  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả công việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>`;
+  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>`;
 }
 /* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ (YYYY-MM-DD)
    -> quá hạn khi dueDate < hôm nay (giờ local, so chuỗi cùng định dạng); không có
@@ -738,7 +858,7 @@ function tasksForLink(type, id) { return S.tasks.filter(t => t && t[type] === id
 function relatedTaskRow(t) {
   const od = isOverdue(t);
   const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
-  return `<div class="task ${t.done ? "done" : ""}"><input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" onclick="editTask('${t.id}')" title="Bấm để sửa việc">${esc(t.title)}</div><div class="mut">${memberLinkHTML(t.assignee)} · Hạn: <span class="${od ? "overdue" : ""}">${esc(dueLabel)}</span> · ${t.done ? "Đã xong" : "Chưa xong"}${od ? ' · <span class="overdue">Quá hạn</span>' : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+  return `<div class="task ${t.done ? "done" : ""}"><input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" onclick="editTask('${t.id}')" title="Bấm để sửa việc">${esc(t.title)}</div><div class="mut">${memberLinkHTML(t.assignee)} · Hạn: <span class="${od ? "overdue" : ""}">${esc(dueLabel)}</span> · ${t.done ? "Đã xong" : "Chưa xong"}${od ? ' · <span class="overdue">Quá hạn</span>' : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 /* Mục "Việc liên quan" dùng chung cho drawer Company / Lead / Deal / Game:
    nút "+ Thêm việc" mở ĐÚNG form tạo việc sẵn có (editTask) với liên kết
@@ -755,7 +875,7 @@ function taskRow(t) {
   const od = isOverdue(t);
   const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
   const chip = taskLinkChipHTML(t);
-  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa công việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa công việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
 
@@ -901,12 +1021,12 @@ function convertLead(id) {
       return;
     }
   }
-  l.status = "converted";
   const nd = { id:"d"+Date.now(), line:l.line, title:companyName+" — cơ hội mới", company:companyId, leads:[l.id], stage:firstStage, owner:defaultOwnerId(), due:"", idle:0, custom:{} };
   if (assignedGame) nd.game = assignedGame;
   if (GAME_LINES.includes(l.line)) { nd.term = { rev_share:"Chưa đề xuất", advance:"—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" }; nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" }; }
   else { nd.amount = 0; nd.cur = "VND"; }
   S.deals.push(nd);
+  syncLeadDealStatus(l.id); /* P2: deal của chính công ty lead vừa tạo -> lead "converted" qua helper trung tâm, cùng lần save() */
   save();
   toast("Đã chuyển lead " + companyName + " thành deal ở stage đầu của mảng " + LINES[l.line].name); setView("board"); if (curLine==="all") curLine = l.line; render();
 }
@@ -917,7 +1037,7 @@ function vTasks() {
   const emptyMsg = !S.tasks.length
     ? '<div class="empty-state" style="margin-top:10px">Chưa có việc nào — bấm "+ Thêm việc" để tạo việc đầu tiên.</div>'
     : (!filtered.length ? '<div class="empty-state" style="margin-top:10px">Không có việc nào khớp tìm kiếm hiện tại.</div>' : "");
-  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành công việc.</div></div>`;
+  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành việc.</div></div>`;
 }
 
 /* ===== Việc theo người (admin): gom task theo assignee + lọc trạng thái ===== */
@@ -964,6 +1084,89 @@ function vTasksByMember() {
   }).join("");
   document.getElementById("view").innerHTML = overview + filterBar +
     (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
+}
+
+/* ===== P6 (đợt 7 quyết định): Lịch sử tổng — CHỈ Admin =====
+   Đọc qua RLS audit_log sẵn có bằng window.SavaAudit.listRecent (tầng dữ
+   liệu supabase-data.js): 200 mục gần nhất XUYÊN mọi loại đối tượng, gồm
+   cả mục của đối tượng ĐÃ XOÁ (điểm chính của màn hình này — audit_log là
+   append-only nên mục vẫn còn dù entity đã bị xoá). Định dạng từng mục
+   TÁI DÙNG ĐÚNG entryHTML của audit.js (window.SavaAuditUI) — một nguồn
+   định dạng duy nhất với lịch sử trong drawer; phía index chỉ bọc thêm
+   badge loại + TÊN đối tượng ở ngoài, không sửa ruột entryHTML.
+   Tên đối tượng: mục audit KHÔNG lưu kèm tên (chỉ entity_type/entity_id/
+   changes) nên nguồn tên tốt nhất có thật là:
+   - đối tượng còn trong state -> tên thật, bấm mở được drawer/form tương
+     ứng (openDeal/openCompany/openLead/openGame/openMember; task ->
+     editTask, activity -> editActivity là bề mặt mở duy nhất của chúng);
+   - đối tượng đã xoá -> tên khôi phục từ chính mục audit: mục "delete"
+     ghi changes với field tên (title/name/text) mang giá trị `from` là
+     tên cuối trước khi xoá (diff ở shared.js resolve nhãn sẵn) -> hiện
+     tên đó kèm "(đã xoá)"; không có dữ kiện tên -> nhãn loại + id rút gọn
+     kèm "(đã xoá)".
+   - "request" thuộc kho Publishing (không có drawer ở phía BD): hiện
+     nhãn tĩnh + link sang publishing.html (mẫu deep-link sẵn có của app
+     là link thẳng sang module Publishing). */
+const AUDIT_HISTORY_TYPES = [["deal", "Deal"], ["company", "Công ty"], ["lead", "Lead"], ["game", "Game"], ["task", "Việc"], ["member", "Thành viên"], ["activity", "Hoạt động"], ["request", "Yêu cầu đánh giá"]];
+const AUDIT_NAME_FIELDS = { deal: "title", company: "name", lead: "name", game: "title", task: "title", member: "name", activity: "text" };
+let auditHistTypeFilter = "", auditHistMemberFilter = "";
+function setAuditHistFilter(kind, v) { if (kind === "type") auditHistTypeFilter = v; else auditHistMemberFilter = v; loadAuditHistory(); }
+function auditHistEntity(type, id) {
+  const sid = String(id);
+  if (type === "deal") { const d = S.deals.find(x => x.id === sid); return d ? { name: d.title || "—", open: "openDeal" } : null; }
+  if (type === "company") { const c = S.companies.find(x => x.id === sid); return c ? { name: c.name || "—", open: "openCompany" } : null; }
+  if (type === "lead") { const l = S.leads.find(x => x.id === sid); return l ? { name: leadDisplayName(l), open: "openLead" } : null; }
+  if (type === "game") { const g = game(sid); return g ? { name: g.title || "—", open: "openGame" } : null; }
+  if (type === "task") { const t = S.tasks.find(x => x.id === sid); return t ? { name: t.title || "—", open: "editTask" } : null; }
+  if (type === "member") { const m = memberList(S).find(x => x.id === sid); return m ? { name: m.name || "—", open: "openMember" } : null; }
+  if (type === "activity") { const a = S.activities.find(x => x.id === sid); return a ? { name: a.text || "—", open: "editActivity" } : null; }
+  return null;
+}
+function auditHistDeletedName(row) {
+  const f = AUDIT_NAME_FIELDS[row.entityType]; if (!f) return "";
+  const ch = (Array.isArray(row.changes) ? row.changes : []).find(c => c && c.field === f);
+  if (!ch) return "";
+  return String(row.action === "delete" ? (ch.from || "") : (ch.to || ch.from || "")).trim();
+}
+function auditHistRowHTML(row) {
+  const type = row.entityType || "";
+  const label = (AUDIT_HISTORY_TYPES.find(([k]) => k === type) || [type, type || "—"])[1];
+  const badge = (typeof typeBadgeHTML === "function" && typeBadgeHTML(type)) || `<span class="chip" style="background:#64748b">${esc(label)}</span>`;
+  let nameHTML;
+  if (type === "request") {
+    nameHTML = `<span>Yêu cầu đánh giá ở module Publishing</span> <a href="publishing.html" title="Mở module Publishing">Mở Publishing →</a>`;
+  } else {
+    const target = auditHistEntity(type, row.entityId);
+    if (target) nameHTML = `<a href="#" onclick="${target.open}('${row.entityId}'); return false" title="Mở đối tượng">${esc(target.name)}</a>`;
+    else { const nm = auditHistDeletedName(row); nameHTML = `<span>${esc(nm ? nm + " (đã xoá)" : label + " · " + String(row.entityId || "").slice(0, 8) + " (đã xoá)")}</span>`; }
+  }
+  const entry = (typeof window !== "undefined" && window.SavaAuditUI && typeof window.SavaAuditUI.entryHTML === "function") ? window.SavaAuditUI.entryHTML(S, row) : "";
+  return `<div class="audit-history-row" style="margin-bottom:10px"><div style="display:flex;gap:8px;align-items:center;margin-bottom:2px;flex-wrap:wrap">${badge}<b style="font-size:13.5px">${nameHTML}</b></div>${entry}</div>`;
+}
+async function loadAuditHistory() {
+  const box = document.getElementById("auditHistoryList");
+  if (!box) return;
+  box.innerHTML = '<p class="mut">Đang tải lịch sử…</p>';
+  const api = (typeof window !== "undefined" && window.SavaAudit) || null;
+  if (!api || typeof api.listRecent !== "function") { box.innerHTML = '<p class="mut">Lịch sử chưa khả dụng.</p>'; return; }
+  let rows = null;
+  try { rows = await api.listRecent({ entityType: auditHistTypeFilter || "", byMemberId: auditHistMemberFilter || "" }); } catch (e) { rows = null; }
+  if (!Array.isArray(rows)) { box.innerHTML = '<p class="mut">Không tải được lịch sử — thử lại sau.</p>'; return; }
+  if (!rows.length) { box.innerHTML = '<p class="mut">Chưa có lịch sử chỉnh sửa nào khớp bộ lọc.</p>'; return; }
+  box.innerHTML = rows.map(auditHistRowHTML).join("");
+}
+function vAuditHistory() {
+  if (!isAdminViewer()) { document.getElementById("view").innerHTML = '<div class="panel mut">Chỉ Admin mới xem được Lịch sử tổng.</div>'; return; }
+  const typeOpts = [["", "Tất cả loại đối tượng"], ...AUDIT_HISTORY_TYPES].map(([v, t]) => `<option value="${esc(v)}" ${auditHistTypeFilter === v ? "selected" : ""}>${esc(t)}</option>`).join("");
+  const memberOptsList = [["", "Tất cả người sửa"], ...memberList(S).map(m => [m.id, m.name])];
+  if (auditHistMemberFilter && !memberOptsList.some(([v]) => v === auditHistMemberFilter)) memberOptsList.push([auditHistMemberFilter, "thành viên đã xoá (" + auditHistMemberFilter.slice(0, 8) + ")"]);
+  const memberOpts = memberOptsList.map(([v, t]) => `<option value="${esc(v)}" ${auditHistMemberFilter === v ? "selected" : ""}>${esc(t)}</option>`).join("");
+  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><b style="font-size:13.5px">Lọc lịch sử:</b>
+    <select onchange="setAuditHistFilter('type', this.value)" style="min-width:190px" aria-label="Lọc theo loại đối tượng">${typeOpts}</select>
+    <select onchange="setAuditHistFilter('member', this.value)" style="min-width:190px" aria-label="Lọc theo người sửa">${memberOpts}</select>
+    <span class="mut">200 mục gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá.</span></div>
+    <div id="auditHistoryList"><p class="mut">Đang tải lịch sử…</p></div></div>`;
+  loadAuditHistory();
 }
 
 /* ===== Thành viên: danh sách phục vụ gán việc + xoá thành viên (chỉ Admin) =====
@@ -1187,7 +1390,7 @@ function memberReferences(id) {
   const nDeal = (S.deals || []).filter(d => d && d.owner === id).length;
   if (nDeal) refs.push(nDeal + " deal đang phụ trách");
   const nTask = (S.tasks || []).filter(t => t && t.assignee === id).length;
-  if (nTask) refs.push(nTask + " công việc được giao");
+  if (nTask) refs.push(nTask + " việc được giao");
   const nAct = (S.activities || []).filter(a => a && a.who === id).length;
   if (nAct) refs.push(nAct + " hoạt động đã ghi");
   const nMkt = (S.games || []).filter(g => g && g.mktEval && g.mktEval.by === id).length;
@@ -1387,7 +1590,7 @@ function openDeal(id) {
     let fitTxt = "—", concl = "Không áp dụng (công ty không thuộc diện đánh giá Partner)";
     if (isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.partnerSummary === "function") {
       const ps = PublishingBridge.partnerSummary(c.id);
-      if (ps && ps.exists && ps.computed && ps.versions > 0) { fitTxt = ps.computed.partnerFit === null || ps.computed.partnerFit === undefined ? "—" : ps.computed.partnerFit.toFixed(1) + "/100"; concl = ps.computed.conclusion || "—"; }
+      if (ps && ps.exists && ps.computed && ps.versions > 0) { fitTxt = ps.computed.partnerFit === null || ps.computed.partnerFit === undefined ? "—" : fmtFitScore(ps.computed.partnerFit) + "/100"; concl = ps.computed.conclusion || "—"; }
       else concl = "Chưa đánh giá Partner";
     }
     partnerLine = `<div style="font-size:13.5px;margin-top:8px">Đánh giá Partner của công ty: <a href="#" onclick="openCompany('${c.id}'); return false" title="Mở hồ sơ công ty">${esc(c.name)} →</a> · Partner Fit: <b>${esc(fitTxt)}</b> · Kết luận: <b>${esc(concl)}</b></div>`;
@@ -1404,15 +1607,17 @@ function openDeal(id) {
      lead đã gắn KHÔNG lặp lại ở nhóm này. */
   const companyLeadsAll = d.company ? leadsForCompany(d.company) : [];
   const companyUnattached = companyLeadsAll.filter(l => !attachedIdSet.has(l.id));
-  const attachCandidates = S.leads.filter(l => !(Array.isArray(d.leads) && d.leads.includes(l.id)))
-    .sort((a, b) => ((b.company === d.company) - (a.company === d.company)) || ((b.line === d.line) - (a.line === d.line)));
+  /* P1: dropdown gắn lead CHỈ liệt kê lead CÙNG CÔNG TY với deal (quy tắc
+     duy nhất lead.company === deal.company); liên kết chéo chỉ còn tồn tại
+     ở nhóm "Đã gắn vào deal này" nếu đã có từ trước — không gắn thêm được. */
+  const attachCandidates = d.company ? S.leads.filter(l => l.company === d.company && !(Array.isArray(d.leads) && d.leads.includes(l.id))) : [];
   const leadsBox = `<h3 style="margin:18px 0 8px">📥 Đầu mối phía đối tác</h3>
     <div class="mut" style="margin-bottom:8px">Một deal có thể được tiếp cận qua nhiều lead. Bấm vào lead để mở chi tiết lead.</div>
     <div style="font-weight:600;margin-bottom:6px">Đã gắn vào deal này</div>
-    ${attachedLeads.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào vào deal này.</div>'}
+    ${attachedLeads.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l, d.company)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào vào deal này.</div>'}
     <div style="font-weight:600;margin:12px 0 6px">Lead của công ty (chưa gắn vào deal này — chỉ để tham chiếu)</div>
-    ${companyUnattached.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="attachLeadFromDealBlock('${l.id}','${d.id}')">＋ Gắn vào deal</button></div>`).join("") || (companyLeadsAll.length ? '<div class="mut">Tất cả lead của công ty đã được gắn vào deal này.</div>' : '<div class="mut">Công ty này chưa có lead nào.</div>')}
-    ${attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="deal_attach_lead" style="flex:1;min-width:220px">${attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)}${l.company === d.company ? " (cùng công ty)" : (l.line === d.line ? " (cùng mảng)" : "")}${l.mainContact ? " · " + MAIN_CONTACT_LABEL : ""}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào chưa gắn để chọn.</div>'}`;
+    ${companyUnattached.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="attachLeadFromDealBlock('${l.id}','${d.id}')">＋ Gắn vào deal</button></div>`).join("") || (d.company ? (companyLeadsAll.length ? '<div class="mut">Tất cả lead của công ty đã được gắn vào deal này.</div>' : '<div class="mut">Công ty này chưa có lead nào.</div>') : '<div class="mut">Deal chưa có công ty — hãy sửa deal để chọn công ty trước, rồi mới gắn được lead của công ty đó.</div>')}
+    ${!d.company ? '<div class="mut" style="margin-top:8px">Deal chưa có công ty nên chưa gắn được lead nào.</div>' : attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="deal_attach_lead" style="flex:1;min-width:220px">${attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)} (cùng công ty)${l.mainContact ? " · " + MAIN_CONTACT_LABEL : ""}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào của công ty này chưa gắn để chọn.</div>'}`;
   /* D3: stage lạ/thiếu không có trong L.stages -> thêm option dự phòng mang đúng giá trị đã lưu */
   const stageOpts = (L.stages.some(s => s[0] === d.stage) ? "" : `<option value="${esc(d.stage || "")}" selected>${esc(st[1])} (${st[2]}%)</option>`) + L.stages.map(s => `<option value="${s[0]}" ${s[0]===d.stage?'selected':''}>${s[1]} (${s[2]}%)</option>`).join("");
   const t = d.term || {}, ct = d.contract || {};
@@ -1597,6 +1802,17 @@ const peCompute = raw => window.PartnerEval.compute(raw);
    (request kind=company trong store Publishing). Form chấm Partner cũ trên
    c.partnerEval đã GỠ: không còn UI nào đọc/ghi c.partnerEval nữa (chỉ migration
    trong publishing-bridge.js còn đọc nó). Chấm/sửa diễn ra trong module Publishing. */
+/* P4: Partner Fit là điểm TỔNG /100 — định dạng qua helper chung
+   window.fmtFinalScore (shared.js) như mọi bề mặt Final; fallback cục bộ
+   toFixed(1) chỉ cho harness cắt RIÊNG khối UI này mà chưa nạp shared.js
+   (đúng tiền lệ fmtLegacyFinal của bridge) — chuỗi y hệt trong miền giá
+   trị 0–100 của Partner Fit. Điểm thành phần (/5, coverage %) KHÔNG qua
+   helper này. */
+function fmtFitScore(v) {
+  if (typeof window !== "undefined" && typeof window.fmtFinalScore === "function") return window.fmtFinalScore(v);
+  if (v === null || v === undefined || !Number.isFinite(Number(v))) return "—";
+  return Number(v).toFixed(1);
+}
 /* D7: % hiển thị nhất quán — không phải số hữu hạn -> "—" (hết "NaN%"). */
 function fmtPctVal(v) {
   if (v === null || v === undefined) return "—";
@@ -1610,7 +1826,7 @@ function partnerEvalBadge(c) {
   const ps = B.partnerSummary(c.id);
   if (!ps || !ps.exists || !ps.computed || ps.versions === 0) return "";
   const cp = ps.computed;
-  const fitTxt = cp.partnerFit === null || cp.partnerFit === undefined ? "Partner Fit: chưa đủ điểm" : "Partner Fit " + cp.partnerFit.toFixed(1);
+  const fitTxt = cp.partnerFit === null || cp.partnerFit === undefined ? "Partner Fit: chưa đủ điểm" : "Partner Fit " + fmtFitScore(cp.partnerFit);
   return `<div style="margin-top:5px"><span class="pill" style="background:#0ea5e9">${fitTxt} · ${esc(cp.conclusion || "")}</span></div>`;
 }
 /* Khối tóm tắt Partner DUY NHẤT trong drawer công ty (chỉ công ty đủ điều kiện studio). */
@@ -1623,7 +1839,7 @@ function partnerSummaryBlockHTML(c) {
     lines = `<div style="font-size:13.5px">Chưa đánh giá Partner</div>`;
   } else {
     const cp = ps.computed;
-    const fitTxt = cp.partnerFit === null || cp.partnerFit === undefined ? "—" : cp.partnerFit.toFixed(1) + "/100";
+    const fitTxt = cp.partnerFit === null || cp.partnerFit === undefined ? "—" : fmtFitScore(cp.partnerFit) + "/100";
     lines = `<div style="font-size:13.5px">Partner Fit: <b>${fitTxt}</b> · ${esc(cp.classification || "—")} · Kết luận: <b>${esc(cp.conclusion || "—")}</b></div>
     <div class="mut" style="margin-top:4px">Hard Gate: ${esc(cp.hardGate || "—")} · Evidence: ${fmtPctVal(cp.coveragePct)} · Reviewer ${esc(ps.reviewer ? memberName(S, ps.reviewer) : "—")} · ${esc(fmtStamp(ps.date))} · ${ps.versions} phiên bản · Trạng thái: ${esc(ps.status || "—")}</div>`;
   }
@@ -1732,7 +1948,7 @@ function partnerPagerHTML(c) {
     </div>
     <div style="text-align:center;background:#f0f7f8;border:1px solid #d7e6ea;border-radius:12px;padding:14px;margin:12px 0">
       <div class="mut">Partner Fit (company)</div>
-      <div style="font-size:34px;font-weight:800">${cp.partnerFit === null || cp.partnerFit === undefined ? "—" : cp.partnerFit.toFixed(1)}</div>
+      <div style="font-size:34px;font-weight:800">${cp.partnerFit === null || cp.partnerFit === undefined ? "—" : fmtFitScore(cp.partnerFit)}</div>
       <div>${cp.partnerFit === null || cp.partnerFit === undefined ? "Chưa đủ điểm (thiếu 1 trong 7 pillar)" : "Phân loại: <b>" + esc(cp.classification || "—") + "</b>"} · Deal Fit (riêng, không vào tổng): <b>${cp.dealFit === null || cp.dealFit === undefined ? "—" : fmtNum1(cp.dealFit) + " / 5"}</b></div>
       <div style="margin-top:8px"><span class="pill" style="background:#0f172a">Kết luận cuối: ${esc(cp.conclusion || "—")}</span></div>
     </div>
@@ -1915,7 +2131,7 @@ function openGame(id) {
   let studioPartnerLine = "";
   if (owner && owner.id && isStudioCompany(owner) && window.PublishingBridge && typeof PublishingBridge.partnerSummary === "function") {
     const ps = PublishingBridge.partnerSummary(owner.id);
-    const fitTxt = ps && ps.exists && ps.computed && ps.versions > 0 ? (ps.computed.partnerFit === null || ps.computed.partnerFit === undefined ? "—" : ps.computed.partnerFit.toFixed(1) + "/100") : "—";
+    const fitTxt = ps && ps.exists && ps.computed && ps.versions > 0 ? (ps.computed.partnerFit === null || ps.computed.partnerFit === undefined ? "—" : fmtFitScore(ps.computed.partnerFit) + "/100") : "—";
     const concl = ps && ps.exists && ps.computed && ps.versions > 0 ? (ps.computed.conclusion || "—") : "Chưa đánh giá Partner";
     studioPartnerLine = `<div style="font-size:13.5px;margin:10px 0">Studio: <a href="#" onclick="openCompany('${owner.id}'); return false">${esc(owner.name)} →</a> · Partner Fit: <b>${fitTxt}</b> · Kết luận: <b>${esc(concl)}</b></div>`;
   }
@@ -1970,7 +2186,9 @@ function openLead(id) {
   const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status] || [(l.status ? String(l.status) : "—"),"#64748b"];
   const lc = leadCompany(l);
   const relDeals = dealsForLead(l.id);
-  const attachDeals = S.deals.filter(d => !(Array.isArray(d.leads) && d.leads.includes(l.id)));
+  /* P1: chỉ gắn được lead vào deal CÙNG CÔNG TY với lead — dropdown chỉ
+     liệt kê các deal đó; lead chưa có công ty thì không gắn vào deal nào. */
+  const attachDeals = l.company ? S.deals.filter(d => d.company === l.company && !(Array.isArray(d.leads) && d.leads.includes(l.id))) : [];
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     ${typeBadgeHTML("lead")} <span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>
     <h2>📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}</div>
@@ -1988,7 +2206,7 @@ function openLead(id) {
     <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (bấm để mở deal)</h3>
     ${relDeals.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}
     ${relatedTasksHTML("lead", l.id)}
-    ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="lead_attach_deal" style="flex:1;min-width:220px">${attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)} · ${esc(comp(d.company).name)}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : '<div class="mut" style="margin-top:8px">Không còn deal nào chưa gắn để chọn.</div>'}
+    ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="lead_attach_deal" style="flex:1;min-width:220px">${attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)} · ${esc(comp(d.company).name)}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : (l.company ? '<div class="mut" style="margin-top:8px">Không còn deal nào cùng công ty chưa gắn để chọn.</div>' : '<div class="mut" style="margin-top:8px">Lead chưa gắn công ty — hãy gắn công ty cho lead trước, rồi mới gắn vào deal của công ty đó được.</div>')}
     <div style="margin-top:16px">${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${esc(lineName(l.line))}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${esc(lineName(l.line))}.</div>`}</div>
     <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>${auditSectionHTML("lead", l.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "lead", id);
@@ -2077,7 +2295,7 @@ function openAdd(prefill) {
   /* Reset ô phân khúc ngành mỗi lần mở form tạo (tránh sót lựa chọn lần trước) */
   const fvb = document.getElementById("f_verticalBox"); if (fvb) fvb.innerHTML = "";
   fillStages();
-  const ow = document.getElementById("f_ownerWrap"); if (ow) ow.innerHTML = ownerSel("f_owner", defaultOwnerId());
+  const ow = document.getElementById("f_ownerWrap"); if (ow) ow.innerHTML = ownerSel("f_owner", defaultOwnerId(), { placeholder: "— Chọn người phụ trách —" });
   fillCreateCompanyOptions("");
   /* Reset ô game mỗi lần mở form — tránh sót lựa chọn/tên game mới của lần tạo trước */
   const fg = document.getElementById("f_game"); if (fg) fg.value = "";
@@ -2259,18 +2477,18 @@ function saveDeal() {
      (dealFormLeadSelection: đã điền sẵn ★ Đầu mối chính của công ty, user
      tick/bỏ tự do) — chỉ nhận lead thuộc ĐÚNG công ty đã resolve ở trên. */
   nd.leads = dealFormLeadSelection(c.id).filter(lid => { const l = S.leads.find(x => x.id === lid); return l && l.company === c.id; });
-  /* N4: deal tạo từ convertLead (prefill) — CHỈ đánh dấu lead "converted"
-     khi line VÀ company của deal cuối cùng khớp lead (lead.line,
+  /* N4: deal tạo từ convertLead (prefill) — lead prefill CHỈ ở lại trong
+     deal mới khi line VÀ company của deal cuối cùng khớp lead (lead.line,
      lead.company) VÀ lead vẫn nằm trong lựa chọn cuối của form (user bỏ
-     tick trong form thì tôn trọng: không gắn, không converted). Lệch
-     line/company -> gỡ lead prefill khỏi deal mới, lead giữ nguyên. */
+     tick trong form thì tôn trọng: không gắn, không converted — việc đánh
+     dấu "converted" nay do syncLeadDealStatuses(nd.leads) sau khi push
+     deal đảm nhiệm, P2). Lệch line/company -> gỡ lead prefill khỏi deal
+     mới, lead giữ nguyên. */
   let leadMismatch = false;
   if (pendingDealLeads && pendingDealLeads.length) {
     const leadObjs = pendingDealLeads.map(lid => S.leads.find(x => x.id === lid)).filter(Boolean);
     const allMatch = leadObjs.length > 0 && leadObjs.every(l => l.line === line && l.company === c.id);
-    if (allMatch) {
-      leadObjs.forEach(ll => { if (nd.leads.includes(ll.id)) ll.status = "converted"; });
-    } else { leadMismatch = true; nd.leads = nd.leads.filter(lid => !pendingDealLeads.includes(lid)); }
+    if (!allMatch) { leadMismatch = true; nd.leads = nd.leads.filter(lid => !pendingDealLeads.includes(lid)); }
     pendingDealLeads = null;
   }
   if (gameId) nd.game = gameId;
@@ -2280,6 +2498,10 @@ function saveDeal() {
     nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" };
   } else { nd.amount = +document.getElementById("f_amount").value||0; nd.cur = document.getElementById("f_cur").value; }
   S.deals.push(nd);
+  /* P2: MỌI lead nằm trong deal mới (ô chọn lead của form — gồm cả prefill
+     convertLead còn giữ tick) đều thành "converted" qua helper trung tâm,
+     mutate TRƯỚC save() ở dưới để một lần lưu ghi cả deal lẫn status. */
+  syncLeadDealStatuses(nd.leads);
   /* Quay về drawer Game (khi mở form từ openAddForGame): chụp TRƯỚC
      closeAdd vì closeAdd xoá cờ. Chỉ mở lại khi deal vừa lưu THẬT SỰ gắn
      đúng game đó (user đổi game/mảng ngay trong form thì tôn trọng lựa
@@ -2309,7 +2531,12 @@ function ownerSel(id, cur, opts) {
     const byRole = list.filter(m => m.role === opts.role);
     if (byRole.length) list = byRole;
   }
-  const options = [["", "— Chưa gán —"], ...list.map(m => [m.id, m.name])];
+  /* P3: form TẠO MỚI mà người phụ trách mặc định chưa resolve được (cur rỗng)
+     -> option đầu là placeholder kiểu B12 "— Chọn người phụ trách —" thay
+     cho "— Chưa gán —", để rõ là cần chọn người chứ không phải đã quyết
+     định không gán. Form sửa bản ghi có sẵn giữ nhãn "— Chưa gán —". */
+  const emptyLabel = (opts && opts.placeholder && !cur) ? opts.placeholder : "— Chưa gán —";
+  const options = [["", emptyLabel], ...list.map(m => [m.id, m.name])];
   if (cur && !options.some(([v]) => String(v) === String(cur))) options.push([cur, memberName(S, cur)]);
   const html = sel(id, options, cur || "");
   /* S7: không còn member đang hoạt động -> select chỉ còn "— Chưa gán —" (+ option
@@ -2317,13 +2544,26 @@ function ownerSel(id, cur, opts) {
   if (!memberList(S).some(m => m.active)) return html + `<div class="mut" style="margin-top:4px">Chưa có thành viên đang hoạt động</div>`;
   return html;
 }
-/* Người phụ trách mặc định khi tạo deal mới / chuyển lead / thêm việc: ưu tiên
-   'zac' nếu đang active, không thì member ACTIVE đầu tiên; không còn member
-   active nào thì trả "" (chưa gán) — tuyệt đối không trả id người đã ngừng. */
+/* Người phụ trách mặc định khi tạo deal mới / chuyển lead / thêm việc (P3,
+   đợt 7 quyết định): member ĐANG ĐĂNG NHẬP, resolve qua ĐÚNG nguồn danh
+   tính duy nhất window.SavaAuth.currentUser().memberId — cùng nguồn mà
+   publishing.js currentRequesterId() đang dùng, không có cách resolve thứ
+   hai và KHÔNG còn fallback cứng về một member cố định / "member active đầu tiên".
+   Chưa resolve được danh tính (vd cửa sổ boot-nhanh trước khi proceed()
+   nhận danh tính từ identity cache) -> trả "" và ô chọn người phụ trách
+   hiện placeholder "— Chọn người phụ trách —" (xem ownerSel), không crash,
+   không đoán người. Member đã ngừng hoạt động cũng không được trả. */
 function defaultOwnerId() {
-  const act = memberList(S).filter(m => m.active);
-  if (act.some(m => m.id === "zac")) return "zac";
-  return act.length ? act[0].id : "";
+  try {
+    const u = authCurrentUser();
+    if (u && u.memberId) {
+      const mid = String(u.memberId);
+      const m = memberList(S).find(x => x.id === mid);
+      if (m && !m.active) return "";
+      return mid;
+    }
+  } catch (e) {}
+  return "";
 }
 function formFoot(saveFn, arg) { return `<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><button class="btn ghost" onclick="closeEdit()">Hủy</button><button class="btn" onclick="${saveFn}(${arg})">💾 Lưu</button></div>`; }
 
@@ -2444,7 +2684,7 @@ function gameEvalSummaryText(gid) {
   const gs = B.gameSummary(gid);
   if (!gs || !gs.exists) return "Chưa đánh giá";
   if (gs.mechanicMismatch) return "Điểm v2 thuộc mechanic cũ — chờ chấm lại";
-  if (gs.v2) return gs.v2.decision ? `Market Score v2 · Final ${fmtNum1(gs.v2.final)}/100 · ${gs.v2.decision}` : "Market Score v2 · chưa đủ dữ liệu để kết luận";
+  if (gs.v2) return gs.v2.decision ? `Market Score v2 · Final ${window.fmtFinalScore(gs.v2.final)}/100 · ${gs.v2.decision}` : "Market Score v2 · chưa đủ dữ liệu để kết luận";
   if (gs.legacy) return `Khung workbook (cũ) · ${fmtLegacyFinal(gs.legacy.final)}/100 · ${gs.legacy.recommendation || ""}${legacyThresholdNote(gs.legacy.final)}`;
   return "Trạng thái: " + (gs.status || "");
 }
@@ -2454,7 +2694,7 @@ function gameV2ChipText(gid) {
   const gs = B.gameSummary(gid);
   if (!gs || !gs.exists) return "";
   if (gs.mechanicMismatch) return "Điểm v2 thuộc mechanic cũ — chờ chấm lại";
-  if (gs.v2 && gs.v2.decision) return `Final v2 ${fmtNum1(gs.v2.final)}/100 · ${gs.v2.decision}`;
+  if (gs.v2 && gs.v2.decision) return `Final v2 ${window.fmtFinalScore(gs.v2.final)}/100 · ${gs.v2.decision}`;
   if (gs.v2) return "Market Score v2 · chưa đủ dữ liệu";
   return "";
 }
@@ -2527,11 +2767,16 @@ function cfDisplay(d, k) {
 let dealDraftLine = null;
 let dealDraftId = null;
 let dealDraftGame = "";
+/* P2: danh sách lead của deal tại thời điểm MỞ form sửa — mốc "trước" để
+   saveEditDeal diff cũ/mới (lead vào thêm -> converted; lead bị bỏ ra và
+   không còn deal nào -> qualified), cùng mẫu dealDraft* sẵn có. */
+let dealDraftLeadIds = null;
 function editDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
   dealDraftLine = d.line;
   dealDraftId = d.id;
   dealDraftGame = d.game || "";
+  dealDraftLeadIds = Array.isArray(d.leads) ? [...d.leads] : [];
   openEdit(`<h3 style="font-size:16px">✏️ Sửa deal</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("deal")}</div>
     ${field("Tên deal", txt("e_title", d.title))}
@@ -2689,6 +2934,11 @@ function fillDealLineFields(d) {
 }
 function saveEditDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
+  /* P2: danh sách lead TRƯỚC phiên sửa = bản chụp lúc mở form (dealDraftLeadIds,
+     chỉ tin khi đúng deal đang sửa) — diff với danh sách sau sửa ở cuối hàm:
+     lead mới vào deal -> "converted"; lead bị bỏ ra và không còn deal nào
+     khác -> hồi "qualified" (qua helper trung tâm, trước save()). */
+  const oldDealLeadIds = (dealDraftId === id && Array.isArray(dealDraftLeadIds)) ? [...dealDraftLeadIds] : (Array.isArray(d.leads) ? [...d.leads] : []);
   const v = i => (document.getElementById(i)?.value || "").trim();
   const title = v("e_title"); if (!title) { toast("Tên deal không được để trống"); return; }
   const line = document.getElementById("e_line").value;
@@ -2829,6 +3079,9 @@ function saveEditDeal(id) {
        liệu để đổi mảng ngược lại là khôi phục đúng liên kết. Term/HĐ của
        deal game cũng vốn đã được giữ nguyên ở nhánh này (không delete). */
   }
+  /* P2: áp bất biến status cho mọi lead bị ảnh hưởng bởi lần sửa này
+     (hợp nhất danh sách cũ + mới) TRƯỚC save() — một lần lưu ghi tất cả. */
+  syncLeadDealStatuses([...oldDealLeadIds, ...(Array.isArray(d.leads) ? d.leads : [])]);
   save(); closeEdit(); render(); openDeal(id);
   toast("Đã lưu deal: " + d.title);
 }
@@ -3179,7 +3432,7 @@ function editTask(id, linkType, linkId) {
     <div style="margin-bottom:8px">${typeBadgeHTML("task")}</div>
     ${chipLine}
     ${field("Nội dung việc", txt("e_ttitle", t.title))}
-    ${field("Người làm", ownerSel("e_tassignee", t.assignee))}
+    ${field("Người làm", ownerSel("e_tassignee", t.assignee, id ? undefined : { placeholder: "— Chọn người phụ trách —" }))}
     ${field("Hạn ngày (để tính quá hạn tự động)", `<input id="e_tdueDate" type="date" value="${esc(t.dueDate || "")}">`)}
     ${field("Gắn với đối tượng", taskLinkSelectHTML(curVal))}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_tdone" style="width:auto" ${t.done ? "checked" : ""}> Đã xong</label>
@@ -3280,6 +3533,9 @@ render();
 window.__savaOnDataRefreshed = function () {
   try {
     S = loadState();
+    /* P2: dữ liệu máy chủ vừa nạp lại cũng qua migration chuẩn hoá status
+       lead (idempotent, marker còn thì bỏ qua) TRƯỚC khi chụp mốc diff. */
+    try { const __hadM = !!S.leadDealStatusMigrated; const __chg = migrateLeadDealStatusesOnce(S); if (__chg > 0 || (!__hadM && S.leadDealStatusMigrated)) storeState(S); } catch (e) {}
     /* Dữ liệu máy chủ vừa nạp lại = mốc diff mới (như crmReloadLatest):
        tránh đóng dấu nhầm thay đổi từ nơi khác cho người dùng hiện tại. */
     crmPrevSnap = crmSnapshotOf(S);

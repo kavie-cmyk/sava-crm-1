@@ -96,7 +96,7 @@ const assert=require('node:assert/strict');
  // Review legacy CRM dossier integration and navigation without external writes.
  await bd.goto('http://127.0.0.1:8765/index.html');
  await bd.evaluate(()=>openGame('g3'));assert.match(await bd.locator('#drawer').innerText(),/Xem kết quả \/ bổ sung BD/);
- await bd.evaluate(()=>openCompany('c3'));assert.match(await bd.locator('#drawer').innerText(),/Năng lực sản xuất · MKT/);
+ await bd.evaluate(()=>openCompany('c3'));assert.match(await bd.locator('#drawer').innerText(),/Đánh giá Partner/); /* P5(b) đợt 7: từ vựng company thống nhất "Đánh giá Partner" (chuỗi cũ đã bỏ khỏi drawer) */
  await bd.goto('http://127.0.0.1:8765/publishing.html');
  await bd.getByRole('button',{name:'Khung quyết định',exact:true}).click();assert.match(await bd.locator('#screen').innerText(),/90 × 100/);
  // Clean screenshots: no synthetic inputs or assessments persist into deliverables.

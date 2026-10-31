@@ -237,7 +237,10 @@ test('index: ô chọn lead gắn vào deal (deal_attach_lead) ghi ★ Đầu m�
   const opts = {};
   for (const m of drawer.matchAll(/<option value="(l\w+)">([^<]*)<\/option>/g)) opts[m[1]] = m[2];
   assert.ok(opts.lA && opts.lA.includes(LABEL), 'option của lead main phải có nhãn');
-  assert.ok(opts.lC && opts.lC.includes(LABEL), 'option của lead main công ty khác cũng có nhãn');
+  /* P1 (đợt 7 quyết định): dropdown gắn lead CHỈ liệt kê lead CÙNG CÔNG TY
+     với deal (d1 thuộc c1) -> lead main của công ty khác (lC, c2) KHÔNG
+     còn xuất hiện trong ô chọn này nữa. */
+  assert.ok(!opts.lC, 'P1: lead công ty khác không được liệt kê trong dropdown gắn lead của deal');
   assert.ok(opts.lB && !opts.lB.includes(LABEL), 'option của lead thường không có nhãn');
 });
 

@@ -497,6 +497,13 @@
       scheduleAuditFlush();
     } catch (e) { /* nuốt êm — xem flushAudit */ }
   }
+  function auditRowToEntry(r) {
+    return {
+      entityType: r.entity_type, entityId: r.entity_id, at: r.at,
+      byMemberId: r.by_member_id || '', action: r.action,
+      changes: Array.isArray(r.changes) ? r.changes : [],
+    };
+  }
   async function auditListFor(entityType, entityId) {
     try {
       if (!ctx.client || !entityType || !entityId) return null;
@@ -505,14 +512,30 @@
         .eq('entity_type', entityType).eq('entity_id', String(entityId))
         .order('at', { ascending: false }).limit(100);
       if (error) return null;
-      return (data || []).map(r => ({
-        entityType: r.entity_type, entityId: r.entity_id, at: r.at,
-        byMemberId: r.by_member_id || '', action: r.action,
-        changes: Array.isArray(r.changes) ? r.changes : [],
-      }));
+      return (data || []).map(auditRowToEntry);
     } catch (e) { return null; }
   }
-  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
+  /* Lịch sử TỔNG (màn hình Admin ở index.html): các mục audit gần nhất
+     XUYÊN mọi loại đối tượng — gồm cả mục của đối tượng ĐÃ XOÁ (bảng
+     audit_log là append-only, không phụ thuộc entity còn tồn tại).
+     Cùng tập cột + cùng ánh xạ dòng như auditListFor, mới nhất trước,
+     trần 200 mục. Lọc tuỳ chọn entity_type / by_member_id áp NGAY ở tầng
+     query (eq) chứ không lọc ở client. Lỗi/bảng chưa có -> null như mẫu
+     listFor để UI hiện trạng thái "không tải được", không crash. */
+  async function auditListRecent(options) {
+    try {
+      if (!ctx.client) return null;
+      const opts = options || {};
+      let q = ctx.client.from('audit_log')
+        .select('entity_type,entity_id,at,by_member_id,action,changes');
+      if (opts.entityType) q = q.eq('entity_type', String(opts.entityType));
+      if (opts.byMemberId) q = q.eq('by_member_id', String(opts.byMemberId));
+      const { data, error } = await q.order('at', { ascending: false }).limit(200);
+      if (error) return null;
+      return (data || []).map(auditRowToEntry);
+    } catch (e) { return null; }
+  }
+  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, listRecent: auditListRecent, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
   if (typeof window !== 'undefined') window.SavaAudit = auditApi;
 
   const api = {

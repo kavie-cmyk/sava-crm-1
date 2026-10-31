@@ -112,7 +112,7 @@ test('memberReferences: đếm đúng từng loại tham chiếu; lead.person tr
   const refs = id => JSON.parse(JSON.stringify(h.run('memberReferences(' + JSON.stringify(id) + ')')));
   const linh = refs('linh').join(' | ');
   assert.match(linh, /1 deal đang phụ trách/);
-  assert.match(linh, /1 công việc được giao/);
+  assert.match(linh, /1 việc được giao/); /* P5 (đợt 7 quyết định): noun của Task thống nhất là "Việc" */
   assert.match(linh, /1 hoạt động đã ghi/);
   assert.match(linh, /1 yêu cầu đánh giá Publishing/, 'linh là assignee của request r1');
   const mai = refs('mai').join(' | ');

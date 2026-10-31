@@ -46,7 +46,10 @@ function loadIndex() {
     ],
     games: [],
     deals: [
-      { id: 'drel', line: 'publishing', title: 'Deal Lien Quan Fixture', company: 'c10', stage: 'build_eval', owner: 'zac', due: '', idle: 0, custom: {}, leads: ['lcontacted'] },
+      /* P2 (đợt 7 quyết định): lead đang gắn deal thì status BẮT BUỘC là
+         "converted" (migration boot chuẩn hoá) -> deal liên quan gắn với
+         lead lconverted; lcontacted giữ status "contacted" và KHÔNG gắn deal. */
+      { id: 'drel', line: 'publishing', title: 'Deal Lien Quan Fixture', company: 'c10', stage: 'build_eval', owner: 'zac', due: '', idle: 0, custom: {}, leads: ['lconverted'] },
     ],
     leads: [
       { id: 'lnew', name: 'Lead New One', company: 'c10', person: 'Anh Minh', phone: '0901', line: 'publishing', source: 'Form savameta.com', status: 'new', note: 'tok-new ghi chu', when: '2026-10-01', mainContact: true },
@@ -121,7 +124,7 @@ test('vLeads: hàng lead giữ nguyên thông tin/thao tác — chip ★ Đầu 
   assert.ok(byKey.new.includes("openCompany('c10')") && byKey.new.includes('Studio Mooncat Fixture →'), 'link công ty ở dòng phụ phải còn');
   assert.ok(byKey.new.includes('Lead (người đầu mối + công ty)'), 'header bảng của block phải giữ nguyên như bảng phẳng cũ');
   assert.ok(byKey.new.includes("convertLead('lnew')") && byKey.new.includes('Chuyển thành deal →'), 'nút chuyển thành deal phải còn ở lead chưa converted');
-  assert.ok(byKey.contacted.includes("openDeal('drel')") && byKey.contacted.includes('Deal Lien Quan Fixture →'), 'deal liên quan phải còn, bấm mở deal được');
+  assert.ok(byKey.converted.includes("openDeal('drel')") && byKey.converted.includes('Deal Lien Quan Fixture →'), 'deal liên quan phải còn, bấm mở deal được (P2: lead gắn deal nằm ở block Đã chuyển đổi)');
   assert.ok(byKey.converted.includes('Đã vào pipeline') && !byKey.converted.includes("convertLead('lconverted')"), 'lead converted hiện "Đã vào pipeline", không còn nút chuyển');
   run("openLead('lnew')");
   assert.ok(getEl('drawer').innerHTML.includes('Lead New One'), 'bấm hàng (openLead) vẫn mở drawer lead');

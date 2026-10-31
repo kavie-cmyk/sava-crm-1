@@ -69,8 +69,13 @@ test('C1: sửa deal với công ty không còn hợp lệ — option rỗng đ�
 });
 
 test('C2: lead converted mồ côi tự hồi "qualified" ở cả 2 đường mất liên kết + form sửa lead có select status đầy đủ', () => {
+  /* P2 (đợt 7 quyết định): revertLeadIfOrphaned nay UỶ QUYỀN helper trung
+     tâm syncLeadDealStatus — logic hồi "qualified" nằm ở helper đó, hành
+     vi gỡ/xoá deal hồi trạng thái giữ nguyên (kiểm chức năng ở dưới). */
   const helper = section(html, 'function revertLeadIfOrphaned', '/* =====');
-  assert.ok(helper.includes('l.status = "qualified"') && helper.includes('dealsForLead(l.id).length === 0'));
+  assert.ok(helper.includes('syncLeadDealStatus(leadId)'), 'revertLeadIfOrphaned phải uỷ quyền helper trung tâm P2');
+  const sync = section(html, 'function syncLeadDealStatus', 'function syncLeadDealStatuses');
+  assert.ok(sync.includes('l.status = "qualified"') && sync.includes('dealsForLead(l.id).length > 0'), 'helper trung tâm phải giữ logic hồi qualified khi mất hết deal');
   const detach = section(html, 'function detachLeadFromDeal', 'function attachLeadFromLeadDrawer');
   assert.ok(detach.includes('revertLeadIfOrphaned(leadId)'), 'gỡ lead khỏi deal phải hồi trạng thái');
   const del = section(html, 'function performDeleteDeal', 'function deleteDeal');

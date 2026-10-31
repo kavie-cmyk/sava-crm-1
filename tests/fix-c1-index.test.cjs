@@ -320,7 +320,9 @@ test('B9/B10/B16: drawer lead hiện nguyên trạng thái lạ; game chưa có 
   assert.ok(getEl('drawer').innerHTML.includes('>weird_status</span>'), 'trạng thái lạ phải hiện nguyên giá trị đã lưu, không nuốt thành —');
   assert.equal(run("gameEvalSummaryText('gNoReq')"), 'Chưa đánh giá');
   run("S.deals.forEach(d=>{ d.leads=[...(d.leads||[]),'lAll']; }); S.leads.push({id:'lAll',name:'Lead All',company:'c1',line:'ai',status:'new',note:'',when:''}); openLead('lAll')");
-  assert.ok(getEl('drawer').innerHTML.includes('Không còn deal nào chưa gắn để chọn.'));
+  /* P1 (đợt 7 quyết định): dropdown gắn deal của drawer lead chỉ liệt kê deal
+     CÙNG CÔNG TY -> câu trống đổi thành "Không còn deal nào cùng công ty…". */
+  assert.ok(getEl('drawer').innerHTML.includes('Không còn deal nào cùng công ty chưa gắn để chọn.'));
 });
 
 /* ---------- B12 (a/c/d) ---------- */
