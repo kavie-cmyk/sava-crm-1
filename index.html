@@ -55,6 +55,12 @@
   /* Leads chia theo trạng thái: mỗi trạng thái là 1 block ngang xếp dọc */
   .lead-status-block { margin-bottom:12px; }
   .lead-status-block .panel-title { margin-bottom:10px; }
+  /* Lịch sử tổng chia theo loại hành động: mỗi loại là 1 block ngang xếp dọc */
+  .audit-action-block { margin-bottom:12px; }
+  .audit-action-block .panel-title { margin-bottom:10px; }
+  /* Block Xoá nổi bật vừa phải bằng đúng cặp màu danger sẵn có của app
+     (apple-design.css .btn.danger: nền #fff0f0 + viền #f1d5d7) */
+  .audit-action-block--delete { background:#fff0f0; border-color:#f1d5d7; }
   .chip { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:600; margin:1px 2px 1px 0; color:#fff; }
   /* Nhãn loại đối tượng (shared.js typeBadgeHTML) — định nghĩa GIỐNG HỆT publishing.css */
   .type-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:700;margin:1px 2px 1px 0;color:#fff;letter-spacing:.2px}
@@ -1106,7 +1112,10 @@ function vTasksByMember() {
      kèm "(đã xoá)".
    - "request" thuộc kho Publishing (không có drawer ở phía BD): hiện
      nhãn tĩnh + link sang publishing.html (mẫu deep-link sẵn có của app
-     là link thẳng sang module Publishing). */
+     là link thẳng sang module Publishing).
+   Danh sách trong cửa sổ 200 mục đã nạp được CHIA BLOCK theo loại hành
+   động (trường `action`): Tạo mới -> Chỉnh sửa -> Xoá (+ "Khác" cho
+   action lạ) qua auditHistGroupsHTML — xem khối AUDIT_ACTIONS bên dưới. */
 const AUDIT_HISTORY_TYPES = [["deal", "Deal"], ["company", "Công ty"], ["lead", "Lead"], ["game", "Game"], ["task", "Việc"], ["member", "Thành viên"], ["activity", "Hoạt động"], ["request", "Yêu cầu đánh giá"]];
 const AUDIT_NAME_FIELDS = { deal: "title", company: "name", lead: "name", game: "title", task: "title", member: "name", activity: "text" };
 let auditHistTypeFilter = "", auditHistMemberFilter = "";
@@ -1143,6 +1152,51 @@ function auditHistRowHTML(row) {
   const entry = (typeof window !== "undefined" && window.SavaAuditUI && typeof window.SavaAuditUI.entryHTML === "function") ? window.SavaAuditUI.entryHTML(S, row) : "";
   return `<div class="audit-history-row" style="margin-bottom:10px"><div style="display:flex;gap:8px;align-items:center;margin-bottom:2px;flex-wrap:wrap">${badge}<b style="font-size:13.5px">${nameHTML}</b></div>${entry}</div>`;
 }
+/* ===== Lịch sử tổng chia theo LOẠI HÀNH ĐỘNG (gom block như vLeads) =====
+   Trường phân loại THẬT của một mục audit là `action` — nguồn sự thật:
+   cột audit_log.action có CHECK (action in ('create','update','delete'))
+   ở supabase/audit-log.sql; SavaSys.stampCollection (shared.js) chỉ sinh
+   đúng 3 giá trị này; audit.js ACTION_LABELS cũng key theo chúng (nhãn
+   trong TỪNG MỤC là "Đã tạo mới / Đã cập nhật / Đã xoá" — giữ nguyên,
+   không liên quan nhãn block ở đây). Thứ tự block theo vòng đời:
+   Tạo mới -> Chỉnh sửa -> Xoá. Màu pill lấy từ palette sẵn có của app
+   (xanh lá #22c55e / xanh dương var(--acc) #2563eb / đỏ danger #dc2626 /
+   xám var(--mut) #64748b — cùng bộ màu pill của vLeads + nút .btn.danger).
+   Mục có action ngoài tập này (dữ liệu lạ — về nguyên tắc không xảy ra
+   vì CHECK ở tầng DB, nhưng client vẫn phải tự vệ) KHÔNG bị ẩn: gom vào
+   block "Khác" ở cuối, đúng mẫu block trạng thái lạ của vLeads. */
+const AUDIT_ACTIONS = [
+  { key: "create", label: "Tạo mới", color: "#22c55e" },
+  { key: "update", label: "Chỉnh sửa", color: "#2563eb" },
+  { key: "delete", label: "Xoá", color: "#dc2626" },
+];
+const AUDIT_ACTION_UNKNOWN = { key: "__unknown__", label: "Khác", color: "#64748b" };
+function auditActionDef(action) { return AUDIT_ACTIONS.find(a => a.key === action) || null; }
+/* Gom các mục ĐÃ NẠP (cửa sổ 200 mục gần nhất của listRecent, đã lọc ở
+   tầng query theo loại đối tượng + người sửa) thành block theo action.
+   Gom chạy SAU khi lọc: `filtering` = đang có bộ lọc loại đối tượng hoặc
+   người sửa. Trong mỗi block giữ nguyên thứ tự của dữ liệu đã nạp (mới
+   nhất -> cũ nhất) — chỉ filter theo action, không sắp xếp lại.
+   Block rỗng theo đúng mẫu vLeads: KHÔNG đang lọc -> block vẫn hiện kèm
+   ghi chú trống; ĐANG lọc -> block không có mục khớp thì ẩn hẳn. Block
+   "Khác" chỉ xuất hiện khi thật có mục lạ (như vLeads). Block "Xoá" mang
+   thêm class audit-action-block--delete để nổi bật vừa phải. Định dạng
+   từng mục vẫn là auditHistRowHTML (bọc entryHTML dùng chung với drawer),
+   không đổi. */
+function auditHistGroupsHTML(rows, filtering) {
+  const isFiltering = filtering !== undefined ? !!filtering : !!(auditHistTypeFilter || auditHistMemberFilter);
+  const groups = AUDIT_ACTIONS.map(def => ({ ...def, rows: rows.filter(r => r.action === def.key) }));
+  const unknownRows = rows.filter(r => !auditActionDef(r.action));
+  if (unknownRows.length) groups.push({ ...AUDIT_ACTION_UNKNOWN, rows: unknownRows });
+  return groups.map(g => {
+    if (!g.rows.length && isFiltering) return "";
+    const body = g.rows.length
+      ? g.rows.map(auditHistRowHTML).join("")
+      : '<div class="mut">Chưa có mục lịch sử nào ở loại này.</div>';
+    const hl = g.key === "delete" ? " audit-action-block--delete" : "";
+    return `<section class="panel audit-action-block${hl}" data-audit-action="${g.key}"><div class="panel-title"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.rows.length} mục</span></h3></div>${body}</section>`;
+  }).join("");
+}
 async function loadAuditHistory() {
   const box = document.getElementById("auditHistoryList");
   if (!box) return;
@@ -1152,8 +1206,12 @@ async function loadAuditHistory() {
   let rows = null;
   try { rows = await api.listRecent({ entityType: auditHistTypeFilter || "", byMemberId: auditHistMemberFilter || "" }); } catch (e) { rows = null; }
   if (!Array.isArray(rows)) { box.innerHTML = '<p class="mut">Không tải được lịch sử — thử lại sau.</p>'; return; }
-  if (!rows.length) { box.innerHTML = '<p class="mut">Chưa có lịch sử chỉnh sửa nào khớp bộ lọc.</p>'; return; }
-  box.innerHTML = rows.map(auditHistRowHTML).join("");
+  /* Đang lọc mà không còn mục nào khớp: ẩn hết block (mẫu vLeads) và báo
+     rõ bằng câu sẵn có. Không lọc mà tổng rỗng: vẫn qua auditHistGroupsHTML
+     để hiện đủ 3 block kèm ghi chú trống như quy ước block rỗng. */
+  const filtering = !!(auditHistTypeFilter || auditHistMemberFilter);
+  if (!rows.length && filtering) { box.innerHTML = '<p class="mut">Chưa có lịch sử chỉnh sửa nào khớp bộ lọc.</p>'; return; }
+  box.innerHTML = auditHistGroupsHTML(rows, filtering);
 }
 function vAuditHistory() {
   if (!isAdminViewer()) { document.getElementById("view").innerHTML = '<div class="panel mut">Chỉ Admin mới xem được Lịch sử tổng.</div>'; return; }
