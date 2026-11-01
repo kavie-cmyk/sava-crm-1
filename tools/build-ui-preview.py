@@ -57,7 +57,7 @@ for name in ['index.html','publishing.html','mkt.html']:
  start=s.index('<div id="savaAuthRoot">');end=s.index('<aside class="side"' if name=='index.html' else '  <a class="skip"',start)
  s=s[:start]+s[end:]
  # Keep app-to-app links local to this fixture; load real presentation/business scripts.
- s=re.sub(r'(src|href)="([^\"]+\.(?:css|js))"',r'\1="../../\2"',s)
+ s=re.sub(r'(src|href)="([^\"]+\.(?:css|js)(?:\?[^\"]*)?)"',r'\1="../../\2"',s)
  s=s.replace('</head>',security+bootstrap+style+'</head>')
  s=s.replace('CRM nội bộ','Bản xem giao diện')
  s=s.replace('<body class="crm-shell">','<body class="crm-shell">'+note).replace('data-role="bd">','data-role="bd">'+note).replace('data-role="mkt">','data-role="mkt">'+note)
