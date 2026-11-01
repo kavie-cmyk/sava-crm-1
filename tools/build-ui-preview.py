@@ -64,4 +64,5 @@ for name in ['index.html','publishing.html','mkt.html']:
  # Supabase-only explanations belong to the actual app; this is an offline visual fixture.
  s=re.sub(r'<details class="(?:prototype-note|storage-note)">[\s\S]*?</details>','',s,count=1)
  (out/name).write_text(s)
-print('Generated 3 isolated visual QA pages; 0 backend scripts, in-memory fixtures only.')
+(out/'responsive.html').write_text('''<!doctype html><html lang="vi"><meta charset="utf-8"><title>Workspace · Mobile QA</title><style>body{font:14px system-ui;background:#edf2f6;padding:20px;color:#385465}main{display:flex;gap:24px;flex-wrap:wrap}iframe{width:390px;height:844px;border:1px solid #bdcdd7;border-radius:14px;background:white}h1{font-size:20px}h2{font-size:15px}</style><h1>Workspace · Kiểm thử điện thoại 390 × 844</h1><p>Dữ liệu minh họa · Không kết nối hệ thống thật</p><main><section><h2>CRM BD</h2><iframe title="CRM 390px" src="index.html"></iframe></section><section><h2>Game & Publishing</h2><iframe title="Publishing 390px" src="publishing.html"></iframe></section><section><h2>Marketing</h2><iframe title="MKT 390px" src="mkt.html"></iframe></section></main></html>''')
+print('Generated 3 isolated visual QA pages and responsive harness; 0 backend scripts, in-memory fixtures only.')
