@@ -40,6 +40,7 @@ class QB {
   match(row) { return this.filters.every(([c, v]) => row[c] === v); }
   filtered() { let r = this.rows().filter(row => this.match(row)); if (this.limitN) r = r.slice(0, this.limitN); return r; }
   async exec() {
+    if (this.b.errorTables && this.b.errorTables[this.table]) return { data: null, error: { message: 'mock db error ' + this.table } };
     if (this.mode === 'select') return { data: this.filtered().map(r => ({ ...r })), error: null };
     if (this.mode === 'insert') { this.rows().push({ ...this.row }); return { data: null, error: null }; }
     if (this.mode === 'update') { this.filtered().forEach(r => Object.assign(r, this.patch)); return { data: null, error: null }; }
@@ -127,10 +128,37 @@ function makeBackend(over = {}) {
     'JWT-ADMIN': authUsers[0], 'JWT-ADMIN-INACTIVE': authUsers[1], 'JWT-BD': authUsers[2],
   };
   return Object.assign({
-    tables: { members, profiles },
+    /* F6 fixture: linh CHỈ vướng 3 nguồn MỚI phía server (không vướng 5
+       nguồn canonical cũ) — games.mkt_eval.by, market updated_by/by_label
+       (obs1 trùng cả hai phía chỉ tính 1 + obs3 chỉ ở audit = 2 quan sát),
+       partner_eval.reviewer ở bảng archive. zac vướng các bản ghi đối chứng
+       để chắc bộ đếm không đếm nhầm người khác. */
+    tables: { members, profiles,
+      deals: [], tasks: [], activities: [], publishing_requests: [], publishing_revisions: [],
+      games: [
+        { id: 'g1', mkt_eval: { by: 'linh', verdict: 'Ổn' } },
+        { id: 'g2', mkt_eval: { by: 'zac', verdict: 'Khác' } },
+        { id: 'g3', mkt_eval: null },
+      ],
+      market_observations: [
+        { id: 'obs1', updated_by: 'linh' },
+        { id: 'obs2', updated_by: 'zac' },
+      ],
+      market_observation_audit: [
+        { observation_id: 'obs1', by_label: 'linh' },
+        { observation_id: 'obs3', by_label: 'linh' },
+        { observation_id: 'obs2', by_label: 'zac' },
+      ],
+      company_partner_eval_archive: [
+        { company_id: 'c1', partner_eval: { reviewer: 'linh' } },
+        { company_id: 'c2', partner_eval: { reviewer: 'zac' } },
+        { company_id: 'c3', partner_eval: {} },
+      ],
+    },
     authUsers, usersByToken,
     calls: { deleteUser: [], updateUser: [], invite: [], reset: [] },
     failDeleteUser: false,
+    errorTables: {},
   }, over);
 }
 
@@ -232,6 +260,33 @@ test('delete_member: thiếu member_id -> 400', async () => {
   const r = await call(b, 'JWT-ADMIN', { action: 'delete_member' });
   assert.equal(r.status, 400);
   assert.match(r.body.error, /member_id/);
+});
+
+/* ---------- F6: 3 nguồn tham chiếu mới phía server ---------- */
+test('F6 delete_member: vướng CHỈ ở 3 nguồn mới (games.mkt_eval / market observations+audit / partner archive) -> 409 kèm counts mới, KHÔNG xoá gì', async () => {
+  const b = makeBackend();
+  const r = await call(b, 'JWT-ADMIN', { action: 'delete_member', member_id: 'linh' });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.references.games_mkt_eval, 1, 'games.mkt_eval.by=linh phải đếm 1');
+  assert.equal(r.body.references.market_observations, 2, 'obs1 (updated_by + audit trùng, tính 1) + obs3 (chỉ audit) = 2 quan sát');
+  assert.equal(r.body.references.company_partner_eval_archive, 1, 'partner_eval.reviewer=linh ở bảng archive phải đếm 1');
+  assert.equal(r.body.references.deals, 0); assert.equal(r.body.references.tasks, 0);
+  assert.equal(r.body.counts.games_mkt_eval, 1, 'counts (alias) phải mang cùng key mới');
+  assert.match(r.body.error, /điểm MKT lưu trữ/);
+  assert.match(r.body.error, /quan sát thị trường/);
+  assert.match(r.body.error, /đánh giá đối tác \(dữ liệu cũ\)/);
+  assert.deepEqual(b.calls.deleteUser, [], 'còn tham chiếu -> không gọi deleteUser');
+  assert.ok(b.tables.profiles.some(p => p.member_id === 'linh'), 'profile của Linh phải còn nguyên');
+  assert.ok(b.tables.members.some(m => m.id === 'linh'));
+});
+
+test('F6 delete_member: truy vấn một nguồn mới LỖI (games) -> 500 fail-closed, KHÔNG xoá gì', async () => {
+  const b = makeBackend({ errorTables: { games: true } });
+  const r = await call(b, 'JWT-ADMIN', { action: 'delete_member', member_id: 'tuan' });
+  assert.equal(r.status, 500, JSON.stringify(r.body));
+  assert.match(r.body.error, /chưa kiểm tra xong tham chiếu/);
+  assert.deepEqual(b.calls.deleteUser, []);
+  assert.ok(b.tables.members.some(m => m.id === 'tuan'));
 });
 
 test('delete_member: deleteUser lỗi phía Auth -> 500 partial, profile + member còn nguyên', async () => {

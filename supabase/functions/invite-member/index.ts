@@ -37,7 +37,15 @@
 //                                     TRƯỚC khi xoá — còn bất kỳ tham
 //                                     chiếu nào -> 409 kèm counts theo
 //                                     loại, KHÔNG xoá gì (không chỉ tin
-//                                     client chặn trước). Member chưa có
+//                                     client chặn trước). Bổ sung quét
+//                                     server (khớp memberReferences phía
+//                                     client): games.mkt_eval (JSONB,
+//                                     field by), market_observations.
+//                                     updated_by + market_observation_
+//                                     audit.by_label (khử trùng theo quan
+//                                     sát), company_partner_eval_archive.
+//                                     partner_eval (JSONB, field reviewer).
+//                                     Member chưa có
 //                                     tài khoản -> trả ok ngay (had_account
 //                                     =false), không gọi auth admin.
 //
@@ -138,6 +146,21 @@ async function findUserByEmail(admin: SupabaseClient, email: string): Promise<Us
                                     (app: request.requestedBy / .assignee)
      publishing_revisions.reviewer_id
                                     (app: revision.reviewer — cột có thật)
+     games.mkt_eval                 (JSONB — app: games[].mktEval.by, đúng
+                                    cách client đếm ở memberReferences)
+     market_observations.updated_by (app: marketUpdates[].by)
+     market_observation_audit.by_label
+                                    (app: marketUpdates[].audit[].by — đếm
+                                    khử trùng theo observation_id cùng với
+                                    updated_by ở trên, đúng cách client đếm
+                                    MỖI marketUpdate tối đa 1 lần)
+     company_partner_eval_archive.partner_eval
+                                    (JSONB — app: companies[].partnerEval.
+                                    reviewer; dữ kiện legacy này sống ở bảng
+                                    archive này theo schema.sql mục 4 +
+                                    adapter ánh xạ company.partnerEval ->
+                                    company_partner_eval_archive, KHÔNG nằm
+                                    ở bảng companies)
    Trả { counts, error }: error != null khi một truy vấn trả lỗi qua kênh
    error của supabase-js (khi đó caller chặn xoá và trả 500 — fail-closed).
    Lời gọi NÉM ngoại lệ (khác hợp đồng supabase-js, vd harness mock thiếu
@@ -149,6 +172,9 @@ type RefCounts = {
   activities: number;
   publishing_requests: number;
   publishing_revisions: number;
+  games_mkt_eval: number;
+  market_observations: number;
+  company_partner_eval_archive: number;
 };
 
 async function fetchRefRows(
@@ -167,11 +193,35 @@ async function fetchRefRows(
   }
 }
 
+/* Đọc TOÀN BỘ một cột JSONB để đếm theo field lồng bên trong (games.mkt_eval
+   / company_partner_eval_archive.partner_eval): các field này không có cột
+   vô hướng riêng để .eq() — client cũng đếm bằng cách so field lồng
+   (mktEval.by / partnerEval.reviewer) trên từng bản ghi. Hợp đồng lỗi giữ
+   nguyên như fetchRefRows: lỗi qua field error -> fail-closed (caller trả
+   500); ngoại lệ ném ra (mock thiếu bảng) -> coi như không có dòng nào. */
+async function fetchAllRows(
+  admin: SupabaseClient,
+  table: string,
+  selectCol: string,
+): Promise<{ rows: Record<string, unknown>[] | null; error: string | null }> {
+  try {
+    const { data, error } = await admin.from(table).select(selectCol);
+    if (error) return { rows: null, error: error.message || String(error) };
+    return { rows: (data || []) as Record<string, unknown>[], error: null };
+  } catch {
+    return { rows: [], error: null };
+  }
+}
+function jsonFieldIs(row: Record<string, unknown>, jsonCol: string, field: string, memberId: string): boolean {
+  const v = row ? row[jsonCol] : null;
+  return !!v && typeof v === "object" && !Array.isArray(v) && (v as Record<string, unknown>)[field] === memberId;
+}
+
 async function countMemberReferences(
   admin: SupabaseClient,
   memberId: string,
 ): Promise<{ counts: RefCounts; total: number; error: string | null }> {
-  const counts: RefCounts = { deals: 0, tasks: 0, activities: 0, publishing_requests: 0, publishing_revisions: 0 };
+  const counts: RefCounts = { deals: 0, tasks: 0, activities: 0, publishing_requests: 0, publishing_revisions: 0, games_mkt_eval: 0, market_observations: 0, company_partner_eval_archive: 0 };
   const specs: Array<[keyof RefCounts, string, string, string]> = [
     ["deals", "deals", "id", "owner_id"],
     ["tasks", "tasks", "id", "assignee_id"],
@@ -183,6 +233,35 @@ async function countMemberReferences(
     if (r.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng " + table + ": " + r.error };
     counts[key] = (r.rows || []).length;
   }
+  /* games.mkt_eval (JSONB): đếm game có mkt_eval.by === memberId — đúng
+     cách client đếm games[].mktEval.by ở memberReferences. */
+  const gameRows = await fetchAllRows(admin, "games", "id,mkt_eval");
+  if (gameRows.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng games: " + gameRows.error };
+  counts.games_mkt_eval = (gameRows.rows || []).filter(row => jsonFieldIs(row, "mkt_eval", "by", memberId)).length;
+  /* Quan sát thị trường: updated_by (market_observations) + by_label
+     (market_observation_audit) — khử trùng theo ID QUAN SÁT: một quan sát
+     vừa do member cập nhật trực tiếp vừa có dòng audit của member vẫn chỉ
+     tính 1, đúng cách client đếm mỗi marketUpdate tối đa 1 lần. */
+  const obsRows = await fetchRefRows(admin, "market_observations", "id", "updated_by", memberId);
+  if (obsRows.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng market_observations: " + obsRows.error };
+  const obsAuditRows = await fetchRefRows(admin, "market_observation_audit", "observation_id", "by_label", memberId);
+  if (obsAuditRows.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng market_observation_audit: " + obsAuditRows.error };
+  const obsIds = new Set<string>();
+  let obsNoId = 0;
+  for (const row of obsRows.rows || []) {
+    if (row && row.id !== undefined && row.id !== null) obsIds.add(String(row.id));
+    else obsNoId++;
+  }
+  for (const row of obsAuditRows.rows || []) {
+    if (row && row.observation_id !== undefined && row.observation_id !== null) obsIds.add(String(row.observation_id));
+    else obsNoId++;
+  }
+  counts.market_observations = obsIds.size + obsNoId;
+  /* Partner legacy: partner_eval.reviewer trong bảng archive JSONB — đếm
+     như client đếm companies[].partnerEval.reviewer. */
+  const archRows = await fetchAllRows(admin, "company_partner_eval_archive", "company_id,partner_eval");
+  if (archRows.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng company_partner_eval_archive: " + archRows.error };
+  counts.company_partner_eval_archive = (archRows.rows || []).filter(row => jsonFieldIs(row, "partner_eval", "reviewer", memberId)).length;
   /* publishing_requests: hai cột người — đếm theo DÒNG (một request mà cả
      requested_by lẫn assignee_id đều là member này chỉ tính 1), khử trùng
      theo id khi cả hai truy vấn cùng trả một dòng. Dòng mock/harness không
@@ -199,7 +278,8 @@ async function countMemberReferences(
     else reqNoId++;
   }
   counts.publishing_requests = reqIds.size + reqNoId;
-  const total = counts.deals + counts.tasks + counts.activities + counts.publishing_requests + counts.publishing_revisions;
+  const total = counts.deals + counts.tasks + counts.activities + counts.publishing_requests + counts.publishing_revisions
+    + counts.games_mkt_eval + counts.market_observations + counts.company_partner_eval_archive;
   return { counts, total, error: null };
 }
 
@@ -481,6 +561,9 @@ Deno.serve(async (req: Request) => {
         if (c.activities) parts.push(c.activities + " hoạt động đã ghi");
         if (c.publishing_requests) parts.push(c.publishing_requests + " yêu cầu đánh giá Publishing (người yêu cầu / người được giao)");
         if (c.publishing_revisions) parts.push(c.publishing_revisions + " bản chấm Publishing do thành viên này thực hiện");
+        if (c.games_mkt_eval) parts.push(c.games_mkt_eval + " game có điểm MKT lưu trữ do thành viên này chấm");
+        if (c.market_observations) parts.push(c.market_observations + " quan sát thị trường do thành viên này cập nhật");
+        if (c.company_partner_eval_archive) parts.push(c.company_partner_eval_archive + " đánh giá đối tác (dữ liệu cũ) do thành viên này chấm");
         return fail(req, 409,
           "Không xoá được " + member.name + " vì còn tham chiếu nghiệp vụ: " + parts.join("; ") + ". Hãy chuyển/gỡ các mục đó hoặc dùng Ngừng hoạt động thay vì xoá.",
           { member_id: memberId, references: c, counts: c });

@@ -298,7 +298,9 @@ test('B7/B17: empty-state việc/game phân biệt trống thật vs không kh�
   assert.ok(b.getEl('view').innerHTML.includes('Không có game nào khớp tìm kiếm'), 'mọi mảng phải có empty-state khi không khớp (trước đây chỉ ai/metaverse)');
   const c = loadIndex();
   c.run("curView='companies'; curLine='all'; query='zzz-khong-khop'; render()");
-  assert.ok(c.getEl('view').innerHTML.includes('Không có công ty nào ở mảng này.'));
+  /* F4 (vòng QA sau): đang có tìm kiếm mà không khớp -> câu khớp tìm kiếm,
+     KHÔNG còn câu duy nhất "Không có công ty nào ở mảng này." cho mọi ca. */
+  assert.ok(c.getEl('view').innerHTML.includes('Không có công ty nào khớp tìm kiếm hiện tại.'));
   assert.ok(!c.getEl('view').innerHTML.includes('Không có khách nào'));
 });
 

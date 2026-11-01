@@ -1,5 +1,6 @@
-/* FIX-4 (cụm C4) — kiểm tĩnh 2 file SQL CHỈ CHUẨN BỊ (không chạy lên
-   project thật, không deploy):
+/* FIX-4 (cụm C4) — kiểm tĩnh 2 file SQL (nội dung thực thi của chúng;
+   cả hai file ĐÃ được điều phối viên chạy lên project thật + verify ở
+   đợt trước — xem header từng file):
    - C1 supabase/fix-publishing-guard-sys-stamp.sql: định nghĩa lại guard
      sao cho so legacy_extra loại trừ đúng 3 khoá sys (createdAt /
      updatedAt / updatedBy) ở cả hai phía; mọi cấm khác giữ nguyên tuyệt
@@ -95,8 +96,9 @@ test('C5(c): trigger BEFORE INSERT ép at = now(); file an toàn khi chạy lạ
   assert.ok(!/create policy[^;]*for (update|delete)/i.test(sql), 'file tighten không được tạo policy UPDATE/DELETE (append-only giữ nguyên)');
 });
 
-test('C1+C5 tĩnh: hai file SQL chỉ-chuẩn-bị đều ghi rõ chưa chạy lên project thật', () => {
+test('C1+C5 tĩnh: hai file SQL đều ghi rõ ĐÃ áp dụng lên project thật + đã verify (không còn câu chưa chạy)', () => {
   for (const f of ['supabase/fix-publishing-guard-sys-stamp.sql', 'supabase/audit-log-tighten.sql']) {
-    assert.ok(read(f).includes('CHỈ CHUẨN BỊ'), f + ' phải ghi rõ chỉ chuẩn bị');
+    assert.ok(read(f).includes('ĐÃ ÁP DỤNG LÊN PROJECT THẬT') && read(f).includes('ĐÃ VERIFY'), f + ' phải ghi rõ đã áp dụng + đã verify');
+    assert.ok(!read(f).includes('CHƯA CHẠY LÊN PROJECT THẬT'), f + ' không còn câu chưa chạy đã lỗi thời');
   }
 });

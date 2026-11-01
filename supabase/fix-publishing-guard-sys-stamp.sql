@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Sava Meta CRM — FIX C1: guard_publishing_request_update vs sys-stamp
 -- ============================================================================
--- *** FILE CHỈ CHUẨN BỊ — CHƯA CHẠY LÊN PROJECT THẬT ***
+-- *** ĐÃ ÁP DỤNG LÊN PROJECT THẬT + ĐÃ VERIFY (điều phối viên đã chạy và kiểm chứng ở đợt trước) ***
 -- Việc chạy file này do điều phối viên / quản trị quyết định riêng sau khi
 -- duyệt nội dung. Code frontend/adapter đã tái hiện được lỗi ở tầng harness.
 --

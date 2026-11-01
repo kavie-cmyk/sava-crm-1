@@ -338,7 +338,7 @@
         mechanicDiverged = true;
       }
       if (minComp < 0.8 || v2Res.decision === null) {
-        return {type:'v2-insufficient', stale:false, legacy:false, v2:v2Res, legacyResult:legacyRes, final:null, decision:null, recommendation:`Chưa đủ dữ liệu · ${Math.round(minComp * 100)}%`, completeness:minComp, minCompleteness:minComp, label:'Final v2 (game)', mechanicDiverged};
+        return {type:'v2-insufficient', stale:false, legacy:false, v2:v2Res, legacyResult:legacyRes, final:null, decision:null, recommendation:`Chưa đủ dữ liệu · ${pct(minComp)}`, completeness:minComp, minCompleteness:minComp, label:'Final v2 (game)', mechanicDiverged};
       }
       return {type:'v2', stale:false, legacy:false, v2:v2Res, legacyResult:legacyRes, final:v2Res.final, decision:v2Res.decision, recommendation:v2Res.decision, completeness:minComp, minCompleteness:minComp, label:'Final v2 (game)', mechanicDiverged};
     }
@@ -779,7 +779,7 @@
     const compBar = (t, c) => `<div class="mk-scorebar"><span>${esc(t)}</span><span class="mk-scorebar-track"><span class="mk-scorebar-fill" style="width:${Math.round((c || 0) * 100)}%"></span></span><b>${pct(c)}</b></div>`;
     // S11 + B2/D2: completeness < 80% -> hiển thị "— (chưa đủ dữ liệu · X%)" thay cho con số;
     // stale (mechanic đã đổi) -> cả ba ô đều "—", không in số của mechanic cũ.
-    const pctTxt = c => Math.round((c || 0) * 100) + '%';
+    const pctTxt = c => pct(c || 0);
     const staleDisp = '— (điểm thuộc mechanic cũ — chờ chấm lại)';
     const marketDisp = mechChanged ? staleDisp : res.market.completeness < 0.8 ? `— (chưa đủ dữ liệu · ${pctTxt(res.market.completeness)})` : (res.market.score === null ? '—' : num(res.market.score, 1));
     const protoDisp = mechChanged ? staleDisp : res.prototype.completeness < 0.8 ? `— (chưa đủ dữ liệu · ${pctTxt(res.prototype.completeness)})` : (res.prototype.score === null ? '—' : num(res.prototype.score, 1));
@@ -1029,7 +1029,7 @@
          số; chỉ revision v2 hiệu lực + đủ dữ liệu mới in số thật. */
       const v2HistLine = isCompany || !effH || effH.type === 'legacy' ? ''
         : effH.type === 'stale' ? `<p class="source-text">Market v2: — · Prototype v2: — · Final v2: — (điểm thuộc mechanic cũ — chờ chấm lại)</p>`
-        : effH.type === 'v2-insufficient' ? `<p class="source-text">Market v2: — · Prototype v2: — · Final v2: — (chưa đủ dữ liệu · ${Math.round((effH.minCompleteness || 0) * 100)}%)</p>`
+        : effH.type === 'v2-insufficient' ? `<p class="source-text">Market v2: — · Prototype v2: — · Final v2: — (chưa đủ dữ liệu · ${pct(effH.minCompleteness || 0)})</p>`
         : `<p class="source-text">Market v2: ${num(effH.v2.market.score,1)}/100 · Prototype v2: ${num(effH.v2.prototype.score,1)}/100 · Final v2: ${fmtFinalScore(effH.v2.final)}/100${effH.v2.decision?' · '+esc(effH.v2.decision):''}</p>`;
       /* D5: MKT không thấy bdComment trong lịch sử — chỉ thấy comment chung
          (nếu có); BD thấy cả hai như hiện tại (comment ưu tiên, fallback bdComment). */

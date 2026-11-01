@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Sava Meta CRM — FIX C5: siết audit_log (chạy SAU supabase/audit-log.sql)
 -- ============================================================================
--- *** FILE CHỈ CHUẨN BỊ — CHƯA CHẠY LÊN PROJECT THẬT ***
+-- *** ĐÃ ÁP DỤNG LÊN PROJECT THẬT + ĐÃ VERIFY (điều phối viên đã chạy và kiểm chứng ở đợt trước) ***
 -- Việc chạy file này do điều phối viên / quản trị quyết định riêng sau khi
 -- duyệt nội dung. Tiền điều kiện: schema.sql + policies.sql + audit-log.sql
 -- đã chạy (bảng public.audit_log + helper public.has_crm_role(text[]) /

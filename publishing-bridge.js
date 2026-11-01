@@ -395,7 +395,7 @@
         /* N12: % completeness hiển thị là khối THẤP HƠN (min Market/Prototype) kèm tên khối. */
         const compM = v2.market ? v2.market.completeness : 1, compP = v2.prototype ? v2.prototype.completeness : 1;
         const lowName = compM <= compP ? 'Market' : 'Prototype';
-        const lowPct = Math.round(Math.min(compM, compP) * 100);
+        const lowPct = fmt1(Math.min(compM, compP) * 100);
         const lowCompleteness = compM < 0.8 || compP < 0.8;
         if (v2.decision == null || lowCompleteness) {
           result = `<p style="margin:7px 0">Chưa đủ dữ liệu để kết luận · <b>— (chưa đủ dữ liệu · ${esc(lowName)} ${lowPct}%)</b> · ${revCount} phiên bản</p>`;

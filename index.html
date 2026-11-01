@@ -674,14 +674,22 @@ function sanitizeNewCrossCompanyLeads() {
    deal/sửa form deal/convertLead đều gọi helper này cho các lead bị ảnh
    hưởng, mutate state TRƯỚC save() của thao tác chính để MỘT lần lưu ghi cả
    thay đổi deal lẫn status lead (stamp + audit diff sinh như sửa tay bình
-   thường; helper tự nó KHÔNG gọi save -> không đệ quy). */
-function syncLeadDealStatus(leadId) {
+   thường; helper tự nó KHÔNG gọi save -> không đệ quy). Đường lưu form
+   sửa lead (saveLead) cũng gọi helper này — với opts.preserveManualConverted
+   để chỉ áp chiều lên, giữ đường khôi phục tay đã duyệt cho lead không deal. */
+function syncLeadDealStatus(leadId, opts) {
   const l = S.leads.find(x => x.id === leadId);
   if (!l) return;
   if (dealsForLead(l.id).length > 0) { if (l.status !== "converted") l.status = "converted"; }
-  else if (l.status === "converted") l.status = "qualified";
+  /* opts.preserveManualConverted: đường lưu FORM SỬA LEAD (saveLead) — lead
+     KHÔNG có deal mà người dùng tự đặt "converted" ở form là đường khôi
+     phục tay hợp lệ đã duyệt, nên ở đường này helper CHỈ áp chiều lên
+     (có deal -> "converted"), KHÔNG tự hồi chiều xuống. Mọi đường khác
+     (gắn/gỡ/xoá deal, sửa form deal, convert...) gọi không opts và giữ
+     nguyên bất biến hai chiều như cũ. */
+  else if (!(opts && opts.preserveManualConverted) && l.status === "converted") l.status = "qualified";
 }
-function syncLeadDealStatuses(leadIds) { [...new Set(leadIds || [])].forEach(syncLeadDealStatus); }
+function syncLeadDealStatuses(leadIds, opts) { [...new Set(leadIds || [])].forEach(id => syncLeadDealStatus(id, opts)); }
 /* ===== B4 (đợt 3): hiển thị điểm legacy (khung workbook cũ) =====
    Điểm final thô 64.96 trước đây qua fmtNum1 hiện thành "65" — trông như đã
    qua ngưỡng TEST MORE 65 trong khi kết luận vẫn NO-GO (79.975 -> "80" mà vẫn
@@ -907,18 +915,29 @@ function drag(e, id) { dragId = id; }
 function drop(e, line, stage) {
   e.preventDefault(); document.querySelectorAll(".col").forEach(c => c.classList.remove("drag"));
   const d = S.deals.find(x => x.id === dragId); if (!d) return;
+  if (d.stage === stage && d.line === line) { render(); return; }
+  /* F5: kéo-thả đổi stage phải qua CÙNG confirm đổi stage của drawer
+     (confirmStageChange bên dưới — nêu stage cũ → mới). Huỷ -> KHÔNG
+     mutate, KHÔNG save; render() dựng lại bảng pipeline nguyên trạng. */
+  if (!confirmStageChange(d, stagePairSafe(d.line, d.stage)[1], stagePairSafe(line, stage)[1])) { render(); return; }
   d.stage = stage; d.line = line; d.idle = 0; save(); render();
   toast("Đã chuyển: " + d.title + " → " + stageOf(line, stage)[1]);
 }
 
 function vCompanies() {
-  const rows = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query))).map(c => {
+  const filteredCompanies = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query)));
+  const rows = filteredCompanies.map(c => {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     /* D3: roles có key lạ (không có trong LINES) -> nhãn thô + màu trung tính, không crash */
     const roleChips = Object.entries(c.roles || {}).map(([k,r]) => `<span class="chip" style="background:${lineColor(k)}">${esc(lineName(k))}: ${esc(r)}</span>`).join("");
     return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td></tr>`;
   }).join("");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || '<tr><td colspan="5" class="mut">Không có công ty nào ở mảng này.</td></tr>'}</table></div>
+  /* F4: phân biệt trống-thật với đang-lọc-mà-không-khớp như vLeads/vTasks:
+     đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
+     "all") — cùng quy ước nhận biết "đang lọc" của vLeads. */
+  const filteringCompanies = !!query || curLine !== "all";
+  const emptyCompaniesMsg = filteringCompanies ? "Không có công ty nào khớp tìm kiếm hiện tại." : "Chưa có công ty nào.";
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || `<tr><td colspan="5" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 
@@ -1772,13 +1791,19 @@ function openDeal(id) {
    addActivity lưu xong gọi openDeal() dựng lại drawer nên form tự thu lại. */
 function toggleDealActivityForm() { const el = document.getElementById("dealActForm"); if (el) el.style.display = el.style.display === "none" ? "" : "none"; }
 function moveStage(id, stage) { const d = S.deals.find(x=>x.id===id); d.stage = stage; d.idle = 0; save(); openDeal(id); render(); toast("Đã chuyển stage: " + stagePairSafe(d.line, stage)[1]); }
+/* F5: confirm đổi stage DÙNG CHUNG duy nhất — cả select trong drawer
+   (confirmMoveStage) lẫn kéo-thả pipeline (drop) đều hỏi qua đây, cùng
+   một câu chữ nêu stage cũ → mới; KHÔNG có bản sao logic confirm nào khác. */
+function confirmStageChange(d, oldLabel, newLabel) {
+  return confirm(`Chuyển stage của deal "${d.title}" từ "${oldLabel}" sang "${newLabel}"?`);
+}
 /* FIX-C1 B5: chuyển stage từ select trong drawer phải qua confirm nêu rõ
    stage cũ → mới (nhãn hiển thị); huỷ thì khôi phục giá trị select về stage cũ. */
 function confirmMoveStage(id, selEl) {
   const d = S.deals.find(x => x.id === id); if (!d || !selEl) return;
   const oldStage = d.stage, newStage = selEl.value;
   if (newStage === oldStage) return;
-  if (!confirm(`Chuyển stage của deal "${d.title}" từ "${stagePairSafe(d.line, oldStage)[1]}" sang "${stagePairSafe(d.line, newStage)[1]}"?`)) { selEl.value = oldStage; return; }
+  if (!confirmStageChange(d, stagePairSafe(d.line, oldStage)[1], stagePairSafe(d.line, newStage)[1])) { selEl.value = oldStage; return; }
   moveStage(id, newStage);
 }
 function saveTermContract(id) {
@@ -3428,6 +3453,13 @@ function saveLead(id) {
   let l;
   if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
   else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }
+  /* F1: áp bất biến status-theo-deal qua CHÍNH helper trung tâm TRƯỚC
+     save() — lead đang gắn ≥1 deal thì status cuối cùng của lần lưu này
+     phải là "converted" dù form vừa đặt trạng thái khác, và diff/audit
+     của lần lưu thấy đúng status cuối đó (không sinh mục mâu thuẫn).
+     preserveManualConverted: lead KHÔNG có deal đặt tay "converted" ở
+     form là đường khôi phục tay hợp lệ — helper không hồi nó. */
+  syncLeadDealStatus(l.id, { preserveManualConverted: true });
   /* Radio một-công-ty-một-đầu-mối-chính Ở TẦNG DỮ LIỆU (shared.js): lead
      này vừa được tick main -> lead main cũ của CÙNG công ty tự bỏ tick
      ngay trong state trước khi save() ghi xuống — không tạo đường ghi thứ
@@ -3606,14 +3638,21 @@ window.__savaOnDataRefreshed = function () {
   } catch (e) {}
 };
 /* Deep-link vào CRM (phía Publishing link ngược về đúng hồ sơ):
-   ?open=company&id=<id> -> mở drawer công ty; ?open=game&id=<id> -> mở drawer game. */
+   ?open=company&id=<id> -> mở drawer công ty; ?open=game&id=<id> -> mở drawer game;
+   ?open=deal&id=<id> -> mở drawer deal; ?open=lead&id=<id> -> mở drawer lead;
+   ?open=member&id=<id> -> mở drawer member; ?open=task&id=<id> -> mở form sửa
+   việc và ?open=activity&id=<id> -> mở form sửa hoạt động (editTask/editActivity
+   là bề mặt mở sẵn có duy nhất của hai loại này — cùng mẫu auditHistEntity dùng). */
 try {
   const __q = new URLSearchParams(location.search);
   const __open = __q.get("open"), __oid = __q.get("id");
   if (__oid && __open === "company") openCompany(__oid);
   else if (__oid && __open === "game") openGame(__oid);
+  else if (__oid && __open === "deal") openDeal(__oid);
   else if (__oid && __open === "lead") openLead(__oid);
   else if (__oid && __open === "member") openMember(__oid);
+  else if (__oid && __open === "task") editTask(__oid);
+  else if (__oid && __open === "activity") editActivity(__oid);
 } catch (e) {}
 </script>
 </body>

@@ -272,6 +272,7 @@ function diffEntity(state, entityType, before, after) {
   Object.keys(a).forEach(k => { if (!keys.includes(k)) keys.push(k); });
   const changes = [];
   keys.forEach(k => {
+    if (k === "id") return; /* id là định danh của chính entity (đã nằm ở entityId của mục audit) — không phải một thay đổi dữ kiện, không sinh change "id" trong mục tạo mới/sửa/xoá */
     if (k === "expectations") return; /* chốt bảo mật C3 */
     if (deepEqualLoose(b[k], a[k])) return;
     if (k === "intake") { diffIntake(state, entityType, after, labels[k] || "Hồ sơ đầu vào", b[k], a[k]).forEach(c => changes.push(c)); return; }
