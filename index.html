@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Sava Meta CRM — Prototype</title>
+<title>Sava Meta CRM</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root { --navy:#0f172a; --bg:#f1f5f9; --card:#fff; --line:#e2e8f0; --txt:#0f172a; --mut:#64748b; --acc:#2563eb; }
@@ -134,6 +134,7 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
+<link rel="stylesheet" href="workspace-design.css">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="supabase-client.js"></script>
@@ -141,8 +142,15 @@
 <script src="supabase-data.js"></script>
 <script src="supabase-auth.js"></script>
 </head>
-<body>
+<body class="crm-shell">
 <div id="savaAuthRoot">
+  <section class="auth-context" aria-label="Sava Meta Workspace">
+    <div class="auth-mark" aria-hidden="true">S</div>
+    <div class="auth-kicker">SAVA META WORKSPACE</div>
+    <h2>Không gian làm việc<br>của team Sava Meta.</h2>
+    <p>Theo dõi cơ hội hợp tác, đối tác và sản phẩm trong cùng một nơi.</p>
+    <div class="auth-lines"><span>Game Studio</span><span>Publishing</span><span>AI</span><span>Metaverse</span></div>
+  </section>
   <div class="sava-auth-card" id="savaLoginCard">
     <div class="sava-auth-brand">SAVA <b>META</b> · CRM</div>
     <h1>Đăng nhập CRM</h1>
@@ -200,7 +208,7 @@
     <a href="mkt.html" class="nav-card"><span class="nav-card-icon"><i data-icon="game"></i></span><span class="nav-card-text"><strong>Trang của Marketing</strong><small>MKT vào đây đánh giá Company &amp; Game</small></span><i data-icon="arrow"></i></a>
   </div>
   <div class="foot">
-    <div class="foot-label">Môi trường dùng thử · 3 người</div>
+    <div class="foot-label">Sava Meta · CRM nội bộ</div>
   </div>
 </aside>
 <div class="side-scrim" aria-hidden="true"></div>
@@ -3655,6 +3663,8 @@ try {
   else if (__oid && __open === "activity") editActivity(__oid);
 } catch (e) {}
 </script>
+<script src="workspace-ui.js"></script>
 </body>
 </html>
+
 
