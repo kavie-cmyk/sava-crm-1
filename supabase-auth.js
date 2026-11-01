@@ -15,8 +15,8 @@
        * Không có profile/member, hoặc member đã ngừng hoạt động ->
          màn hình chặn rõ lý do + nút Đăng xuất.
        * Điều hướng theo vai: MKT chỉ ở mkt.html (mở index/publishing thì
-         chuyển về mkt.html kèm thông báo); BD/Admin mở mkt.html thì
-         chuyển về index.html kèm thông báo.
+         chuyển về mkt.html kèm thông báo); BD/Khác mở mkt.html thì
+         chuyển về index.html kèm thông báo; Admin vào được cả 3 trang.
    - Sau khi vai hợp lệ: SavaData.loadAll() nạp dữ liệu Supabase vào cache.
      Nếu loadAll vừa thay nội dung cache (cache cũ khác dữ liệu máy chủ
      theo nội dung) VÀ phiên này chưa từng nạp lại trang cho đúng phiên
@@ -169,7 +169,7 @@
       if (!lsJson(CRM_CACHE_KEY) || !lsJson(PUB_CACHE_KEY)) return null;
       /* Khớp vai–trang như proceed(): lệch vai thì để cổng cũ điều hướng. */
       if (identity.role === 'mkt' && page !== 'mkt.html') return null;
-      if ((identity.role === 'bd' || identity.role === 'admin' || identity.role === 'other') && page === 'mkt.html') return null;
+      if ((identity.role === 'bd' || identity.role === 'other') && page === 'mkt.html') return null;
       return { userId: sess.user.id, identity };
     } catch (e) { return null; }
   }
@@ -593,7 +593,7 @@
       location.replace('mkt.html');
       return;
     }
-    if ((role === 'bd' || role === 'admin' || role === 'other') && page === 'mkt.html') {
+    if ((role === 'bd' || role === 'other') && page === 'mkt.html') {
       setNotice('Trang Marketing chỉ dành cho tài khoản MKT — đã chuyển bạn về trang BD.');
       location.replace('index.html');
       return;

@@ -210,6 +210,22 @@ test('fast boot: MKT ở mkt.html cũng mở-nhanh đúng vai', async () => {
   assert.match(r.getEl('savaUserInfo').textContent, /Mai · MKT/);
 });
 
+test('fast boot: Admin ở mkt.html cũng mở-nhanh (Admin xem cả 3 trang, user chốt 1/11)', async () => {
+  const r = await bootFast({ pathname: '/mkt.html' });
+  assert.equal(r.unlockedAtScriptTime, true, 'computeOptimisticBoot không được trả null vì lý do vai đối với Admin ở mkt.html');
+  assert.equal(r.optimisticAtScriptTime, true);
+  assert.equal(r.docClasses.has('sava-locked'), false, 'sau kiểm chứng ngầm Admin vẫn ở lại mkt.html');
+  assert.equal(r.stats.reloads, 0);
+  assert.match(r.getEl('savaUserInfo').textContent, /Bự · Admin/);
+});
+
+test('fast boot: BD ở mkt.html KHÔNG mở-nhanh (hồi quy — BD vẫn bị giữ ở phía BD)', async () => {
+  const init = fastInit({ userId: 'u-hoang', email: 'hoang@savameta.com', memberId: 'hoangdaden', name: 'Hoàng Daden', role: 'bd', memberRole: 'BD' });
+  const r = await bootFast({ init, pathname: '/mkt.html', sessionUser: { id: 'u-hoang', email: 'hoang@savameta.com' } });
+  assert.equal(r.unlockedAtScriptTime, false, 'BD ở mkt.html phải để cổng đầy đủ điều hướng về index.html');
+  assert.equal(r.optimisticAtScriptTime, false);
+});
+
 test('fast boot: thiếu token phiên -> KHÔNG mở-nhanh, cổng cũ giữ nguyên', async () => {
   const r = await bootFast({ init: fastInit({ withToken: false }) });
   assert.equal(r.unlockedAtScriptTime, false, 'không có phiên lưu -> trang vẫn khoá tại thời điểm nạp script');

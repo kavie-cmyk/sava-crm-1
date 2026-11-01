@@ -125,6 +125,22 @@ test('auth: member đã ngừng hoạt động -> chặn + nêu rõ', async () =
   assert.match(h.els.savaBlockedMsg.textContent, /ngừng hoạt động/);
 });
 
+test('auth: Admin mở mkt.html -> ĐƯỢC Ở LẠI (Admin xem cả 3 trang, user chốt 1/11)', async () => {
+  const h = loadAuth({ session: user('u-zac'), profile: { id: 'u-zac', member_id: 'zac' }, member: { id: 'zac', name: 'Bự', role: 'Admin', active: true }, pathname: '/mkt.html' });
+  await tick();
+  assert.equal(h.calls.replace, null, 'Admin ở mkt.html không bị redirect đi nơi khác');
+  assert.equal(h.docClasses.has('sava-locked'), false, 'app mở khoá cho Admin ngay tại mkt.html');
+  assert.equal(h.calls.dataAttached, 'admin', 'SavaData.attach nhận vai admin như cũ');
+  assert.match(h.els.savaUserInfo.textContent, /Bự · Admin/);
+});
+
+test('tĩnh: không còn chốt gate nào ở mkt.html nhắc tới admin (cả proceed lẫn boot-nhanh)', () => {
+  const src = read('supabase-auth.js');
+  const gateLines = src.split('\n').filter(l => l.includes("page === 'mkt.html'") && l.includes('role'));
+  assert.ok(gateLines.length >= 2, 'phải tìm thấy 2 chốt gate mkt (boot-nhanh + proceed): ' + gateLines.length);
+  for (const l of gateLines) assert.ok(!l.includes("'admin'"), 'dòng gate mkt không được chặn admin: ' + l.trim());
+});
+
 test('auth: BD hợp lệ -> mở khoá app, hiện thanh người dùng', async () => {
   const h = loadAuth({ session: user('u-linh'), profile: { id: 'u-linh', member_id: 'linh' }, member: { id: 'linh', name: 'Linh', role: 'BD', active: true }, pathname: '/publishing.html' });
   await tick();
