@@ -64,6 +64,10 @@
   .col.lead-col-closed { background:#e8ebee; }
   .col.lead-col-closed .dcard { opacity:.72; }
   .lead-show-more { width:100%; margin-top:2px; }
+  /* View Block: header block bấm để đóng/mở + phân trang trong block */
+  .lead-block-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .lead-status-block--collapsed .panel-title { margin-bottom:0; }
+  .lead-block-pager .btn[disabled] { opacity:.45; cursor:not-allowed; }
   /* Lịch sử tổng chia theo loại hành động: mỗi loại là 1 block ngang xếp dọc */
   .audit-action-block { margin-bottom:12px; }
   .audit-action-block .panel-title { margin-bottom:10px; }
@@ -1062,9 +1066,47 @@ function leadViewHeadHTML() {
       <button class="${leadViewMode === "pipeline" ? "on" : ""}" onclick="setLeadViewMode('pipeline')">▤ Pipeline</button>
     </div></div>`;
 }
+/* ===== Phân trang + đóng/mở từng block trạng thái (CHỈ view Block) =====
+   UI-state thuần tuý TRONG PHIÊN (không lưu localStorage, không nằm
+   trong S, không qua save() — tải lại trang là về mặc định):
+   leadBlockPage[key] = trang đang xem (1-based) của block trạng thái
+   key; leadBlockCollapsed[key] = true khi block đang thu gọn. Mặc định
+   mọi block đều MỞ ở trang 1.
+   - Đổi bộ lọc/tìm kiếm -> MỌI block về trang 1: nhận biết qua
+     leadBlockFilterSig (cùng cơ chế chữ ký bộ lọc của board Pipeline);
+     trạng thái đóng/mở KHÔNG bị reset theo bộ lọc.
+   - Đóng/mở không đụng số trang -> mở lại thấy đúng trang đang xem dở.
+   - Lead đổi trạng thái (form sửa hoặc kéo-thả ở board) làm block
+     nguồn/đích co/giãn: trang đang lưu vượt tổng số trang mới thì KẸP
+     về trang cuối hợp lệ ngay trong leadBlockPageInfo — không để block
+     hiện trang trống trơn. Board Pipeline không dùng cơ chế này (nó có
+     "Hiển thị thêm" riêng). */
+const LEAD_BLOCK_PAGE_SIZE = 10;
+let leadBlockPage = {};
+let leadBlockCollapsed = {};
+let leadBlockFilterSig = null;
+function setLeadBlockPage(statusKey, page) { leadBlockPage[statusKey] = page; render(); }
+function toggleLeadBlock(statusKey) { leadBlockCollapsed[statusKey] = !leadBlockCollapsed[statusKey]; render(); }
+function leadBlockPageInfo(g) {
+  const totalPages = Math.max(1, Math.ceil(g.leads.length / LEAD_BLOCK_PAGE_SIZE));
+  let page = leadBlockPage[g.key] || 1;
+  if (page > totalPages) page = totalPages;
+  if (page < 1) page = 1;
+  leadBlockPage[g.key] = page;
+  const start = (page - 1) * LEAD_BLOCK_PAGE_SIZE;
+  const pageLeads = g.leads.slice(start, start + LEAD_BLOCK_PAGE_SIZE);
+  return { page, totalPages, pageLeads, from: g.leads.length ? start + 1 : 0, to: start + pageLeads.length };
+}
+function leadBlockPagerHTML(g, info) {
+  if (info.totalPages <= 1) return "";
+  return `<div class="lead-block-pager" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button class="btn ghost small" onclick="setLeadBlockPage('${g.key}', ${info.page - 1})" ${info.page <= 1 ? "disabled" : ""}>← Trước</button><span class="mut">Trang ${info.page}/${info.totalPages} · Đang hiện ${info.from}–${info.to} / ${g.leads.length} lead</span><button class="btn ghost small" onclick="setLeadBlockPage('${g.key}', ${info.page + 1})" ${info.page >= info.totalPages ? "disabled" : ""}>Sau →</button></div>`;
+}
 function vLeads() {
   if (leadViewMode === "pipeline") { vLeadsPipeline(); return; }
   const filtered = filteredLeads();
+  /* Đổi từ khóa tìm kiếm / tab mảng -> mọi block về trang 1 (đóng/mở giữ nguyên). */
+  const blockSig = curLine + "|" + query;
+  if (leadBlockFilterSig !== blockSig) { leadBlockFilterSig = blockSig; leadBlockPage = {}; }
   /* Đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước ẩn-cột-rỗng-khi-đang-lọc của vTasksByMember:
      khi đang lọc, block nào không còn lead khớp thì ẨN hẳn; khi không
@@ -1075,14 +1117,16 @@ function vLeads() {
   if (unknownLeads.length) groups.push({ ...LEAD_STATUS_UNKNOWN, leads: unknownLeads });
   const blocks = groups.map(g => {
     if (!g.leads.length && filtering) return "";
-    const body = g.leads.length
-      ? `<div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${g.leads.map(leadRowHTML).join("")}</table></div>`
-      : `<div class="mut">Chưa có lead nào ở trạng thái này.</div>`;
-    return `<section class="panel lead-status-block" data-lead-status="${g.key}"><div class="panel-title"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.leads.length} lead</span></h3></div>${body}</section>`;
+    const collapsed = !!leadBlockCollapsed[g.key];
+    const info = leadBlockPageInfo(g);
+    const body = collapsed ? "" : (g.leads.length
+      ? `<div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${info.pageLeads.map(leadRowHTML).join("")}</table></div>${leadBlockPagerHTML(g, info)}`
+      : `<div class="mut">Chưa có lead nào ở trạng thái này.</div>`);
+    return `<section class="panel lead-status-block${collapsed ? " lead-status-block--collapsed" : ""}" data-lead-status="${g.key}"><div class="panel-title lead-block-head" onclick="toggleLeadBlock('${g.key}')" style="cursor:pointer" title="Bấm để ${collapsed ? "mở" : "thu gọn"} block này"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.leads.length} lead</span></h3><button class="btn ghost small" onclick="event.stopPropagation(); toggleLeadBlock('${g.key}')" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mở block" : "Thu gọn block"}">${collapsed ? "▸ Mở" : "▾ Thu gọn"}</button></div>${body}</section>`;
   }).join("");
   const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
   document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${blocks}${emptyFiltered}
-  <div class="mut" style="margin-top:10px">💡 Lead được chia thành từng block theo trạng thái (${LEAD_STATUSES.map(s => esc(s.label)).join(" → ")}). <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div>`;
+  <div class="mut" style="margin-top:10px">💡 Lead được chia thành từng block theo trạng thái (${LEAD_STATUSES.map(s => esc(s.label)).join(" → ")}). <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó. Bấm vào tiêu đề của một block để thu gọn/mở block đó; block có nhiều lead được chia trang ${LEAD_BLOCK_PAGE_SIZE} lead/trang, chuyển trang ở cuối block.</div>`;
 }
 /* ===== Lead Pipeline (kanban) — cách trình bày THỨ HAI của lead.status =====
    Tái sử dụng từ pipeline deal (vBoard): khung .board/.col/.dcard, mẫu
