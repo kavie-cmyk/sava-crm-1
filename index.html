@@ -2593,7 +2593,7 @@ function openLead(id) {
     <h2>📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}${eventSourceChipsHTML("leads", l.id)}</div>
     <div class="kv">
       <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
-      <div class="k">Người đầu mối</div><div>${esc(l.person || "—")}</div>
+      <div class="k">Position</div><div>${esc(l.person || "—")}</div>
       <div class="k">Điện thoại</div><div>${esc(l.phone || "—")}</div>
       <div class="k">Trạng thái</div><div><span class="pill" style="background:${st[1]}">${st[0]}</span></div>
       <div class="k">Mảng quan tâm</div><div>${esc(lineName(l.line))}${lineDef(l.line) ? " — " + esc(lineDef(l.line).desc) : ""}</div>
@@ -3744,7 +3744,7 @@ function editLead(id, presetCompanyId) {
     <div style="margin-bottom:8px">${typeBadgeHTML("lead")}</div>
     ${field("Tên lead (người đầu mối)", txt("e_lname", l.name))}
     ${field("Công ty", `<select id="e_lcompany" onchange="toggleLeadNewCompany()">${compOpts}</select><div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
-    ${field("Người đầu mối", txt("e_lperson", l.person || "", "VD: Anh Minh — Founder"))}
+    ${field("Position", txt("e_lperson", l.person || "", "VD: Chief Executive Officer"))}
     ${field("Điện thoại", txt("e_lphone", l.phone || "", "SĐT của người liên hệ này"))}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_lmain" style="width:auto" ${l.mainContact ? "checked" : ""}> Đầu mối chính của công ty (mỗi công ty chỉ có một — tick lead này sẽ tự bỏ tick lead đang là đầu mối chính của cùng công ty)</label>
     ${leadLineField}
