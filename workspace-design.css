@@ -74,6 +74,26 @@ tbody tr:hover {background:#f8fbfc}tr[onclick]:focus-visible {outline-offset:-3p
 .board {gap:15px;padding-bottom:18px;scroll-snap-type:x proximity;scroll-padding:4px}
 .col {width:296px;min-width:296px;background:#edf2f5;border:1px solid #e3eaef;border-radius:15px;padding:14px;scroll-snap-align:start}
 .col h4 {font-size:13px;line-height:1.6}.col .sum {font-size:11px;margin-bottom:17px}
+/* Pipeline boards (Deal theo mảng + Lead Pipeline) — mẫu Trello/Linear:
+   board bị giới hạn trong khung hình nên thanh cuộn NGANG của board luôn
+   với tới được, không phải cuộn trang xuống đáy board mới thấy. CHỈ áp
+   cho .board.pipeline-board (vBoard + vLeadsPipeline gắn class này);
+   board Việc theo người (.board thường) và mọi view khác giữ nguyên.
+   --pipeline-reserve = phần chiều cao KHÔNG thuộc board, đo từ layout
+   thật của app (workspace-design.css là lớp thắng cascade cuối):
+   desktop = .workspace-header 80px + margin-bottom 30 + .toolbar
+   (h1 31px×1.22 + mô tả 13px×1.6 + margin-top 8 + margin-bottom 23 ≈ 90)
+   + .linetabs (nút min-height 38 + padding 8 + margin-bottom 27 ≈ 73)
+   ≈ 273, cộng phần đầu TRONG view (Deal: note 42 + margin 18 ≈ 60, hoặc
+   lọc ngành Metaverse ≈ 51; Lead: .lead-view-head 46 + margin 12 = 58)
+   ≈ 333, cộng dòng gợi ý dưới board ≈ 30 -> làm tròn lên 370.
+   Mobile ≤900px: header 72 + margin 25, .toolbar xếp 2 hàng (tiêu đề
+   ≈67 + gap 18 + hàng nút/tìm kiếm 44 + margin 23 ≈ 152), .linetabs 73,
+   đầu view ≈ 60 -> ≈382, cộng .mobile-nav cố định ở đáy ≈68 -> 450. */
+.board.pipeline-board {--pipeline-reserve:370px;height:calc(100vh - var(--pipeline-reserve));height:calc(100dvh - var(--pipeline-reserve));min-height:260px;align-items:stretch;overflow-y:hidden}
+.board.pipeline-board .col {display:flex;flex-direction:column;min-height:0}
+.board.pipeline-board .col-cards {flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+@media(max-width:900px){.board.pipeline-board {--pipeline-reserve:450px;min-height:240px}}
 .dcard {border:1px solid #e0e8ed;padding:17px;border-radius:12px;box-shadow:0 2px 4px #1e455706}.dcard .t {font-size:14px;font-weight:600;color:#344e5d}.dcard .c {font-size:12px}.dcard .a {font-size:13px}.dcard .meta {font-size:11px;line-height:1.6;gap:8px}
 .gcard {padding:24px}.gcard h4 {font-size:18px;letter-spacing:-.4px}.gcard .mut {font-size:12px}.gcard .emoji {width:52px;height:52px;border-radius:14px;background:#f2f7f9}
 .drawer {width:620px;max-width:calc(100vw - 18px);padding:30px;box-shadow:-16px 0 70px #14374618;background:#fcfdfe;border-left:1px solid #e0e9ee}

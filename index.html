@@ -147,7 +147,7 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="workspace-design.css?v=20261101.2">
+<link rel="stylesheet" href="workspace-design.css?v=20261102.1">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="supabase-client.js"></script>
@@ -929,10 +929,14 @@ function vBoard() {
       <div class="t">${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
       <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysShortDate(d.updatedAt) ? `<span title="Cập nhật lần cuối">🕘 ${esc(sysShortDate(d.updatedAt))}</span>` : ""}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
+    /* Khung cuộn pipeline (workspace-design.css .board.pipeline-board):
+       h4 + .sum nằm NGOÀI vùng cuộn .col-cards nên header cột luôn cố định
+       ở đầu cột; chỉ danh sách thẻ cuộn dọc trong .col-cards. Handler
+       kéo-thả giữ nguyên trên .col (sự kiện từ thẻ/vùng cuộn nổi bọt lên). */
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
-      <h4>${s[1]} <span class="pill" style="background:${L.color}">${ds.length}</span></h4><div class="sum">${sum||"—"} · xác suất ${s[2]}%</div>${cards||'<div class="mut" style="padding:4px 2px">Kéo deal vào đây</div>'}</div>`;
+      <h4>${s[1]} <span class="pill" style="background:${L.color}">${ds.length}</span></h4><div class="sum">${sum||"—"} · xác suất ${s[2]}%</div><div class="col-cards">${cards||'<div class="mut" style="padding:4px 2px">Kéo deal vào đây</div>'}</div></div>`;
   }).join("");
-  document.getElementById("view").innerHTML = note + (line === "metaverse" ? boardVerticalFilterHTML() : "") + `<div class="board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động.</div>`;
+  document.getElementById("view").innerHTML = note + (line === "metaverse" ? boardVerticalFilterHTML() : "") + `<div class="board pipeline-board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động.</div>`;
 }
 let dragId = null;
 function drag(e, id) { dragId = id; }
@@ -1223,8 +1227,11 @@ function vLeadsPipeline() {
        tổng N lead" — đúng mẫu đếm KPI ở Tổng quan ("Trên tổng … cơ hội"). */
     const sum = inCol.length !== totalInStatus ? `${inCol.length} sau lọc · trên tổng ${totalInStatus} lead` : `${totalInStatus} lead`;
     const closedCls = def.key === "not_yet_have_demand" ? " lead-col-closed" : "";
+    /* Khung cuộn pipeline như vBoard: header cột (h4 + .sum) nằm ngoài
+       vùng cuộn .col-cards; nút "Hiển thị thêm" nằm TRONG .col-cards ở
+       cuối danh sách thẻ nên cuộn trong cột là với tới được. */
     return `<div class="col${closedCls}" data-lead-status="${def.key}" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="dropLead(event,'${def.key}')">
-      <h4>${esc(def.label)} <span class="pill" style="background:${def.color}">${inCol.length}</span></h4><div class="sum">${sum}</div>${cards || '<div class="mut" style="padding:4px 2px">Kéo lead vào đây</div>'}${more}</div>`;
+      <h4>${esc(def.label)} <span class="pill" style="background:${def.color}">${inCol.length}</span></h4><div class="sum">${sum}</div><div class="col-cards">${cards || '<div class="mut" style="padding:4px 2px">Kéo lead vào đây</div>'}${more}</div></div>`;
   }).join("");
   /* Lead trạng thái lạ KHÔNG có cột riêng trên board và KHÔNG bị ép vào
      bất kỳ cột nào: chỉ hiện dòng ghi chú ghi rõ số lượng bị ẩn (sau lọc)
@@ -1232,7 +1239,7 @@ function vLeadsPipeline() {
      trạng thái" để xử lý. */
   const unknownNote = unknownLeads.length ? `<div class="prototype-note" style="padding:11px 14px;margin-bottom:12px">⚠️ Có <b>${unknownLeads.length} lead</b> có trạng thái lạ (không thuộc ${LEAD_STATUSES.length} trạng thái chuẩn) nên không hiện trên bảng Pipeline. <button class="btn ghost small" onclick="setLeadViewMode('block')">Xem ở chế độ Block để xử lý →</button></div>` : "";
   const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut" style="margin-bottom:12px">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
-  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${unknownNote}${emptyFiltered}<div class="board lead-board">${cols}</div>
+  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${unknownNote}${emptyFiltered}<div class="board lead-board pipeline-board">${cols}</div>
   <div class="mut" style="margin-top:10px">💡 Kéo thẻ lead sang cột khác để đổi trạng thái (sẽ hỏi xác nhận, cùng helper với đổi stage của deal), hoặc bấm vào thẻ để xem chi tiết lead — lead ở cột Đã chuyển đổi vẫn mở xem các deal của nó như thường; bấm tên công ty để mở hồ sơ công ty. Cột <b>Not yet have demand</b> là cột kết thúc âm (chưa có nhu cầu): lead vẫn xem/sửa được và kéo ra cột khác được khi có nhu cầu trở lại. Mỗi cột chỉ hiện ${LEAD_BOARD_PAGE_SIZE} thẻ đầu — bấm "Hiển thị thêm" ở cuối cột để xem tiếp.</div>`;
 }
 /* ===== Sự kiện (Events) =====
