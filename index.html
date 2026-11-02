@@ -147,7 +147,7 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="workspace-design.css?v=20261102.1">
+<link rel="stylesheet" href="workspace-design.css?v=20261102.2">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="supabase-client.js"></script>
@@ -261,13 +261,13 @@
     <label>Tên deal</label>
     <input id="f_title" placeholder="VD: Game X — Publisher Y">
     <label>Công ty / đối tác</label>
-    <select id="f_company" onchange="onDealCompanyChange()"></select>
+    <select id="f_company" data-combo="1" class="combo-source" onchange="onDealCompanyChange()"></select><div class="combo" data-combo-for="f_company"><input class="combo-input" data-combo-input="f_company" type="text" autocomplete="off" placeholder="Gõ tên công ty để tìm…" value="" aria-label="Gõ tên công ty để tìm"><div class="combo-list" hidden></div></div>
     <div id="f_newCompanyWrap" style="display:none; margin-top:6px">
       <input id="f_newCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu deal">
     </div>
     <div id="f_gameWrap" style="display:none">
       <label>Game gắn với deal <span id="f_gameReq" style="color:#dc2626"></span></label>
-      <select id="f_game" onchange="onDealFormGameChange()"></select>
+      <select id="f_game" data-combo="1" class="combo-source" onchange="onDealFormGameChange()"></select><div class="combo" data-combo-for="f_game"><input class="combo-input" data-combo-input="f_game" type="text" autocomplete="off" placeholder="Gõ tên game để tìm…" value="" aria-label="Gõ tên game để tìm"><div class="combo-list" hidden></div></div>
       <div id="f_newGameWrap" style="display:none; margin-top:6px">
         <input id="f_newGame" placeholder="Tên game mới — sẽ tạo game đối tác gắn công ty ở trên">
       </div>
@@ -1461,7 +1461,7 @@ function eventLinkBlockHTML(ev, kind) {
   const candidates = eventCandidateEntities(ev, kind);
   const list = linked.map(ent => `<div style="margin-bottom:6px"><div class="dcard" onclick="${cfg.openFn}('${ent.id}')"><div class="t">${cfg.icon} ${esc(eventEntityLabel(kind, ent))}</div><div class="c">${esc(eventEntityContext(kind, ent))}</div></div><button class="btn ghost small" onclick="detachEventLink('${ev.id}','${kind}','${ent.id}')">✕ Gỡ liên kết</button></div>`).join("");
   const picker = candidates.length
-    ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="${cfg.pickerId}" style="flex:1;min-width:220px">${candidates.map(ent => `<option value="${esc(ent.id)}">${esc(eventEntityLabel(kind, ent))}${eventEntityContext(kind, ent) ? " · " + esc(eventEntityContext(kind, ent)) : ""}</option>`).join("")}</select><button class="btn" onclick="attachEventLinkFromPicker('${ev.id}','${kind}')">Gắn</button></div>`
+    ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${comboSelectHTML(cfg.pickerId, candidates.map(ent => `<option value="${esc(ent.id)}">${esc(eventEntityLabel(kind, ent))}${eventEntityContext(kind, ent) ? " · " + esc(eventEntityContext(kind, ent)) : ""}</option>`).join(""), { wrapStyle: "flex:1;min-width:220px", label: eventEntityLabel(kind, candidates[0]) + (eventEntityContext(kind, candidates[0]) ? " · " + eventEntityContext(kind, candidates[0]) : ""), placeholder: "Gõ tên " + cfg.noun + " để tìm…" })}<button class="btn" onclick="attachEventLinkFromPicker('${ev.id}','${kind}')">Gắn</button></div>`
     : `<div class="mut" style="margin-top:8px">Không còn ${esc(cfg.noun)} nào chưa gắn để chọn.</div>`;
   return `<h3 style="margin:18px 0 8px">${cfg.heading} (${linked.length})</h3>
     ${list || `<div class="mut">Chưa gắn ${esc(cfg.noun)} nào vào sự kiện này.</div>`}
@@ -2285,7 +2285,7 @@ function openDeal(id) {
     ${attachedLeads.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l, d.company)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào vào deal này.</div>'}
     <div style="font-weight:600;margin:12px 0 6px">Lead của công ty (chưa gắn vào deal này — chỉ để tham chiếu)</div>
     ${companyUnattached.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="attachLeadFromDealBlock('${l.id}','${d.id}')">＋ Gắn vào deal</button></div>`).join("") || (d.company ? (companyLeadsAll.length ? '<div class="mut">Tất cả lead của công ty đã được gắn vào deal này.</div>' : '<div class="mut">Công ty này chưa có lead nào.</div>') : '<div class="mut">Deal chưa có công ty — hãy sửa deal để chọn công ty trước, rồi mới gắn được lead của công ty đó.</div>')}
-    ${!d.company ? '<div class="mut" style="margin-top:8px">Deal chưa có công ty nên chưa gắn được lead nào.</div>' : attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="deal_attach_lead" style="flex:1;min-width:220px">${attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)} (cùng công ty)${l.mainContact ? " · " + MAIN_CONTACT_LABEL : ""}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào của công ty này chưa gắn để chọn.</div>'}`;
+    ${!d.company ? '<div class="mut" style="margin-top:8px">Deal chưa có công ty nên chưa gắn được lead nào.</div>' : attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${comboSelectHTML("deal_attach_lead", attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)} (cùng công ty)${l.mainContact ? " · " + MAIN_CONTACT_LABEL : ""}</option>`).join(""), { wrapStyle: "flex:1;min-width:220px", label: leadLabel(attachCandidates[0]) + " — " + (LINES[attachCandidates[0].line] ? LINES[attachCandidates[0].line].name : attachCandidates[0].line) + " (cùng công ty)" + (attachCandidates[0].mainContact ? " · " + MAIN_CONTACT_LABEL : ""), placeholder: "Gõ tên lead để tìm…" })}<button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào của công ty này chưa gắn để chọn.</div>'}`;
   /* D3: stage lạ/thiếu không có trong L.stages -> thêm option dự phòng mang đúng giá trị đã lưu */
   const stageOpts = (L.stages.some(s => s[0] === d.stage) ? "" : `<option value="${esc(d.stage || "")}" selected>${esc(st[1])} (${st[2]}%)</option>`) + L.stages.map(s => `<option value="${s[0]}" ${s[0]===d.stage?'selected':''}>${s[1]} (${s[2]}%)</option>`).join("");
   const t = d.term || {}, ct = d.contract || {};
@@ -2377,6 +2377,7 @@ function openDeal(id) {
     <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng bấm nút ✏️ Sửa ở khối trên để sửa, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>${auditSectionHTML("deal", d.id)}`;
   document.getElementById("drawer").classList.add("on");
   document.getElementById("scrim").classList.add("on");
+  comboSyncAll(document.getElementById("drawer"));
   loadDrawerAudit(document.getElementById("drawer"), "deal", id);
 }
 /* FIX-C1 B5: form thêm hoạt động trong drawer deal thu gọn sau nút bấm;
@@ -2443,7 +2444,7 @@ function saveTermContract(id) {
   save(); openDeal(id); render(); toast("Đã lưu term + link hợp đồng cho: " + d.title);
 }
 function closeDrawer() { termEditDealId = null; companyProfileEditId = null; drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
-function showDrawer(html) { /* Drawer khác (công ty/game/lead/member) thay drawer deal -> thoát chế độ sửa Term. openDeal không đi qua hàm này nên không bị ảnh hưởng. */ termEditDealId = null; document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); }
+function showDrawer(html) { /* Drawer khác (công ty/game/lead/member) thay drawer deal -> thoát chế độ sửa Term. openDeal không đi qua hàm này nên không bị ảnh hưởng. */ termEditDealId = null; document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); comboSyncAll(document.getElementById("drawer")); }
 function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${esc(d.title)}</div>
     <div class="c"><span class="chip" style="background:${lineColor(d.line)}">${esc(lineName(d.line))}</span> Stage: ${esc(stagePairSafe(d.line, d.stage)[1])}</div>${d.line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
@@ -2967,7 +2968,7 @@ function openLead(id) {
     <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (bấm để mở deal)</h3>
     ${relDeals.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}
     ${relatedTasksHTML("lead", l.id)}
-    ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="lead_attach_deal" style="flex:1;min-width:220px">${attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)} · ${esc(comp(d.company).name)}</option>`).join("")}</select><button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : (l.company ? '<div class="mut" style="margin-top:8px">Không còn deal nào cùng công ty chưa gắn để chọn.</div>' : '<div class="mut" style="margin-top:8px">Lead chưa gắn công ty — hãy gắn công ty cho lead trước, rồi mới gắn vào deal của công ty đó được.</div>')}
+    ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${comboSelectHTML("lead_attach_deal", attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)} · ${esc(comp(d.company).name)}</option>`).join(""), { wrapStyle: "flex:1;min-width:220px", label: (attachDeals[0].title || "—") + " — " + (LINES[attachDeals[0].line] ? LINES[attachDeals[0].line].name : attachDeals[0].line) + " · " + comp(attachDeals[0].company).name, placeholder: "Gõ tên deal để tìm…" })}<button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : (l.company ? '<div class="mut" style="margin-top:8px">Không còn deal nào cùng công ty chưa gắn để chọn.</div>' : '<div class="mut" style="margin-top:8px">Lead chưa gắn công ty — hãy gắn công ty cho lead trước, rồi mới gắn vào deal của công ty đó được.</div>')}
     <div style="margin-top:16px">${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${esc(lineName(l.line))}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${esc(lineName(l.line))}.</div>`}</div>
     <div class="mut" style="margin-top:14px">Ở bản thật: lead có đủ SĐT/email/người liên hệ, người phụ trách mảng được gán tự động, và có nút gọi/Zalo/gửi email ngay tại đây.</div>${auditSectionHTML("lead", l.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "lead", id);
@@ -3094,6 +3095,7 @@ function openAdd(prefill) {
   }
   renderDealFormLeads();
   onDealFormGameChange();
+  comboSyncAll(document.getElementById("modal"));
   document.getElementById("modal").classList.add("on");
 }
 function fillStages() {
@@ -3133,11 +3135,13 @@ function fillCreateCompanyOptions(selectedId) {
     `<option value="__new__">＋ Tạo công ty mới…</option>`;
   if (selectedId) sel.value = selectedId;
   onDealCompanyChange();
+  comboSyncSelect(sel);
 }
 function onDealCompanyChange() {
   const sel = document.getElementById("f_company");
   const w = document.getElementById("f_newCompanyWrap");
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
+  comboSyncSelect(sel);
   fillDealGames();
   /* Danh sách lead gắn vào deal dựng lại theo công ty mới: công ty chưa có
      lựa chọn riêng thì điền sẵn ★ Đầu mối chính của nó; công ty user đã
@@ -3172,6 +3176,7 @@ function fillDealGames() {
 function onDealFormGameChange() {
   const selG = document.getElementById("f_game"), nw = document.getElementById("f_newGameWrap");
   if (nw) nw.style.display = selG && selG.value === "__new__" ? "" : "none";
+  comboSyncSelect(selG);
 }
 function closeAdd() { pendingDealLeads = null; dealFormReturnGameId = null; dealFormLeadSelByCompany = {}; pendingEventLink = null; document.getElementById("modal").classList.remove("on"); }
 function saveDeal() {
@@ -3281,7 +3286,7 @@ function saveDeal() {
 
 /* ===== CRUD: sửa / xóa mọi đối tượng ngay trong prototype ===== */
 function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
-function openEdit(html) { document.getElementById("editBox").innerHTML = html; document.getElementById("editModal").classList.add("on"); }
+function openEdit(html) { document.getElementById("editBox").innerHTML = html; document.getElementById("editModal").classList.add("on"); comboSyncAll(document.getElementById("editBox")); }
 /* Đóng form sửa/tạo (editModal) giữa chừng = huỷ thao tác đang dở: pending
    liên kết sự kiện (createEntityFromEvent) phải được xoá để lần tạo entity
    sau không bị gắn nhầm vào sự kiện cũ. Đường lưu thành công tiêu thụ
@@ -3349,6 +3354,246 @@ function selLegacy(id, options, cur, emptyLabel) {
   h += options.map(o => `<option value="${esc(o)}" ${o === curS ? "selected" : ""}>${esc(o)}</option>`).join("");
   return h + `</select>`;
 }
+/* ===== Searchable combobox cho select THAM CHIẾU ENTITY DÀI =====
+   Một component dùng chung cho mọi ô chọn công ty / game / lead / deal /
+   đối tượng liên kết có danh sách dài (hàng trăm–hàng nghìn mục): người
+   dùng GÕ để tìm thay vì kéo select thuần.
+   Tích hợp an toàn với đường lưu hiện tại: <select> gốc VẪN là element
+   mang id + value mà saveDeal / saveLead / saveGame / saveTask /
+   saveActivity / các hàm attach* đang đọc (chỉ bị ẩn hiển thị qua class
+   "combo-source"); combobox chỉ là lớp gõ-tìm nằm ngay sau nó, chọn mục
+   nào thì ghi value (ID entity) vào đúng select đó rồi phát sự kiện
+   "change" để các onchange sẵn có (onDealCompanyChange,
+   onEditCompanyChange, onEditGameChange, toggleLeadNewCompany,
+   toggleGameNewCompany…) chạy y như khi chọn bằng select thuần.
+   Lọc theo text đã chuẩn hoá: bỏ dấu tiếng Việt (kể cả đ/Đ) + bỏ hoa
+   thường + gộp khoảng trắng — "duc" khớp "Đức", "cong ty" khớp "Công ty".
+   "(dữ liệu cũ)": giá trị đang lưu không có trong danh sách option thì
+   ô gõ hiện nhãn "(dữ liệu cũ) <giá trị>" và value ở select giữ nguyên
+   khi lưu lại (comboSetValue còn tự bổ sung option giữ giá trị đó nếu
+   cần chọn lại đúng giá trị lạ đó từ danh sách). Danh sách kết quả chỉ
+   dựng khi mở ô và giới hạn COMBO_LIMIT mục một lúc. */
+const COMBO_LIMIT = 80;
+function comboFoldText(s) {
+  return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim().replace(/\s+/g, " ");
+}
+/* Lọc thuần (không DOM) để test được: options = [{value,label,searchLabel?}]
+   hoặc cặp [value,label]. Trả {items (đã cắt tới limit), total, truncated}. */
+function comboFilterOptions(options, query, limit) {
+  const lim = Number(limit) > 0 ? Number(limit) : COMBO_LIMIT;
+  const all = (Array.isArray(options) ? options : []).map(o => Array.isArray(o)
+    ? { value: String(o[0] ?? ""), label: String(o[1] ?? o[0] ?? "") }
+    : { value: String((o && o.value) ?? ""), label: String((o && (o.label ?? o.value)) ?? ""), searchLabel: o && o.searchLabel ? String(o.searchLabel) : "" });
+  const q = comboFoldText(query);
+  const matched = q ? all.filter(o => comboFoldText(o.searchLabel || o.label).includes(q)) : all;
+  return { items: matched.slice(0, lim), total: matched.length, truncated: matched.length > lim };
+}
+/* Di chuyển mục đang active bằng phím ↑/↓: vòng tròn trong [0, count). */
+function comboMoveActive(cur, delta, count) {
+  const n = Number(count) || 0; if (n <= 0) return -1;
+  const c = Number.isFinite(Number(cur)) ? Number(cur) : -1;
+  if (c < 0) return delta < 0 ? n - 1 : 0;
+  return ((c + delta) % n + n) % n;
+}
+/* HTML dùng chung: select gốc (id/value như cũ, ẩn) + ô gõ tìm ngay sau.
+   opts: {attrs (chuỗi thuộc tính thêm cho select, vd onchange/style cũ),
+          label (nhãn đang chọn để hiện sẵn trong ô), placeholder,
+          wrapStyle (style cho wrapper .combo, vd flex của hàng picker)}. */
+function comboSelectHTML(id, inner, opts) {
+  const o = opts || {};
+  return `<select id="${esc(id)}" data-combo="1" class="combo-source" ${o.attrs || ""}>${inner || ""}</select>` +
+    `<div class="combo" data-combo-for="${esc(id)}"${o.wrapStyle ? ` style="${o.wrapStyle}"` : ""}><input class="combo-input" data-combo-input="${esc(id)}" type="text" autocomplete="off" placeholder="${esc(o.placeholder || "Gõ để tìm…")}" value="${esc(o.label || "")}" aria-label="${esc(o.placeholder || "Gõ để tìm…")}"><div class="combo-list" hidden></div></div>`;
+}
+function comboOptionsOfSelect(sel) {
+  if (!sel || !sel.options) return [];
+  return [...sel.options].map(op => {
+    let group = "";
+    try { const p = op.parentElement || op.parentNode; if (p && p.tagName === "OPTGROUP") group = p.label || ""; } catch (e) {}
+    const label = String(op.textContent ?? op.label ?? op.value ?? "");
+    return { value: String(op.value ?? ""), label, disabled: !!op.disabled, searchLabel: group ? group + " " + label : label };
+  });
+}
+function comboLabelForSelect(sel) {
+  if (!sel) return "";
+  const v = String(sel.value ?? "");
+  const opts = comboOptionsOfSelect(sel);
+  const hit = opts.find(o => o.value === v);
+  if (hit) return hit.label;
+  /* Có danh sách thật mà value không nằm trong đó -> dữ liệu cũ/lạ. Khi
+     options rỗng (môi trường không parse DOM) thì không kết luận được. */
+  return (v && opts.length) ? "(dữ liệu cũ) " + v : v;
+}
+function comboFindInput(id) {
+  try { if (typeof document !== "undefined" && typeof document.querySelector === "function") return document.querySelector(`[data-combo-input="${id}"]`); } catch (e) {}
+  return null;
+}
+function comboFindWrap(id) {
+  try { if (typeof document !== "undefined" && typeof document.querySelector === "function") return document.querySelector(`[data-combo-for="${id}"]`); } catch (e) {}
+  return null;
+}
+/* Đồng bộ ô gõ theo value hiện tại của select (sau khi code khác gán
+   .value / dựng lại options theo đường cũ). Đang gõ dở thì không đụng. */
+function comboSyncSelect(selOrId) {
+  try {
+    const sel = typeof selOrId === "string" ? document.getElementById(selOrId) : selOrId;
+    if (!sel || !sel.id) return;
+    const input = comboFindInput(sel.id);
+    if (!input || input.dataset.comboEditing === "1") return;
+    const label = comboLabelForSelect(sel);
+    if (input.value !== label) input.value = label;
+  } catch (e) {}
+}
+function comboSyncAll(root) {
+  try {
+    const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+    scope.querySelectorAll('select[data-combo="1"]').forEach(sel => comboSyncSelect(sel));
+  } catch (e) {}
+}
+/* Chọn một giá trị qua combobox: ghi ID vào ĐÚNG select gốc (đường lưu
+   không đổi), đồng bộ ô gõ, rồi phát "change" để onchange cũ chạy. Giá
+   trị không có trong options (dữ liệu cũ) được bổ sung thành option giữ
+   nguyên value/label "(dữ liệu cũ)" trước khi gán, để không bị mất. */
+function comboSetValue(id, value, fire) {
+  let sel = null;
+  try { sel = document.getElementById(id); } catch (e) {}
+  if (!sel) return false;
+  const v = String(value ?? "");
+  try {
+    const opts = comboOptionsOfSelect(sel);
+    if (v && opts.length && !opts.some(o => o.value === v) && typeof document.createElement === "function" && typeof sel.appendChild === "function") {
+      const op = document.createElement("option");
+      op.value = v; op.textContent = "(dữ liệu cũ) " + v;
+      sel.appendChild(op);
+    }
+  } catch (e) {}
+  sel.value = v;
+  const input = comboFindInput(id);
+  if (input) { input.dataset.comboEditing = ""; input.value = comboLabelForSelect(sel) || v; }
+  if (fire !== false) {
+    try {
+      if (typeof sel.dispatchEvent === "function" && typeof Event === "function") sel.dispatchEvent(new Event("change", { bubbles: true }));
+      else if (typeof sel.onchange === "function") sel.onchange();
+    } catch (e) {}
+    comboSyncSelect(sel);
+  }
+  return true;
+}
+function comboCloseList(input, restore) {
+  try {
+    const wrap = input && input.closest ? input.closest(".combo") : null;
+    const list = wrap && typeof wrap.querySelector === "function" ? wrap.querySelector(".combo-list") : null;
+    if (list) list.hidden = true;
+    if (input) {
+      input.dataset.comboEditing = "";
+      if (restore) { const sel = document.getElementById(input.dataset.comboInput); if (sel) input.value = comboLabelForSelect(sel); }
+    }
+  } catch (e) {}
+}
+function comboRenderList(input, query) {
+  try {
+    const id = input.dataset.comboInput;
+    const sel = document.getElementById(id); if (!sel) return;
+    const wrap = input.closest(".combo"); if (!wrap) return;
+    const list = wrap.querySelector(".combo-list"); if (!list) return;
+    const opts = comboOptionsOfSelect(sel).filter(o => !o.disabled);
+    const res = comboFilterOptions(opts, query || "");
+    const cur = String(sel.value ?? "");
+    let active = res.items.findIndex(o => o.value === cur); if (active < 0 && res.items.length) active = 0;
+    wrap.dataset.comboActive = String(active);
+    list.innerHTML = res.items.map((o, i) => `<button type="button" class="combo-item${o.value === cur ? " is-selected" : ""}${i === active ? " is-active" : ""}" data-combo-value="${esc(o.value)}" role="option">${esc(o.label)}</button>`).join("") +
+      (res.truncated ? `<div class="combo-more">Còn ${res.total - res.items.length} kết quả nữa — gõ thêm để thu hẹp…</div>` : "") +
+      (!res.items.length ? `<div class="combo-empty">Không tìm thấy — gõ từ khác, hoặc bỏ trống để xem tất cả.</div>` : "");
+    list.hidden = false;
+  } catch (e) {}
+}
+function comboChoose(input, value) {
+  const id = input && input.dataset ? input.dataset.comboInput : "";
+  comboCloseList(input, false);
+  if (id) comboSetValue(id, value, true);
+}
+/* Gắn hành vi dùng chung bằng event delegation (sống qua mọi lần dựng
+   lại innerHTML) + MutationObserver để tự đồng bộ ô gõ khi code cũ dựng
+   lại options/gán value ở nơi khác. Mọi truy cập DOM đều guard try/catch
+   để môi trường không có DOM thật (test harness) không bị ảnh hưởng. */
+function initCombos() {
+  try {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function" || document.__comboReady) return;
+    document.__comboReady = true;
+    document.addEventListener("focusin", e => {
+      const t = e.target;
+      if (!t || !t.classList || !t.classList.contains("combo-input")) return;
+      comboSyncSelect(document.getElementById(t.dataset.comboInput));
+      try { if (typeof t.select === "function") t.select(); } catch (err) {}
+      comboRenderList(t, "");
+    });
+    document.addEventListener("click", e => {
+      const t = e.target;
+      if (t && t.classList && t.classList.contains("combo-input")) { comboRenderList(t, t.dataset.comboEditing === "1" ? t.value : ""); return; }
+      document.querySelectorAll(".combo-list:not([hidden])").forEach(list => {
+        const wrap = list.closest(".combo");
+        if (wrap && !wrap.contains(t)) { const inp = wrap.querySelector(".combo-input"); if (inp) comboCloseList(inp, true); }
+      });
+    });
+    document.addEventListener("input", e => {
+      const t = e.target;
+      if (!t || !t.classList || !t.classList.contains("combo-input")) return;
+      t.dataset.comboEditing = "1";
+      comboRenderList(t, t.value);
+    });
+    document.addEventListener("mousedown", e => {
+      const item = e.target && e.target.closest ? e.target.closest(".combo-item") : null;
+      if (!item) return;
+      e.preventDefault();
+      const wrap = item.closest(".combo"); const inp = wrap ? wrap.querySelector(".combo-input") : null;
+      if (inp) comboChoose(inp, item.dataset.comboValue);
+    });
+    document.addEventListener("keydown", e => {
+      const t = e.target;
+      if (!t || !t.classList || !t.classList.contains("combo-input")) return;
+      const wrap = t.closest(".combo"); if (!wrap) return;
+      const list = wrap.querySelector(".combo-list");
+      const items = list ? [...list.querySelectorAll(".combo-item")] : [];
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (!list || list.hidden) { comboRenderList(t, ""); return; }
+        const next = comboMoveActive(Number(wrap.dataset.comboActive), e.key === "ArrowDown" ? 1 : -1, items.length);
+        wrap.dataset.comboActive = String(next);
+        items.forEach((it, i) => it.classList.toggle("is-active", i === next));
+        if (items[next] && typeof items[next].scrollIntoView === "function") items[next].scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") {
+        if (list && !list.hidden && items.length) {
+          e.preventDefault();
+          const idx = Math.max(0, Math.min(Number(wrap.dataset.comboActive) || 0, items.length - 1));
+          if (items[idx]) comboChoose(t, items[idx].dataset.comboValue);
+        }
+      } else if (e.key === "Escape") {
+        comboCloseList(t, true);
+      }
+    });
+    document.addEventListener("focusout", e => {
+      const t = e.target;
+      if (!t || !t.classList || !t.classList.contains("combo-input")) return;
+      const wrap = t.closest(".combo");
+      if (wrap && e.relatedTarget && typeof wrap.contains === "function" && wrap.contains(e.relatedTarget)) return;
+      comboCloseList(t, true);
+    });
+    document.addEventListener("change", e => {
+      const t = e.target;
+      if (t && t.dataset && t.dataset.combo === "1") comboSyncSelect(t);
+    });
+    if (typeof MutationObserver !== "undefined" && document.body) {
+      let queued = false;
+      const mo = new MutationObserver(() => {
+        if (queued) return; queued = true;
+        const run = () => { queued = false; comboSyncAll(); };
+        if (typeof queueMicrotask === "function") queueMicrotask(run); else run();
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    }
+    comboSyncAll();
+  } catch (e) {}
+}
+
 /* ===== Phân khúc ngành (vertical) — CHỈ deal mảng Metaverse =====
    Hai khái niệm danh sách (shared.js): CHÍNH THỨC = metaverseVerticalsOfficial
    (4 ngành mặc định + S.verticals do người dùng thêm qua UI); ĐẦY ĐỦ =
@@ -3550,7 +3795,7 @@ function editDeal(id) {
   openEdit(`<h3 style="font-size:16px">✏️ Sửa deal</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("deal")}</div>
     ${field("Tên deal", txt("e_title", d.title))}
-    ${field("Công ty / đối tác", `<select id="e_company" onchange="onEditCompanyChange()">${companyOptionsHTML(d.company)}</select><div id="e_newCompanyWrap" style="display:none; margin-top:6px"><input id="e_newCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu deal"></div><div class="mut" id="e_companyNote" style="margin-top:4px"></div>`)}
+    ${field("Công ty / đối tác", `${comboSelectHTML("e_company", companyOptionsHTML(d.company), { attrs: 'onchange="onEditCompanyChange()"', label: (d.company && S.companies.some(c => c.id === d.company)) ? (S.companies.find(c => c.id === d.company) || {}).name || "" : "— Chọn công ty —", placeholder: "Gõ tên công ty để tìm…" })}<div id="e_newCompanyWrap" style="display:none; margin-top:6px"><input id="e_newCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu deal"></div><div class="mut" id="e_companyNote" style="margin-top:4px"></div>`)}
     ${field("Mảng", sel("e_line", Object.entries(LINES).map(([k, v]) => [k, v.name]), d.line))}
     <div id="e_lineFields"></div>
     ${field("Người phụ trách", ownerSel("e_owner", d.owner))}
@@ -3581,6 +3826,7 @@ function onEditCompanyChange() {
   const sel = document.getElementById("e_company");
   const w = document.getElementById("e_newCompanyWrap");
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
+  comboSyncSelect(sel);
   const note = document.getElementById("e_companyNote");
   if (note) note.textContent = sel && sel.value === "__new__" ? "Công ty mới — chưa có game" : "";
   refreshEditGameOptions();
@@ -3601,15 +3847,23 @@ function editDealCompanyId(d) {
      lựa chọn "— Không gắn game —" (chỉ placeholder disabled) vì deal Publishing bắt buộc có game.
    - game_studio: game của Sava (own='ours') như form tạo; được phép không gắn game. */
 function editGameOptionsHTML(line, companyId, selected) {
+  /* "(dữ liệu cũ)": game đang lưu không thuộc pool hiện tại (đã xoá / khác
+     công ty / khác own) vẫn có 1 option giữ đúng id đó được chọn sẵn, để
+     combobox hiện nhãn dữ liệu cũ và lưu lại không âm thầm rơi liên kết —
+     validate ở saveEditDeal vẫn chặn như cũ nếu game không hợp lệ. */
+  const legacyOpt = gs => (selected && selected !== "__new__" && !gs.some(g => g.id === selected))
+    ? `<option value="${esc(selected)}" selected>(dữ liệu cũ) ${esc(selected)}</option>` : "";
   if (line === "publishing") {
     const gs = companyId ? S.games.filter(g => g.own === "partner" && g.company === companyId) : [];
     return `<option value="" disabled ${selected ? "" : "selected"}>— Chọn game (bắt buộc) —</option>` +
       gs.map(g => `<option value="${esc(g.id)}" ${g.id === selected ? "selected" : ""}>${esc(g.title)}</option>`).join("") +
+      legacyOpt(gs) +
       `<option value="__new__" ${selected === "__new__" ? "selected" : ""}>＋ Tạo game mới…</option>`;
   }
   const gs = S.games.filter(g => g.own === "ours");
   return `<option value="" ${!selected ? "selected" : ""}>— Không gắn game —</option>` +
     gs.map(g => `<option value="${esc(g.id)}" ${g.id === selected ? "selected" : ""}>${esc(g.title)}</option>`).join("") +
+    legacyOpt(gs) +
     `<option value="__new__" ${selected === "__new__" ? "selected" : ""}>＋ Tạo game mới…</option>`;
 }
 function onEditGameChange(v) {
@@ -3624,6 +3878,7 @@ function refreshEditGameOptions() {
   selG.innerHTML = html;
   if (dealDraftGame && dealDraftGame !== "__new__" && ![...selG.options].some(o => o.value === dealDraftGame)) { dealDraftGame = ""; selG.value = ""; }
   onEditGameChange(selG.value);
+  comboSyncSelect(selG);
 }
 /* Game HIỂN THỊ được của deal theo mảng HIỆN TẠI của nó: game_studio ->
    game own='ours'; publishing -> game own='partner' của đúng công ty deal;
@@ -3668,7 +3923,7 @@ function fillDealLineFields(d) {
       else selected = gg.own === "ours" ? dg : "";
     }
     const isNewCompany = document.getElementById("e_company") && document.getElementById("e_company").value === "__new__";
-    h += field("Game gắn với deal" + (line === "publishing" ? ' <span style="color:#dc2626">(bắt buộc — chỉ liệt kê game của công ty ở trên)</span>' : ""), `<select id="e_game" onchange="onEditGameChange(this.value)">${editGameOptionsHTML(line, editDealCompanyId(d), selected)}</select>` +
+    h += field("Game gắn với deal" + (line === "publishing" ? ' <span style="color:#dc2626">(bắt buộc — chỉ liệt kê game của công ty ở trên)</span>' : ""), comboSelectHTML("e_game", editGameOptionsHTML(line, editDealCompanyId(d), selected), { attrs: 'onchange="onEditGameChange(this.value)"', label: selected === "__new__" ? "＋ Tạo game mới…" : (selected && game(selected) ? game(selected).title : (selected ? "(dữ liệu cũ) " + selected : (line === "publishing" ? "— Chọn game (bắt buộc) —" : "— Không gắn game —"))), placeholder: "Gõ tên game để tìm…" }) +
       `<div id="e_newGameWrap" style="display:${selected === "__new__" ? "" : "none"}; margin-top:6px"><input id="e_newGame" placeholder="Tên game mới — sẽ tạo game gắn công ty này khi lưu"></div>` +
       (isNewCompany ? `<div class="mut" style="margin-top:4px">Công ty mới — chưa có game: chọn “＋ Tạo game mới…” để tạo game thuộc công ty mới khi lưu.</div>` : ""));
     h += `<div class="mut" style="margin-top:8px">Term rev-share + link hợp đồng sửa riêng trong trang chi tiết deal (khối 🤝 Term bên dưới).</div>`;
@@ -3701,6 +3956,7 @@ function fillDealLineFields(d) {
      trong d.custom (gộp từ custom cũ, không thay trắng). */
   h += L.fields.map(([k, lb]) => cfFieldHTML(line, k, lb, d ? (d.custom || {}) : {})).join("");
   document.getElementById("e_lineFields").innerHTML = h;
+  comboSyncSelect("e_game");
 }
 function saveEditDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
@@ -3975,6 +4231,7 @@ function toggleGameNewCompany() {
   const sel = document.getElementById("e_gcompany");
   const w = document.getElementById("e_gnewCompanyWrap");
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
+  comboSyncSelect(sel);
 }
 function editGame(id, presetCompanyId) {
   /* FIX-C1 A10 + B12: tạo mới có presetCompanyId (từ drawer công ty) -> game
@@ -3984,14 +4241,16 @@ function editGame(id, presetCompanyId) {
   const presetComp = !id && presetCompanyId ? comp(presetCompanyId) : null;
   const g = id ? game(id) : { title: "", emoji: "🎮", own: (presetComp && presetComp.id) ? "partner" : (curLine === "game_studio" ? "ours" : "partner"), genre: "", platform: "", stage: "", desc: "", bdNote: "", buildUrl: "", trailerUrl: "", company: (presetComp && presetComp.id) ? presetComp.id : "", scores: null, verdict: "" };
   if (id && !g) return;
-  const compOpts = [["", "— Chưa chọn studio —"], ...S.companies.map(c => [c.id, c.name]), ["__new__", "＋ Tạo công ty mới…"]];
+  const compOpts = [["", "— Chưa chọn studio —"], ...S.companies.map(c => [c.id, c.name]),
+    ...((g.company && !S.companies.some(c => c.id === g.company)) ? [[g.company, "(dữ liệu cũ) " + g.company]] : []),
+    ["__new__", "＋ Tạo công ty mới…"]];
   const scoreHtml = BD_SCORE_KEYS.map(k => field(`Điểm ${k} (0–10, để trống = chưa chấm)`, `<input id="e_gs_${k}" type="number" min="0" max="10" step="0.5" value="${esc((g.scores && g.scores[k]) ?? "")}">`)).join("");
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa game" : "🎮 Thêm game"}</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("game")}</div>
     ${field("Tên game", txt("e_gtitle", g.title))}
     ${field("Emoji", txt("e_gemoji", g.emoji))}
     ${field("Loại game", sel("e_gown", [["ours", "Game của Sava"], ["partner", "Game đối tác"]], g.own))}
-    ${field("Studio sở hữu (chỉ game đối tác)", `<select id="e_gcompany" onchange="toggleGameNewCompany()">${compOpts.map(([v2, t2]) => `<option value="${esc(v2)}" ${String(v2) === String(g.company || "") ? "selected" : ""}>${esc(t2)}</option>`).join("")}</select><div id="e_gnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_gnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu game"></div>`)}
+    ${field("Studio sở hữu (chỉ game đối tác)", `${comboSelectHTML("e_gcompany", compOpts.map(([v2, t2]) => `<option value="${esc(v2)}" ${String(v2) === String(g.company || "") ? "selected" : ""}>${esc(t2)}</option>`).join(""), { attrs: 'onchange="toggleGameNewCompany()"', label: (compOpts.find(([v2]) => String(v2) === String(g.company || "")) || [null, "— Chưa chọn studio —"])[1], placeholder: "Gõ tên studio / công ty để tìm…" })}<div id="e_gnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_gnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu game"></div>`)}
     ${field("Genre", selLegacy("e_ggenre_main", GENRE_OPTS, splitGenre(g.genre).main, "— Chưa chọn —"))}
     ${field("Sub-genre (mechanic)", selLegacy("e_ggenre_sub", SUBGENRE_OPTS, splitGenre(g.genre).sub, "— Chưa chọn —"))}
     ${field("Nền tảng", multiFieldHTML("e_gplatform", ["Android", "iOS", "PC", "Web", "Console"], g.platform || ""))}
@@ -4086,6 +4345,7 @@ function toggleLeadNewCompany() {
   const sel = document.getElementById("e_lcompany");
   const w = document.getElementById("e_lnewCompanyWrap");
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
+  comboSyncSelect(sel);
 }
 function editLead(id, presetCompanyId) {
   /* FIX-C1 B12: tạo mới khi curLine='all' không còn cứng về 'publishing' —
@@ -4101,11 +4361,12 @@ function editLead(id, presetCompanyId) {
     : field("Mảng", sel("e_lline", Object.entries(LINES).map(([k, v]) => [k, v.name]), presetLine || l.line));
   const compOpts = `<option value="" ${curCompId === "" ? "selected" : ""}>— Chưa gắn công ty —</option>` +
     S.companies.map(c => `<option value="${esc(c.id)}" ${c.id === curCompId ? "selected" : ""}>${esc(c.name)}</option>`).join("") +
+    ((curCompId && !S.companies.some(c => c.id === curCompId)) ? `<option value="${esc(curCompId)}" selected>(dữ liệu cũ) ${esc(curCompId)}</option>` : "") +
     `<option value="__new__">＋ Tạo công ty mới…</option>`;
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa lead" : "📥 Thêm lead"}</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("lead")}</div>
     ${field("Tên lead (người đầu mối)", txt("e_lname", l.name))}
-    ${field("Công ty", `<select id="e_lcompany" onchange="toggleLeadNewCompany()">${compOpts}</select><div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
+    ${field("Công ty", `${comboSelectHTML("e_lcompany", compOpts, { attrs: 'onchange="toggleLeadNewCompany()"', label: curCompId ? ((S.companies.find(c => c.id === curCompId) || {}).name || "(dữ liệu cũ) " + curCompId) : "— Chưa gắn công ty —", placeholder: "Gõ tên công ty để tìm…" })}<div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
     ${field("Position", txt("e_lperson", l.person || "", "VD: Chief Executive Officer"))}
     ${field("Điện thoại", txt("e_lphone", l.phone || "", "SĐT của người liên hệ này"))}
     ${field("Email", `<input id="e_lemail" type="email" value="${esc(l.email || "")}" placeholder="Email của người liên hệ này">`)}
@@ -4140,6 +4401,10 @@ function saveLead(id) {
   } else if (compVal) {
     const c = S.companies.find(x => x.id === compVal);
     if (c) { if (!c.roles[line]) c.roles[line] = LINES[line].target; companyId = c.id; }
+    /* "(dữ liệu cũ)": id công ty đang lưu không còn trong danh sách (option
+       legacy ở form) -> giữ nguyên liên kết đó khi lưu lại, không rơi âm
+       thầm về "chưa gắn công ty" (đúng tiền lệ e_tlink / ea_deal). */
+    else companyId = compVal;
   }
   /* C6 (đợt 3): guard trùng khi TẠO lead — cùng tên + cùng công ty + cùng
      người đầu mối (đều trim, không phân biệt hoa/thường) thì chặn tạo kèm
@@ -4216,7 +4481,12 @@ function taskLinkSelectHTML(curVal) {
     const known = groups.some(([type, opts]) => type === ct && opts.some(([v]) => String(v) === cid));
     if (!known) extra = `<option value="${esc(curVal)}" selected>${esc((TASK_LINK_META[ct] || {}).icon || "🔗")} ${esc((TASK_LINK_META[ct] || {}).noun || ct)}: (đối tượng đã xoá)</option>`;
   }
-  return `<select id="e_tlink"><option value="" ${!curVal ? "selected" : ""}>— Không gắn đối tượng nào —</option>${extra}${groups.map(([type, opts]) => opts.length ? `<optgroup label="${esc(TASK_LINK_META[type].icon + " " + TASK_LINK_META[type].noun)}">${opts.map(([v, label]) => `<option value="${esc(type + ":" + v)}" ${curVal === type + ":" + v ? "selected" : ""}>${esc(label)}</option>`).join("")}</optgroup>` : "").join("")}</select>`;
+  const curLabel = (() => {
+    if (!curVal) return "— Không gắn đối tượng nào —";
+    for (const [type, opts] of groups) { const hit = opts.find(([v]) => curVal === type + ":" + v); if (hit) return hit[1]; }
+    return curVal;
+  })();
+  return comboSelectHTML("e_tlink", `<option value="" ${!curVal ? "selected" : ""}>— Không gắn đối tượng nào —</option>${extra}${groups.map(([type, opts]) => opts.length ? `<optgroup label="${esc(TASK_LINK_META[type].icon + " " + TASK_LINK_META[type].noun)}">${opts.map(([v, label]) => `<option value="${esc(type + ":" + v)}" ${curVal === type + ":" + v ? "selected" : ""}>${esc(label)}</option>`).join("")}</optgroup>` : "").join("")}`, { label: extra && curVal ? ((TASK_LINK_META[curVal.slice(0, curVal.indexOf(":"))] || {}).icon || "🔗") + " " + ((TASK_LINK_META[curVal.slice(0, curVal.indexOf(":"))] || {}).noun || "") + ": (đối tượng đã xoá)" : curLabel, placeholder: "Gõ tên deal / công ty / lead / game để tìm…" });
 }
 /* editTask(id, linkType, linkId): linkType/linkId CHỈ dùng khi tạo mới (id=null)
    từ drawer Company/Lead/Deal/Game để điền sẵn liên kết. Người làm giữ mặc
@@ -4291,7 +4561,7 @@ function editActivity(id) {
   openEdit(`<h3 style="font-size:16px">✏️ Sửa hoạt động</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("activity")}</div>
     ${field("Loại", sel("ea_type", [["Note", "Note"], ["Call", "Call"], ["Email", "Email"], ["Meeting", "Meeting"], ["Demo", "Demo"], ["Zalo", "Zalo"], ["Messenger", "Messenger"]], a.type))}
-    ${field("Deal gắn với hoạt động", `<select id="ea_deal"><option value="" ${!a.deal ? "selected" : ""}>— Không gắn deal —</option>${S.deals.map(d => `<option value="${esc(d.id)}" ${d.id === a.deal ? "selected" : ""}>${esc(d.title || "—")} · ${esc(comp(d.company).name)}</option>`).join("")}${a.deal && !S.deals.some(d => d.id === a.deal) ? `<option value="${esc(a.deal)}" selected>(deal đã xoá) ${esc(a.deal)}</option>` : ""}</select>`)}
+    ${field("Deal gắn với hoạt động", comboSelectHTML("ea_deal", `<option value="" ${!a.deal ? "selected" : ""}>— Không gắn deal —</option>${S.deals.map(d => `<option value="${esc(d.id)}" ${d.id === a.deal ? "selected" : ""}>${esc(d.title || "—")} · ${esc(comp(d.company).name)}</option>`).join("")}${a.deal && !S.deals.some(d => d.id === a.deal) ? `<option value="${esc(a.deal)}" selected>(deal đã xoá) ${esc(a.deal)}</option>` : ""}`, { label: a.deal ? ((S.deals.find(d => d.id === a.deal) ? (S.deals.find(d => d.id === a.deal).title || "—") + " · " + comp(S.deals.find(d => d.id === a.deal).company).name : "(deal đã xoá) " + a.deal)) : "— Không gắn deal —", placeholder: "Gõ tên deal để tìm…" }))}
     ${field("Người thực hiện", ownerSel("ea_who", a.who))}
     ${field("Thời gian", `<input id="ea_when" type="date" value="${esc(isValidDateStr(a.when) ? a.when : "")}">` + (a.when && !isValidDateStr(a.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(a.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Nội dung", `<textarea id="ea_text">${esc(a.text || "")}</textarea>`)}
@@ -4325,6 +4595,7 @@ function deleteActivity(id) {
 }
 
 render();
+initCombos();
 /* Boot mở-nhanh (supabase-auth.js): khi kiểm chứng ngầm tải được dữ
    liệu MỚI từ Supabase về cache, auth gọi hook này để app nạp lại state
    trong bộ nhớ từ cache mới rồi render lại TẠI CHỖ — không reload

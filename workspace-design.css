@@ -237,3 +237,21 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-table td {padding:9px 10px;border-bottom:1px solid #eef3f5;color:#294552}
 .dash-table tbody tr:hover {background:#f2f8f7}
 @media(max-width:900px){.dash-line-grid{grid-template-columns:1fr}.dash-conv-grid{grid-template-columns:1fr}.dash-funnel-row{grid-template-columns:minmax(96px,130px) 1fr minmax(110px,150px)}.dash-funnel-pct{grid-column:1/-1}.dash-funnel-start{grid-template-columns:1fr}}
+
+/* ===== Searchable combobox cho select tham chiếu entity dài (tiền tố combo-) =====
+   Select gốc vẫn giữ nguyên id/value và là nguồn sự thật mà các hàm save đọc;
+   nó chỉ bị ẩn về mặt hiển thị (.combo-source). Ô gõ tìm (.combo) nằm ngay sau
+   select trong cùng container. Danh sách kết quả chỉ dựng khi mở ô, tối đa
+   COMBO_LIMIT mục một lúc nên danh sách ~1.000 entity không làm đơ. */
+.combo-source {display:none!important}
+.combo {position:relative;flex:1 1 auto;min-width:0}
+.combo-input {width:100%;box-sizing:border-box;min-height:44px;padding-right:30px!important;background-image:linear-gradient(45deg,transparent 50%,#64747f 50%),linear-gradient(135deg,#64747f 50%,transparent 50%);background-position:calc(100% - 18px) 55%,calc(100% - 12px) 55%;background-size:6px 6px;background-repeat:no-repeat;cursor:text}
+.combo-list {position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:80;background:#fff;border:1px solid #cfdde5;border-radius:10px;box-shadow:0 14px 34px #14374626;max-height:264px;overflow-y:auto;overflow-x:hidden;padding:4px;-webkit-overflow-scrolling:touch}
+.combo-list[hidden] {display:none}
+.combo-item {display:block;width:100%;text-align:left;background:none;border:0;border-radius:7px;padding:9px 10px;font-size:13.5px;line-height:1.45;color:var(--workspace-ink);cursor:pointer;white-space:normal;word-break:break-word;min-height:40px}
+.combo-item:hover {background:#eef6f7}
+.combo-item.is-selected {font-weight:650;color:#076f7b}
+.combo-item.is-selected::after {content:" ✓";color:#087f8c}
+.combo-item.is-active {background:#e7f2f3;outline:2px solid #168a9c33}
+.combo-more,.combo-empty {padding:8px 10px;font-size:12px;color:#60717d;line-height:1.5}
+@media(max-width:700px){.combo-list{max-height:220px}.combo-item{font-size:14px;padding:10px}}
