@@ -1039,15 +1039,29 @@ function leadRowHTML(l) {
   const lc = leadCompany(l);
   const relDeals = dealsForLead(l.id);
   const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
-  return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
+  return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}${l.ownerId ? `<div style="margin-top:3px">${leadOwnerChipHTML(l)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
+}
+/* Bộ lọc NGƯỜI PHỤ TRÁCH của view Lead — UI-state thuần tuý trong phiên
+   (không nằm trong S, không qua save(), cùng họ leadViewMode): "" = tất
+   cả, "__none__" = lead chưa gán người phụ trách, còn lại = member id
+   (lead.ownerId — key phụ qua legacy_extra như phone/mainContact). */
+let leadOwnerFilter = "";
+function setLeadOwnerFilter(v) { leadOwnerFilter = v || ""; render(); }
+/* Chip người phụ trách GỌN cho thẻ lead (view Block + board Pipeline):
+   chỉ hiện khi lead ĐÃ gán (chưa gán -> không chip, tránh nhiễu; trạng
+   thái chưa gán thể hiện ở drawer lead + bộ lọc "Chưa gán"). Tên lấy qua
+   memberName (member đã xoá -> hiện nguyên id như dữ kiện cũ). */
+function leadOwnerChipHTML(l) {
+  if (!l || !l.ownerId) return "";
+  return `<span class="chip" style="background:#475569" title="Người phụ trách">👤 ${esc(memberName(S, l.ownerId))}</span>`;
 }
 /* Tập lead SAU LỌC của view Lead — MỘT nguồn lọc duy nhất cho cả hai
    cách trình bày (Block + Pipeline): tab mảng (curLine) + ô tìm kiếm
-   (query trên tên lead + person + tên công ty + ghi chú), đúng như bộ
-   lọc view Lead từ trước tới nay. */
+   (query trên tên lead + person + tên công ty + ghi chú) + bộ lọc người
+   phụ trách (leadOwnerFilter), kết hợp AND với nhau. */
 function filteredLeads() {
-  return S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)));
+  return S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)) && (!leadOwnerFilter || (leadOwnerFilter === "__none__" ? !l.ownerId : l.ownerId === leadOwnerFilter)));
 }
 /* ===== Chế độ xem Lead: Block ⇄ Pipeline =====
    leadViewMode là STATE HIỂN THỊ THUẦN TUÝ (không nằm trong S, không
@@ -1060,12 +1074,18 @@ function filteredLeads() {
 let leadViewMode = "block";
 function setLeadViewMode(mode) { leadViewMode = mode === "pipeline" ? "pipeline" : "block"; render(); }
 function leadViewHeadHTML() {
+  const ownerOpts = [`<option value="" ${leadOwnerFilter === "" ? "selected" : ""}>Tất cả người phụ trách</option>`,
+    ...memberList(S).map(m => `<option value="${esc(m.id)}" ${leadOwnerFilter === m.id ? "selected" : ""}>${esc(m.name)}${m.active ? "" : " (đã ngừng)"}</option>`),
+    `<option value="__none__" ${leadOwnerFilter === "__none__" ? "selected" : ""}>Chưa gán</option>`].join("");
   return `<div class="lead-view-head"><button class="btn" onclick="editLead(null)">+ Thêm lead</button>
     <div class="tabs" role="group" aria-label="Chế độ xem lead">
       <button class="${leadViewMode === "block" ? "on" : ""}" onclick="setLeadViewMode('block')">▦ Block</button>
       <button class="${leadViewMode === "pipeline" ? "on" : ""}" onclick="setLeadViewMode('pipeline')">▤ Pipeline</button>
-    </div></div>`;
+    </div>
+    <select id="leadOwnerFilterSel" onchange="setLeadOwnerFilter(this.value)" title="Lọc theo người phụ trách" aria-label="Lọc theo người phụ trách">${ownerOpts}</select></div>`;
 }
+/* Nhảy từ drawer member sang view Lead đã lọc sẵn theo member đó. */
+function viewLeadsOfMember(memberId) { leadOwnerFilter = memberId || ""; closeDrawer(); setView("leads"); }
 /* ===== Phân trang + đóng/mở từng block trạng thái (CHỈ view Block) =====
    UI-state thuần tuý TRONG PHIÊN (không lưu localStorage, không nằm
    trong S, không qua save() — tải lại trang là về mặc định):
@@ -1105,13 +1125,13 @@ function vLeads() {
   if (leadViewMode === "pipeline") { vLeadsPipeline(); return; }
   const filtered = filteredLeads();
   /* Đổi từ khóa tìm kiếm / tab mảng -> mọi block về trang 1 (đóng/mở giữ nguyên). */
-  const blockSig = curLine + "|" + query;
+  const blockSig = curLine + "|" + query + "|" + leadOwnerFilter;
   if (leadBlockFilterSig !== blockSig) { leadBlockFilterSig = blockSig; leadBlockPage = {}; }
   /* Đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước ẩn-cột-rỗng-khi-đang-lọc của vTasksByMember:
      khi đang lọc, block nào không còn lead khớp thì ẨN hẳn; khi không
      lọc, mọi block trạng thái đều hiện kể cả khi rỗng. */
-  const filtering = !!query || curLine !== "all";
+  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter;
   const groups = LEAD_STATUSES.map(def => ({ ...def, leads: filtered.filter(l => l.status === def.key) }));
   const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
   if (unknownLeads.length) groups.push({ ...LEAD_STATUS_UNKNOWN, leads: unknownLeads });
@@ -1179,17 +1199,17 @@ function leadCardHTML(l) {
     <div class="c">🏢 ${lc ? `<a href="#" draggable="false" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
     ${person ? `<div class="c">👤 ${esc(person)}</div>` : ""}
     ${l.phone ? `<div class="c">📞 ${esc(l.phone)}</div>` : ""}
-    <div class="c" style="margin-top:4px"><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></div>
+    <div class="c" style="margin-top:4px"><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>${l.ownerId ? " " + leadOwnerChipHTML(l) : ""}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 function vLeadsPipeline() {
   /* Đổi bộ lọc (từ khóa / tab mảng) -> số thẻ đang mở rộng của mọi cột
      quay về trang đầu; cùng bộ lọc thì giữ nguyên (Hiển thị thêm và
      kéo-thả render lại không làm mất phần đã mở rộng). */
-  const sig = curLine + "|" + query;
+  const sig = curLine + "|" + query + "|" + leadOwnerFilter;
   if (leadBoardFilterSig !== sig) { leadBoardFilterSig = sig; leadBoardShown = {}; }
   const filtered = filteredLeads();
-  const filtering = !!query || curLine !== "all";
+  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter;
   const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
   const cols = LEAD_STATUSES.map(def => {
     const inCol = filtered.filter(l => l.status === def.key);
@@ -1723,7 +1743,7 @@ function vMembers() {
     : `<div class="mut" style="margin-top:10px"><b>Tài khoản:</b> “Đã mời – chờ đặt mật khẩu” = đã gửi email mời, người nhận chưa bấm liên kết đặt mật khẩu; “Thu hồi quyền” = ngừng hoạt động trong CRM + khoá đăng nhập (kích hoạt lại được); đổi vai trò qua nút ✏️ Sửa.</div>`;
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button>${admin ? ` <button class="btn" onclick="openInviteMember()">✉️ Mời thành viên</button>` : ""}</div>
   <div class="panel"><div class="table-wrap"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th><th></th></tr>${rows || `<tr><td colspan="${admin ? 7 : 6}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
-  <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Muốn loại một người khỏi các ô chọn gán việc mà vẫn giữ dữ liệu cũ gắn với họ, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa).${admin ? ` Admin có thể <b>Xoá thành viên</b> hẳn — nhưng chỉ khi thành viên không còn dữ liệu nào gắn với họ (deal phụ trách, việc được giao, hoạt động, đánh giá…); còn tham chiếu thì hệ thống chặn xoá và báo rõ đang vướng ở đâu.` : ""}</div>${fnNote}</div>`;
+  <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Muốn loại một người khỏi các ô chọn gán việc mà vẫn giữ dữ liệu cũ gắn với họ, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa).${admin ? ` Admin có thể <b>Xoá thành viên</b> hẳn — nhưng chỉ khi thành viên không còn dữ liệu nào gắn với họ (deal phụ trách, lead phụ trách, việc được giao, hoạt động, đánh giá…); còn tham chiếu thì hệ thống chặn xoá và báo rõ đang vướng ở đâu.` : ""}</div>${fnNote}</div>`;
 }
 /* ----- Mời thành viên (chỉ Admin): form theo đúng mẫu openEdit của app ----- */
 function openInviteMember() {
@@ -1846,9 +1866,12 @@ async function unrevokeMemberAccess(id) {
        (publishing_revisions.reviewer_id), marketUpdates[].by
        (market_observations.updated_by) + marketUpdates[].audit[].by
        (market_observation_audit.by_label).
-     Lead KHÔNG trỏ tới member: lead.person là TÊN TỰ DO của người đầu
-       mối phía đối tác (LEAD_KNOWN trong supabase-adapter.js không có
-       trường member nào) — không tính là tham chiếu.
+     Lead: lead.ownerId (NGƯỜI PHỤ TRÁCH — member id, key phụ qua
+       leads.legacy_extra như phone/mainContact, KHÔNG cột riêng) LÀ
+       tham chiếu member — đếm ở memberReferences dưới đây và ở
+       countMemberReferences phía Edge Function (leads.legacy_extra,
+       field ownerId). lead.person thì KHÔNG: đó là TÊN TỰ DO (Position)
+       của người đầu mối phía đối tác — không tính là tham chiếu.
      profiles.member_id (FK ON DELETE RESTRICT ở DB) KHÔNG nằm trong
        state app: xử lý bằng action delete_member của Edge Function
        (xoá auth user + dòng profiles) TRƯỚC khi xoá dòng members.
@@ -1868,6 +1891,8 @@ function memberReferences(id) {
   const refs = [];
   const nDeal = (S.deals || []).filter(d => d && d.owner === id).length;
   if (nDeal) refs.push(nDeal + " deal đang phụ trách");
+  const nLead = (S.leads || []).filter(l => l && l.ownerId === id).length;
+  if (nLead) refs.push(nLead + " lead đang phụ trách");
   const nTask = (S.tasks || []).filter(t => t && t.assignee === id).length;
   if (nTask) refs.push(nTask + " việc được giao");
   const nAct = (S.activities || []).filter(a => a && a.who === id).length;
@@ -1946,6 +1971,7 @@ function openMember(id) {
   const odTasks = tasks.filter(t => isOverdue(t));
   const deals = S.deals.filter(d => d.owner === id);
   const openDeals = deals.filter(isOpen);
+  const memberLeads = S.leads.filter(x => x.ownerId === id);
   /* FIX-C1 A2: hoạt động do member này ghi + đánh giá Publishing liên quan,
      đọc qua publishingStateForMemberCheck() sẵn có (cùng nguồn memberReferences). */
   const memberActs = (S.activities || []).filter(a => a && a.who === id);
@@ -1979,12 +2005,15 @@ function openMember(id) {
       <div class="k">Trạng thái</div><div>${m.active ? "Đang hoạt động (hiện trong các ô chọn người phụ trách / người làm)" : "Đã ngừng hoạt động (ẩn khỏi ô chọn, dữ liệu cũ vẫn giữ)"}</div>
       <div class="k">Việc được giao</div><div><b>${tasks.length}</b> việc — ${openTasks.length} đang mở, ${odTasks.length} quá hạn, ${tasks.length - openTasks.length} đã xong</div>
       <div class="k">Deal phụ trách</div><div><b>${deals.length}</b> deal — ${openDeals.length} đang mở</div>
+      <div class="k">Lead phụ trách</div><div><b>${memberLeads.length}</b> lead</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editMember('${m.id}')">✏️ Sửa thành viên</button>${isAdminViewer() && !(authCurrentUser() && authCurrentUser().memberId === m.id) ? `<button class="btn ghost" onclick="deleteMember('${m.id}')">🗑 Xoá thành viên</button>` : ""}</div>
     <h3 style="margin:18px 0 8px">✅ Việc được giao (${tasks.length})</h3>
     ${tasks.length ? tasks.map(taskRow).join("") : '<div class="mut">Chưa có việc nào được giao cho thành viên này.</div>'}
     <h3 style="margin:18px 0 8px">📋 Deal phụ trách (${deals.length}) — bấm để mở deal</h3>
     ${deals.length ? deals.map(dealMini).join("") : '<div class="mut">Chưa phụ trách deal nào.</div>'}
+    <h3 style="margin:18px 0 8px">📥 Lead phụ trách (${memberLeads.length}) — bấm để mở lead</h3>
+    ${memberLeads.length ? memberLeads.slice(0, 20).map(leadMini).join("") + (memberLeads.length > 20 ? `<div class="mut" style="margin-top:6px">… và ${memberLeads.length - 20} lead nữa. <button class="btn ghost small" onclick="viewLeadsOfMember('${m.id}')">Xem tất cả ở view Lead →</button></div>` : "") : '<div class="mut">Chưa phụ trách lead nào.</div>'}
     <h3 style="margin:18px 0 8px">🕘 Hoạt động đã ghi (${memberActs.length})</h3>
     ${memberActsHTML}
     <h3 style="margin:18px 0 8px">📊 Đánh giá liên quan (${memberReqs.length})</h3>
@@ -2753,6 +2782,7 @@ function openLead(id) {
   const __stDef = leadStatusDef(l.status);
   const st = __stDef ? [__stDef.label, __stDef.color] : [(l.status ? String(l.status) : "—"), "#64748b"];
   const lc = leadCompany(l);
+  const ownerMember = l.ownerId ? memberList(S).find(x => x.id === l.ownerId) : null;
   const relDeals = dealsForLead(l.id);
   /* P1: chỉ gắn được lead vào deal CÙNG CÔNG TY với lead — dropdown chỉ
      liệt kê các deal đó; lead chưa có công ty thì không gắn vào deal nào. */
@@ -2766,6 +2796,7 @@ function openLead(id) {
       <div class="k">Điện thoại</div><div>${esc(l.phone || "—")}</div>
       ${l.email ? `<div class="k">Email</div><div>${esc(l.email)}</div>` : ""}
       ${l.linkedinUrl ? `<div class="k">LinkedIn</div><div>${extLinkHTML(l.linkedinUrl)}</div>` : ""}
+      <div class="k">Người phụ trách</div><div>${l.ownerId ? (ownerMember ? `<a href="#" onclick="openMember('${l.ownerId}'); return false" title="Mở hồ sơ thành viên">${esc(ownerMember.name)} →</a>` : esc(memberName(S, l.ownerId)) + ' <span class="mut">(thành viên không còn trong danh sách)</span>') : '<span class="mut">Chưa gán người phụ trách</span>'}</div>
       <div class="k">Trạng thái</div><div><span class="pill" style="background:${st[1]}">${st[0]}</span></div>
       <div class="k">Mảng quan tâm</div><div>${esc(lineName(l.line))}${lineDef(l.line) ? " — " + esc(lineDef(l.line).desc) : ""}</div>
       <div class="k">Đối tượng của mảng</div><div>${lineDef(l.line) ? esc(lineDef(l.line).target) : "—"}</div>
@@ -3900,7 +3931,7 @@ function editLead(id, presetCompanyId) {
   /* FIX-C1 B12: tạo mới khi curLine='all' không còn cứng về 'publishing' —
      line để trống + placeholder "— Chọn mảng —", saveLead chặn khi chưa chọn;
      có ngữ cảnh mảng cụ thể / preset công ty thì chọn sẵn như cũ. */
-  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "", source: (pendingEventLink && pendingEventLink.kind === "lead") ? "Sự kiện" : "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", email: "", linkedinUrl: "", mainContact: false };
+  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "", source: (pendingEventLink && pendingEventLink.kind === "lead") ? "Sự kiện" : "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", email: "", linkedinUrl: "", ownerId: "", mainContact: false };
   if (id && !l) return;
   const presetComp = presetCompanyId ? comp(presetCompanyId) : null;
   const curCompId = id ? (l.company || "") : (presetComp && presetComp.id ? presetComp.id : (l.company || ""));
@@ -3919,6 +3950,7 @@ function editLead(id, presetCompanyId) {
     ${field("Điện thoại", txt("e_lphone", l.phone || "", "SĐT của người liên hệ này"))}
     ${field("Email", `<input id="e_lemail" type="email" value="${esc(l.email || "")}" placeholder="Email của người liên hệ này">`)}
     ${field("LinkedIn cá nhân", `<input id="e_llinkedin" type="url" value="${esc(l.linkedinUrl || "")}" placeholder="https://www.linkedin.com/in/...">`)}
+    ${field("Người phụ trách", ownerSel("e_lowner", id ? (l.ownerId || "") : defaultOwnerId(), id ? undefined : { placeholder: "— Chọn người phụ trách —" }))}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_lmain" style="width:auto" ${l.mainContact ? "checked" : ""}> Đầu mối chính của công ty (mỗi công ty chỉ có một — tick lead này sẽ tự bỏ tick lead đang là đầu mối chính của cùng công ty)</label>
     ${leadLineField}
     ${field("Nguồn", selLegacy("e_lsource", ["Form savameta.com", "Giới thiệu", "Facebook", "Cộng đồng dev", "Sự kiện", "Chủ động tiếp cận", "Khác"], l.source || "", "— Chưa chọn —"))}
@@ -3961,7 +3993,8 @@ function saveLead(id) {
      (kể cả chữ cũ); lead mới để trống -> hôm nay (ISO). */
   const whenVal = v("e_lwhen");
   const mainEl = document.getElementById("e_lmain");
-  const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), email: v("e_lemail"), linkedinUrl: v("e_llinkedin"), mainContact: !!(mainEl && mainEl.checked), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
+  const ownerEl = document.getElementById("e_lowner");
+  const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), email: v("e_lemail"), linkedinUrl: v("e_llinkedin"), ownerId: ownerEl ? ownerEl.value : (existing ? (existing.ownerId || "") : ""), mainContact: !!(mainEl && mainEl.checked), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
   let l;
   if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
   else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }

@@ -45,6 +45,10 @@
 //                                     audit.by_label (khử trùng theo quan
 //                                     sát), company_partner_eval_archive.
 //                                     partner_eval (JSONB, field reviewer).
+//                                     Bổ sung: leads.legacy_extra (JSONB,
+//                                     field ownerId — người phụ trách lead,
+//                                     key phụ qua legacy_extra như ở client
+//                                     memberReferences đếm leads[].ownerId).
 //                                     Member chưa có
 //                                     tài khoản -> trả ok ngay (had_account
 //                                     =false), không gọi auth admin.
@@ -161,6 +165,12 @@ async function findUserByEmail(admin: SupabaseClient, email: string): Promise<Us
                                     adapter ánh xạ company.partnerEval ->
                                     company_partner_eval_archive, KHÔNG nằm
                                     ở bảng companies)
+     leads.legacy_extra             (JSONB — app: leads[].ownerId, NGƯỜI
+                                    PHỤ TRÁCH lead; key phụ qua legacy_extra
+                                    như lead.phone nên không có cột riêng để
+                                    .eq() — đếm bằng jsonFieldIs trên
+                                    legacy_extra.ownerId, đúng cách client
+                                    đếm ở memberReferences)
    Trả { counts, error }: error != null khi một truy vấn trả lỗi qua kênh
    error của supabase-js (khi đó caller chặn xoá và trả 500 — fail-closed).
    Lời gọi NÉM ngoại lệ (khác hợp đồng supabase-js, vd harness mock thiếu
@@ -168,6 +178,7 @@ async function findUserByEmail(admin: SupabaseClient, email: string): Promise<Us
    vẫn chạy được; đường thật của Supabase báo lỗi qua field error. */
 type RefCounts = {
   deals: number;
+  leads_owner: number;
   tasks: number;
   activities: number;
   publishing_requests: number;
@@ -221,7 +232,7 @@ async function countMemberReferences(
   admin: SupabaseClient,
   memberId: string,
 ): Promise<{ counts: RefCounts; total: number; error: string | null }> {
-  const counts: RefCounts = { deals: 0, tasks: 0, activities: 0, publishing_requests: 0, publishing_revisions: 0, games_mkt_eval: 0, market_observations: 0, company_partner_eval_archive: 0 };
+  const counts: RefCounts = { deals: 0, leads_owner: 0, tasks: 0, activities: 0, publishing_requests: 0, publishing_revisions: 0, games_mkt_eval: 0, market_observations: 0, company_partner_eval_archive: 0 };
   const specs: Array<[keyof RefCounts, string, string, string]> = [
     ["deals", "deals", "id", "owner_id"],
     ["tasks", "tasks", "id", "assignee_id"],
@@ -233,6 +244,13 @@ async function countMemberReferences(
     if (r.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng " + table + ": " + r.error };
     counts[key] = (r.rows || []).length;
   }
+  /* leads.legacy_extra (JSONB): đếm lead có legacy_extra.ownerId ===
+     memberId (người phụ trách lead) — đúng cách client đếm
+     leads[].ownerId ở memberReferences. ownerId là key phụ qua
+     legacy_extra (như phone) nên không có cột riêng để .eq(). */
+  const leadRows = await fetchAllRows(admin, "leads", "id,legacy_extra");
+  if (leadRows.error) return { counts, total: 0, error: "Không kiểm tra được tham chiếu ở bảng leads: " + leadRows.error };
+  counts.leads_owner = (leadRows.rows || []).filter(row => jsonFieldIs(row, "legacy_extra", "ownerId", memberId)).length;
   /* games.mkt_eval (JSONB): đếm game có mkt_eval.by === memberId — đúng
      cách client đếm games[].mktEval.by ở memberReferences. */
   const gameRows = await fetchAllRows(admin, "games", "id,mkt_eval");
@@ -278,7 +296,7 @@ async function countMemberReferences(
     else reqNoId++;
   }
   counts.publishing_requests = reqIds.size + reqNoId;
-  const total = counts.deals + counts.tasks + counts.activities + counts.publishing_requests + counts.publishing_revisions
+  const total = counts.deals + counts.leads_owner + counts.tasks + counts.activities + counts.publishing_requests + counts.publishing_revisions
     + counts.games_mkt_eval + counts.market_observations + counts.company_partner_eval_archive;
   return { counts, total, error: null };
 }
@@ -557,6 +575,7 @@ Deno.serve(async (req: Request) => {
         const c = refCheck.counts;
         const parts: string[] = [];
         if (c.deals) parts.push(c.deals + " deal đang phụ trách");
+        if (c.leads_owner) parts.push(c.leads_owner + " lead đang phụ trách");
         if (c.tasks) parts.push(c.tasks + " việc được giao");
         if (c.activities) parts.push(c.activities + " hoạt động đã ghi");
         if (c.publishing_requests) parts.push(c.publishing_requests + " yêu cầu đánh giá Publishing (người yêu cầu / người được giao)");
