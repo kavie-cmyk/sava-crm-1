@@ -1047,11 +1047,25 @@ function dashTrend(sets, days, now) {
   keys.forEach(k => parsed[k].forEach(d => { const i = bucketIdx(d); if (i >= 0) buckets[i][k]++; }));
   return { granularity: gran, buckets, missing };
 }
-/* Phễu Lead LUỸ KẾ từ phân bố trạng thái HIỆN TẠI (hệ thống không lưu lịch
-   sử từng bước): số ở bước i = số lead có status ở vị trí >= i trong đường
-   chính mainKeys (không gồm droppedKey = "not_yet_have_demand").
-   toNext = % sang bước kề tiếp (null ở bước cuối / khi bước này = 0);
-   fromStart = % so với bước đầu. Status lạ -> unknown, không vào phễu. */
+/* Phễu Lead TÍCH LUỸ "đã tới bước này trở lên" từ trạng thái HIỆN TẠI
+   (hệ thống không lưu lịch sử từng bước): số ở bước i = số lead có status
+   ở vị trí >= i trong đường chính mainKeys (gồm "new" ở đầu; KHÔNG gồm
+   droppedKey = "not_yet_have_demand" — lối ra riêng, không vào dãy tích
+   luỹ). Dãy tích luỹ đơn điệu không tăng; tích luỹ ở bước cuối (converted)
+   = đúng số lead converted; tích luỹ ở bước 2 (sent_connect) = N − số lead
+   đang ở "new".
+   N (total) = tổng lead ĐƯỜNG CHÍNH trong phạm vi = tổng các exact của
+   mainKeys. Status lạ -> unknown: không vào dòng nào, KHÔNG tính vào N,
+   tầng hiển thị ghi chú số bị loại. Lead ở droppedKey cũng không tính vào
+   N (dropped.pct vẫn tính TRÊN N = % trên tổng ban đầu) — chỉ định nghĩa
+   này mới giữ đúng bất biến "tích luỹ sent_connect = N − số ở new".
+   Mỗi step: count = tích luỹ, exact = số lead đang đứng đúng ở bước đó,
+   pct / fromStart = % so với điểm bắt đầu (count / N), toNext = % đi tiếp
+   sang bước kề (count[i+1] / count[i]; null ở bước cuối / khi bước này = 0).
+   summary: qualifiedPlus = số lead ở qualified ∪ converted (= tích luỹ ở
+   qualified), converted = số lead converted; % đều trên N. Mọi % là số
+   thô (0–100) hoặc null khi mẫu số 0 — tầng hiển thị của phễu tự làm tròn
+   0 thập phân, không dùng fmtPctVal 1 thập phân của các khối khác. */
 function dashLeadFunnel(leads, mainKeys, droppedKey) {
   const idx = {}; (mainKeys || []).forEach((k, i) => { idx[k] = i; });
   const exact = (mainKeys || []).map(() => 0);
@@ -1063,14 +1077,26 @@ function dashLeadFunnel(leads, mainKeys, droppedKey) {
     if (Object.prototype.hasOwnProperty.call(idx, st)) exact[idx[st]]++;
     else unknown++;
   });
+  const total = exact.reduce((a, b) => a + b, 0);
   const cum = exact.slice();
   for (let i = cum.length - 2; i >= 0; i--) cum[i] += cum[i + 1];
   const steps = (mainKeys || []).map((k, i) => ({
-    key: k, count: cum[i],
+    key: k, count: cum[i], exact: exact[i],
     toNext: i < mainKeys.length - 1 ? dashPct(cum[i + 1], cum[i]) : null,
-    fromStart: dashPct(cum[i], cum[0]),
+    fromStart: dashPct(cum[i], total), pct: dashPct(cum[i], total),
   }));
-  return { steps, dropped: { count: dropped, pct: dashPct(dropped, list.length) }, unknown, total: list.length };
+  const exactOf = k => Object.prototype.hasOwnProperty.call(idx, k) ? exact[idx[k]] : 0;
+  const qualifiedPlus = exactOf("qualified") + exactOf("converted");
+  const converted = exactOf("converted");
+  return {
+    steps,
+    dropped: { key: droppedKey, count: dropped, pct: dashPct(dropped, total) },
+    unknown, total, rawTotal: list.length,
+    summary: {
+      qualifiedPlus, qualifiedPlusPct: dashPct(qualifiedPlus, total),
+      converted, convertedPct: dashPct(converted, total),
+    },
+  };
 }
 function dashWinRate(deals) {
   const won = (deals || []).filter(d => d && d.stage === "won").length;

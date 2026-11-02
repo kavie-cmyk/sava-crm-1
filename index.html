@@ -843,6 +843,10 @@ function setDashScope(v) { dashScope = v || ""; render(); }
 function setDashFunnelLine(v) { dashFunnelLine = v || ""; render(); }
 function setDashFunnelOwner(v) { dashFunnelOwner = v || ""; render(); }
 function dashPctTxt(p) { return (p === null || p === undefined) ? "—" : fmtPctVal(p); }
+/* % RIÊNG cho khối phễu Lead: làm tròn 0 chữ số thập phân (số nguyên) để
+   tránh hiểu nhầm số lẻ — yêu cầu trình bày của bản chốt phễu. Ngoài khối
+   phễu (thẻ tỉ lệ, bảng so sánh…) vẫn dùng dashPctTxt/fmtPctVal 1 thập phân. */
+function dashPctIntTxt(p) { return (p === null || p === undefined || !Number.isFinite(Number(p))) ? "—" : Math.round(Number(p)) + "%"; }
 function dashDonutHTML(pct, color) {
   const p = (pct === null || pct === undefined) ? 0 : Math.max(0, Math.min(100, pct));
   const c = 2 * Math.PI * 34;
@@ -899,19 +903,35 @@ function dashAnalyticsHTML() {
   const fLineOpts = `<option value="" ${!dashFunnelLine ? "selected" : ""}>Tất cả mảng</option>` + Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${dashFunnelLine === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
   const fOwnerIds = []; scoped.leads.forEach(l => { if (l.ownerId && !fOwnerIds.includes(l.ownerId)) fOwnerIds.push(l.ownerId); });
   const fOwnerOpts = `<option value="" ${!dashFunnelOwner ? "selected" : ""}>Tất cả người phụ trách</option>` + fOwnerIds.map(id => `<option value="${esc(id)}" ${dashFunnelOwner === id ? "selected" : ""}>${esc(memberName(S, id))}</option>`).join("") + `<option value="__none__" ${dashFunnelOwner === "__none__" ? "selected" : ""}>Chưa gán</option>`;
-  const fMax = Math.max(1, funnel.steps.length ? funnel.steps[0].count : 0);
-  const fRows = funnel.steps.map((st, i) => {
+  /* Trình bày BẢN CHỐT (tích luỹ, trực quan): dòng mốc đầu phễu = N lead ·
+     100% (KHÔNG vẽ dòng "Mới" riêng — số đang ở Mới suy ra từ mũi tên đầu:
+     N − tích luỹ Sent connect); mỗi dòng trạng thái từ Sent connect trở đi
+     hiện số tích luỹ + "{n} lead đã tới bước này" + % lớn "% so với điểm
+     bắt đầu"; giữa hai dòng là chip mũi tên "↓ {m} trong {n} lead đi tiếp
+     ({p}%)". Mọi % trong khối phễu làm tròn 0 thập phân qua dashPctIntTxt
+     và LUÔN kèm số lead thật. Cột dài tỉ lệ theo N (điểm bắt đầu = 100%).
+     Mọi dòng bấm được -> dashOpenLeadStatus(key) mở view Lead lọc đúng
+     trạng thái đó (dòng mốc mở view Lead không lọc trạng thái). */
+  const fStart = `<div class="dash-funnel-row dash-funnel-start" role="button" tabindex="0" onclick="dashOpenLeadStatus('')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('')" title="Bấm để mở view Lead (tất cả trạng thái)"><div class="dash-funnel-start-txt">Tổng lead đưa vào — ${funnel.total} lead · 100%</div><div class="dash-funnel-bar"><i style="width:${funnel.total ? 100 : 0}%;background:${cols.lead}"></i></div></div>`;
+  const fBody = funnel.steps.slice(1).map((st, j) => {
+    const prev = funnel.steps[j];
     const def = leadStatusDef(st.key) || { label: st.key, color: "#64748b" };
-    const meta = [];
-    if (st.toNext !== null && st.toNext !== undefined) meta.push(`→ bước tiếp: ${dashPctTxt(st.toNext)}`);
-    if (i > 0) meta.push(`từ bước đầu: ${dashPctTxt(st.fromStart)}`);
-    return `<div class="dash-funnel-row"><div class="dash-funnel-nm">${esc(def.label)}</div><div class="dash-funnel-bar"><i style="width:${(st.count / fMax * 100).toFixed(1)}%;background:${def.color}"></i></div><div class="dash-funnel-num">${st.count}</div><div class="dash-funnel-meta">${meta.join(" · ")}</div></div>`;
+    const chip = `<div class="dash-funnel-arrow">↓ ${st.count} trong ${prev.count} lead đi tiếp (${dashPctIntTxt(prev.toNext)})</div>`;
+    const row = `<div class="dash-funnel-row${st.count ? "" : " dash-funnel-row--zero"}" role="button" tabindex="0" onclick="dashOpenLeadStatus('${st.key}')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('${st.key}')" title="Bấm để mở view Lead — trạng thái ${esc(def.label)}"><div class="dash-funnel-nm">${esc(def.label)}</div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? st.count / funnel.total * 100 : 0).toFixed(1)}%;background:${def.color}"></i></div><div class="dash-funnel-num">${st.count} lead đã tới bước này</div><div class="dash-funnel-pct"><b>${dashPctIntTxt(st.pct)}</b><span>% so với điểm bắt đầu</span></div></div>`;
+    return chip + row;
   }).join("");
+  /* Cột LỐI RA riêng ở cuối: Not yet have demand — không chip % đi tiếp,
+     không vào dãy tích luỹ; số + % trên tổng ban đầu N, vẫn bấm được. */
+  const dropDef = leadStatusDef(funnel.dropped.key) || { label: funnel.dropped.key, color: "#94a3b8" };
+  const fExit = `<div class="dash-funnel-exit"><div class="dash-funnel-row dash-funnel-exit-row" role="button" tabindex="0" onclick="dashOpenLeadStatus('${funnel.dropped.key}')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('${funnel.dropped.key}')" title="Bấm để mở view Lead — trạng thái ${esc(dropDef.label)}"><div class="dash-funnel-nm">${esc(dropDef.label)}<span class="dash-funnel-exit-sub">tạm dừng — chưa có nhu cầu</span></div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? funnel.dropped.count / funnel.total * 100 : 0).toFixed(1)}%;background:#cbd5e1"></i></div><div class="dash-funnel-num">${funnel.dropped.count} lead · ${dashPctIntTxt(funnel.dropped.pct)} trên tổng ban đầu</div></div></div>`;
+  const fSummary = funnel.total
+    ? `<div class="dash-funnel-summary">Trong ${funnel.total} lead: ${funnel.summary.qualifiedPlus} lead đã tới bước Đạt chuẩn trở lên (${dashPctIntTxt(funnel.summary.qualifiedPlusPct)}) · ${funnel.summary.converted} lead đã chuyển thành deal (${dashPctIntTxt(funnel.summary.convertedPct)})</div>`
+    : `<div class="dash-funnel-summary">Chưa có lead nào trong phạm vi này.</div>`;
   const funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">ảnh chụp hiện tại</span></h3><div class="dash-ctl"><select class="dash-select" onchange="setDashFunnelLine(this.value)" aria-label="Lọc phễu theo mảng">${fLineOpts}</select><select class="dash-select" onchange="setDashFunnelOwner(this.value)" aria-label="Lọc phễu theo người phụ trách">${fOwnerOpts}</select></div></div>
-  <p class="dash-note">Số ở mỗi bước = số lead <b>đang ở hoặc đã vượt qua</b> bước đó (luỹ kế theo trạng thái hiện tại). Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead.</p>
-  ${fRows || '<div class="empty-state">Không có lead nào trong phễu.</div>'}
-  <div class="dash-drop">Rớt phễu — Not yet have demand: <b>${funnel.dropped.count}</b> lead (${dashPctTxt(funnel.dropped.pct)} trên tổng ${funnel.total} lead trong tập đang lọc)</div>
-  ${funnel.unknown ? `<p class="dash-note">⚠️ ${funnel.unknown} lead có trạng thái lạ (không thuộc danh sách trạng thái chuẩn) — không đưa vào phễu.</p>` : ""}</section>`;
+  <p class="dash-note">Số % trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % ở mũi tên: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.</p>
+  ${fStart}${fBody}${fExit}${fSummary}
+  <p class="dash-note">Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead.</p>
+  ${funnel.unknown ? `<p class="dash-note">⚠️ ${funnel.unknown} lead có trạng thái lạ (không thuộc danh sách trạng thái chuẩn) — không đưa vào phễu, không tính vào tổng lead đưa vào.</p>` : ""}</section>`;
   /* --- Deal theo mảng / stage --- */
   const byLine = D.dashDealStages(scoped.deals, LINES);
   const lineCards = byLine.map(r => {
@@ -1163,6 +1183,23 @@ function leadRowHTML(l) {
    (lead.ownerId — key phụ qua legacy_extra như phone/mainContact). */
 let leadOwnerFilter = "";
 function setLeadOwnerFilter(v) { leadOwnerFilter = v || ""; render(); }
+/* Bộ lọc TRẠNG THÁI của view Lead — cùng họ UI-state thuần với
+   leadOwnerFilter: "" = tất cả trạng thái, còn lại = đúng 1 key của
+   LEAD_STATUSES. Đây là cơ chế mà MỖI DÒNG của phễu Lead ở Tổng quan dùng
+   để nhảy sang view Lead lọc đúng trạng thái của dòng (dashOpenLeadStatus
+   ở dưới); người dùng đổi/bỏ lọc ngay bằng select trạng thái ở đầu view. */
+let leadStatusFilter = "";
+function setLeadStatusFilter(v) { leadStatusFilter = v || ""; render(); }
+/* Nhảy từ một dòng phễu Lead (Tổng quan) sang view Lead đã lọc đúng trạng
+   thái đó: đặt sẵn leadStatusFilter + ép về chế độ Block (block trạng thái
+   đích tự mở sẵn) rồi setView("leads") — cùng mẫu viewLeadsOfMember. Key
+   rỗng (dòng mốc "Tổng lead đưa vào") = bỏ lọc trạng thái, xem tất cả. */
+function dashOpenLeadStatus(statusKey) {
+  leadStatusFilter = statusKey || "";
+  leadViewMode = "block";
+  if (statusKey) leadBlockCollapsed[statusKey] = false;
+  setView("leads");
+}
 /* Chip người phụ trách GỌN cho thẻ lead (view Block + board Pipeline):
    chỉ hiện khi lead ĐÃ gán (chưa gán -> không chip, tránh nhiễu; trạng
    thái chưa gán thể hiện ở drawer lead + bộ lọc "Chưa gán"). Tên lấy qua
@@ -1174,9 +1211,10 @@ function leadOwnerChipHTML(l) {
 /* Tập lead SAU LỌC của view Lead — MỘT nguồn lọc duy nhất cho cả hai
    cách trình bày (Block + Pipeline): tab mảng (curLine) + ô tìm kiếm
    (query trên tên lead + person + tên công ty + ghi chú) + bộ lọc người
-   phụ trách (leadOwnerFilter), kết hợp AND với nhau. */
+   phụ trách (leadOwnerFilter) + trạng thái (leadStatusFilter, do phễu
+   Lead ở Tổng quan đặt sẵn khi bấm một dòng), kết hợp AND với nhau. */
 function filteredLeads() {
-  return S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)) && (!leadOwnerFilter || (leadOwnerFilter === "__none__" ? !l.ownerId : l.ownerId === leadOwnerFilter)));
+  return S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)) && (!leadOwnerFilter || (leadOwnerFilter === "__none__" ? !l.ownerId : l.ownerId === leadOwnerFilter)) && (!leadStatusFilter || l.status === leadStatusFilter));
 }
 /* ===== Chế độ xem Lead: Block ⇄ Pipeline =====
    leadViewMode là STATE HIỂN THỊ THUẦN TUÝ (không nằm trong S, không
@@ -1192,15 +1230,19 @@ function leadViewHeadHTML() {
   const ownerOpts = [`<option value="" ${leadOwnerFilter === "" ? "selected" : ""}>Tất cả người phụ trách</option>`,
     ...memberList(S).map(m => `<option value="${esc(m.id)}" ${leadOwnerFilter === m.id ? "selected" : ""}>${esc(m.name)}${m.active ? "" : " (đã ngừng)"}</option>`),
     `<option value="__none__" ${leadOwnerFilter === "__none__" ? "selected" : ""}>Chưa gán</option>`].join("");
+  const statusOpts = [`<option value="" ${leadStatusFilter === "" ? "selected" : ""}>Tất cả trạng thái</option>`,
+    ...LEAD_STATUSES.map(s => `<option value="${s.key}" ${leadStatusFilter === s.key ? "selected" : ""}>${esc(s.label)}</option>`)].join("");
   return `<div class="lead-view-head"><button class="btn" onclick="editLead(null)">+ Thêm lead</button>
     <div class="tabs" role="group" aria-label="Chế độ xem lead">
       <button class="${leadViewMode === "block" ? "on" : ""}" onclick="setLeadViewMode('block')">▦ Block</button>
       <button class="${leadViewMode === "pipeline" ? "on" : ""}" onclick="setLeadViewMode('pipeline')">▤ Pipeline</button>
     </div>
-    <select id="leadOwnerFilterSel" onchange="setLeadOwnerFilter(this.value)" title="Lọc theo người phụ trách" aria-label="Lọc theo người phụ trách">${ownerOpts}</select></div>`;
+    <select id="leadOwnerFilterSel" onchange="setLeadOwnerFilter(this.value)" title="Lọc theo người phụ trách" aria-label="Lọc theo người phụ trách">${ownerOpts}</select>
+    <select id="leadStatusFilterSel" onchange="setLeadStatusFilter(this.value)" title="Lọc theo trạng thái" aria-label="Lọc theo trạng thái">${statusOpts}</select></div>`;
 }
-/* Nhảy từ drawer member sang view Lead đã lọc sẵn theo member đó. */
-function viewLeadsOfMember(memberId) { leadOwnerFilter = memberId || ""; closeDrawer(); setView("leads"); }
+/* Nhảy từ drawer member sang view Lead đã lọc sẵn theo member đó (bỏ lọc
+   trạng thái để không giấu lead của member ngoài trạng thái đang lọc). */
+function viewLeadsOfMember(memberId) { leadOwnerFilter = memberId || ""; leadStatusFilter = ""; closeDrawer(); setView("leads"); }
 /* ===== Phân trang + đóng/mở từng block trạng thái (CHỈ view Block) =====
    UI-state thuần tuý TRONG PHIÊN (không lưu localStorage, không nằm
    trong S, không qua save() — tải lại trang là về mặc định):
@@ -1240,13 +1282,13 @@ function vLeads() {
   if (leadViewMode === "pipeline") { vLeadsPipeline(); return; }
   const filtered = filteredLeads();
   /* Đổi từ khóa tìm kiếm / tab mảng -> mọi block về trang 1 (đóng/mở giữ nguyên). */
-  const blockSig = curLine + "|" + query + "|" + leadOwnerFilter;
+  const blockSig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter;
   if (leadBlockFilterSig !== blockSig) { leadBlockFilterSig = blockSig; leadBlockPage = {}; }
   /* Đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước ẩn-cột-rỗng-khi-đang-lọc của vTasksByMember:
      khi đang lọc, block nào không còn lead khớp thì ẨN hẳn; khi không
      lọc, mọi block trạng thái đều hiện kể cả khi rỗng. */
-  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter;
+  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter;
   const groups = LEAD_STATUSES.map(def => ({ ...def, leads: filtered.filter(l => l.status === def.key) }));
   const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
   if (unknownLeads.length) groups.push({ ...LEAD_STATUS_UNKNOWN, leads: unknownLeads });
@@ -1321,10 +1363,10 @@ function vLeadsPipeline() {
   /* Đổi bộ lọc (từ khóa / tab mảng) -> số thẻ đang mở rộng của mọi cột
      quay về trang đầu; cùng bộ lọc thì giữ nguyên (Hiển thị thêm và
      kéo-thả render lại không làm mất phần đã mở rộng). */
-  const sig = curLine + "|" + query + "|" + leadOwnerFilter;
+  const sig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter;
   if (leadBoardFilterSig !== sig) { leadBoardFilterSig = sig; leadBoardShown = {}; }
   const filtered = filteredLeads();
-  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter;
+  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter;
   const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
   const cols = LEAD_STATUSES.map(def => {
     const inCol = filtered.filter(l => l.status === def.key);

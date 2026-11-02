@@ -201,13 +201,23 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-legend i {display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
 .dash-legend-note {color:#82909a}
 .dash-chart {width:100%;height:auto;display:block}
-.dash-funnel-row {display:grid;grid-template-columns:minmax(120px,180px) 1fr 44px minmax(150px,240px);gap:10px;align-items:center;padding:5px 0}
+.dash-funnel-row {display:grid;grid-template-columns:minmax(120px,170px) 1fr minmax(150px,215px) minmax(105px,135px);gap:10px;align-items:center;padding:5px 6px;border-radius:8px;cursor:pointer}
+.dash-funnel-row:hover {background:#f2f8f7}
+.dash-funnel-row--zero {opacity:.55}
 .dash-funnel-nm {font-size:12.5px;font-weight:600;color:#294552}
 .dash-funnel-bar {background:#edf2f5;border-radius:6px;height:18px;overflow:hidden}
 .dash-funnel-bar i {display:block;height:100%;border-radius:6px}
 .dash-funnel-num {font-size:13px;font-weight:700;color:#213846;text-align:right}
-.dash-funnel-meta {font-size:11.5px;color:#60717d}
-.dash-drop {margin-top:10px;padding:10px 13px;background:#f6f8f9;border:1px dashed #b9cbd4;border-radius:10px;font-size:12.5px;color:#42586a}
+.dash-funnel-pct b {display:block;font-size:20px;line-height:1.15;color:#213846}
+.dash-funnel-pct span {display:block;font-size:10.5px;color:#60717d}
+.dash-funnel-start {grid-template-columns:1fr;gap:6px;background:#e6f4f1;padding:10px 12px;cursor:pointer}
+.dash-funnel-start-txt {font-size:14px;font-weight:700;color:#213846}
+.dash-funnel-arrow {width:fit-content;max-width:100%;margin:4px auto;padding:3px 12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;font-size:12px;font-weight:600;color:#42586a;text-align:center}
+.dash-funnel-exit {margin-top:14px;border-top:2px dashed #d9a5a5;padding-top:10px}
+.dash-funnel-exit-row {background:#fbf3f3;border:1px dashed #d9a5a5;padding:8px 10px}
+.dash-funnel-exit-row:hover {background:#f9e9e9}
+.dash-funnel-exit-sub {display:block;font-size:11px;font-weight:500;color:#9f3a3a}
+.dash-funnel-summary {margin-top:12px;padding:10px 13px;background:#f6f8f9;border:1px solid #dde7ec;border-radius:10px;font-size:12.5px;color:#294552}
 .dash-subhead {margin-top:6px}
 .dash-line-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:18px}
 .dash-cols {display:flex;align-items:flex-end;gap:6px;height:170px;padding-top:6px}
@@ -226,4 +236,4 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-table th {text-align:left;font-size:11.5px;color:#60717d;padding:8px 10px;border-bottom:1px solid #e2e8ed}
 .dash-table td {padding:9px 10px;border-bottom:1px solid #eef3f5;color:#294552}
 .dash-table tbody tr:hover {background:#f2f8f7}
-@media(max-width:900px){.dash-line-grid{grid-template-columns:1fr}.dash-conv-grid{grid-template-columns:1fr}.dash-funnel-row{grid-template-columns:minmax(96px,130px) 1fr 36px}.dash-funnel-meta{grid-column:1/-1}}
+@media(max-width:900px){.dash-line-grid{grid-template-columns:1fr}.dash-conv-grid{grid-template-columns:1fr}.dash-funnel-row{grid-template-columns:minmax(96px,130px) 1fr minmax(110px,150px)}.dash-funnel-pct{grid-column:1/-1}.dash-funnel-start{grid-template-columns:1fr}}
