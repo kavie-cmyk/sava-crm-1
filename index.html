@@ -2764,6 +2764,8 @@ function openLead(id) {
       <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
       <div class="k">Position</div><div>${esc(l.person || "—")}</div>
       <div class="k">Điện thoại</div><div>${esc(l.phone || "—")}</div>
+      ${l.email ? `<div class="k">Email</div><div>${esc(l.email)}</div>` : ""}
+      ${l.linkedinUrl ? `<div class="k">LinkedIn</div><div>${extLinkHTML(l.linkedinUrl)}</div>` : ""}
       <div class="k">Trạng thái</div><div><span class="pill" style="background:${st[1]}">${st[0]}</span></div>
       <div class="k">Mảng quan tâm</div><div>${esc(lineName(l.line))}${lineDef(l.line) ? " — " + esc(lineDef(l.line).desc) : ""}</div>
       <div class="k">Đối tượng của mảng</div><div>${lineDef(l.line) ? esc(lineDef(l.line).target) : "—"}</div>
@@ -3898,7 +3900,7 @@ function editLead(id, presetCompanyId) {
   /* FIX-C1 B12: tạo mới khi curLine='all' không còn cứng về 'publishing' —
      line để trống + placeholder "— Chọn mảng —", saveLead chặn khi chưa chọn;
      có ngữ cảnh mảng cụ thể / preset công ty thì chọn sẵn như cũ. */
-  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "", source: (pendingEventLink && pendingEventLink.kind === "lead") ? "Sự kiện" : "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", mainContact: false };
+  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "", source: (pendingEventLink && pendingEventLink.kind === "lead") ? "Sự kiện" : "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", email: "", linkedinUrl: "", mainContact: false };
   if (id && !l) return;
   const presetComp = presetCompanyId ? comp(presetCompanyId) : null;
   const curCompId = id ? (l.company || "") : (presetComp && presetComp.id ? presetComp.id : (l.company || ""));
@@ -3915,6 +3917,8 @@ function editLead(id, presetCompanyId) {
     ${field("Công ty", `<select id="e_lcompany" onchange="toggleLeadNewCompany()">${compOpts}</select><div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
     ${field("Position", txt("e_lperson", l.person || "", "VD: Chief Executive Officer"))}
     ${field("Điện thoại", txt("e_lphone", l.phone || "", "SĐT của người liên hệ này"))}
+    ${field("Email", `<input id="e_lemail" type="email" value="${esc(l.email || "")}" placeholder="Email của người liên hệ này">`)}
+    ${field("LinkedIn cá nhân", `<input id="e_llinkedin" type="url" value="${esc(l.linkedinUrl || "")}" placeholder="https://www.linkedin.com/in/...">`)}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_lmain" style="width:auto" ${l.mainContact ? "checked" : ""}> Đầu mối chính của công ty (mỗi công ty chỉ có một — tick lead này sẽ tự bỏ tick lead đang là đầu mối chính của cùng công ty)</label>
     ${leadLineField}
     ${field("Nguồn", selLegacy("e_lsource", ["Form savameta.com", "Giới thiệu", "Facebook", "Cộng đồng dev", "Sự kiện", "Chủ động tiếp cận", "Khác"], l.source || "", "— Chưa chọn —"))}
@@ -3957,7 +3961,7 @@ function saveLead(id) {
      (kể cả chữ cũ); lead mới để trống -> hôm nay (ISO). */
   const whenVal = v("e_lwhen");
   const mainEl = document.getElementById("e_lmain");
-  const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), mainContact: !!(mainEl && mainEl.checked), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
+  const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), email: v("e_lemail"), linkedinUrl: v("e_llinkedin"), mainContact: !!(mainEl && mainEl.checked), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
   let l;
   if (id) { l = S.leads.find(x => x.id === id); Object.assign(l, data); }
   else { l = { id: "l" + Date.now(), ...data }; S.leads.push(l); }

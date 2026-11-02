@@ -128,7 +128,12 @@
      enforceLeadMainContact trong shared.js thực thi ở đường lưu lead)
      cũng CỐ Ý không nằm trong LEAD_KNOWN: đi qua legacy_extra của leads
      (extrasOf giữ cả giá trị false), mergeExtras khôi phục khi đọc —
-     không cần cột/SQL mới. */
+     không cần cột/SQL mới.
+     Cùng đường đó: lead.email + lead.linkedinUrl (LinkedIn CÁ NHÂN của
+     người liên hệ — khác company linkedinUrl là LinkedIn công ty) cũng
+     CỐ Ý không nằm trong LEAD_KNOWN: đi qua legacy_extra của leads khi
+     ghi (extrasOf) và mergeExtras khôi phục khi đọc — không cần cột/SQL
+     mới. Đừng thêm hai key này vào LEAD_KNOWN khi chưa có cột thật. */
   const COMPANY_KNOWN = ['id', 'name', 'type', 'roles', 'contact', 'phone', 'last', 'partnerEval', 'partnerEvalMigrated'];
   const GAME_KNOWN = ['id', 'title', 'own', 'company', 'genre', 'platform', 'stage', 'emoji', 'desc', 'bdNote', 'buildUrl', 'trailerUrl', 'scores', 'verdict', 'mktEval'];
   /* deal.vertical (phân khúc ngành, chỉ deal Metaverse) CỐ Ý không nằm trong
