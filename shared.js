@@ -1214,3 +1214,328 @@ function toast(msg) {
   t.textContent = msg; t.classList.add("on");
   setTimeout(() => t.classList.remove("on"), 2400);
 }
+
+/* === Import xlsx/csv (window.SavaImport) — planner THUẦN, không DOM ===
+   Toàn bộ logic nghiệp vụ của view Import (index.html) nằm ở đây dưới dạng
+   hàm thuần (không chạm DOM/localStorage/mạng) để test Node được và QA dùng
+   lại độc lập — cùng mẫu window.SavaDash ở trên:
+   - impFold: chuẩn hoá tên bỏ dấu/khoảng trắng/gạch (đúng hàm norm() của
+     các transform nạp Metaverse 2026-11-02: NFD bỏ dấu Mn, đ->d, thường
+     hoá, [^a-z0-9]+ -> 1 khoảng trắng, gộp khoảng trắng). Khớp danh tính
+     CHỈ theo tên đã chuẩn hoá này, KHÔNG BAO GIỜ theo số dòng.
+   - guessMapping: đoán cột file -> field CRM theo tên header (Anh + Việt,
+     có dấu hay không đều qua impFold nên khớp như nhau).
+   - parseEmailPhone: tách email/SĐT khỏi ô gộp bằng regex — SĐT gồm cả số
+     quốc tế (+xx / 00xx) như transform w4 (vòng đầu chỉ bắt số VN nên sót
+     2 số Thái), không chỉ số VN.
+   - mapStatus: map nhãn trạng thái file sang đúng 12 key LEAD_STATUSES;
+     nhãn lạ -> 'new' + known=false để planner cảnh báo (không bịa key).
+   - planImport: dry-run thuần đối chiếu state hiện tại (công ty mới /
+     công ty khớp sẵn có CHỈ điền field hồ sơ đang trống / lead mới / trùng
+     CRM / trùng nội bộ file / lỗi thiếu công ty hoặc PIC sau carry-down /
+     mainContact theo 3 trường hợp của hợp đồng). KHÔNG ghi gì.
+   - planRemoveBatch + listBatches: suy danh sách lô từ marker importBatch
+     trên state; gỡ lô xoá lead của lô, công ty do lô tạo chỉ xoá khi
+     không còn lead/deal NGOÀI lô tham chiếu tới.
+   Field đích: lead.name = PIC, lead.person = Title/Position, email /
+   linkedinUrl / ownerId / importBatch là field phụ qua legacy_extra (như
+   saveLead đang ghi); hồ sơ công ty theo COMPANY_PROFILE_FIELDS. */
+const SavaImport = (() => {
+  "use strict";
+  function impFold(s) {
+    if (s === null || s === undefined) return "";
+    return String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function impCellStr(v) {
+    if (v === null || v === undefined) return "";
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10);
+    if (typeof v === "number") return Number.isInteger(v) ? String(v) : String(v);
+    return String(v).trim();
+  }
+  /* Đích ghép cột: key nội bộ + nhãn hiển thị. profile.<key> là field hồ sơ
+     công ty theo COMPANY_PROFILE_FIELDS; linkedinUrl trần là LinkedIn CÁ
+     NHÂN của lead, profile.linkedinUrl là LinkedIn CÔNG TY. */
+  const DESTINATIONS = [
+    { key: "companyName", label: "Tên công ty (bắt buộc)", required: true },
+    { key: "picName", label: "Tên PIC (bắt buộc)", required: true },
+    { key: "person", label: "Position (Title)" },
+    { key: "email", label: "Email" },
+    { key: "phone", label: "Số điện thoại" },
+    { key: "linkedinUrl", label: "LinkedIn cá nhân (lead)" },
+    { key: "status", label: "Trạng thái" },
+    { key: "note", label: "Ghi chú" },
+    { key: "when", label: "Lần tiếp cận cuối" },
+  ].concat((typeof COMPANY_PROFILE_FIELDS !== "undefined" ? COMPANY_PROFILE_FIELDS : []).map(f => ({ key: "profile." + f.key, label: "Hồ sơ công ty — " + f.label })));
+  /* Bí danh header đã fold (impFold) -> key đích. Thứ tự khai báo không
+     quan trọng vì so khớp theo chuỗi fold ĐÚNG NGUYÊN VĂN, nhưng các bí
+     danh dài/cụ thể (company linkedin url) khác hẳn bí danh ngắn
+     (linkedin) nên không tranh nhau. Header không có bí danh -> bỏ qua. */
+  const HEADER_ALIASES = {
+    "company name": "companyName", "account name": "companyName", "ten cong ty": "companyName", "cong ty": "companyName", "company": "companyName", "account": "companyName",
+    "pic": "picName", "ten pic": "picName", "pic name": "picName", "nguoi lien he": "picName", "ten nguoi lien he": "picName", "contact person": "picName", "contact name": "picName", "ho ten": "picName",
+    "title": "person", "position": "person", "chuc vu": "person", "chuc danh": "person", "vi tri cong viec": "person",
+    "email": "email", "e mail": "email", "dia chi email": "email",
+    "phone number": "phone", "phone": "phone", "so dien thoai": "phone", "dien thoai": "phone", "sdt": "phone", "mobile": "phone", "tel": "phone",
+    "linkedin": "linkedinUrl", "linkedin url": "linkedinUrl", "linkedin ca nhan": "linkedinUrl", "personal linkedin": "linkedinUrl", "pic linkedin": "linkedinUrl",
+    "status": "status", "trang thai": "status",
+    "note": "note", "notes": "note", "ghi chu": "note",
+    "last approach": "when", "last approach date": "when", "lan tiep can cuoi": "when", "ngay tiep can cuoi": "when", "last contact": "when", "last contacted": "when",
+    "location": "profile.location", "company location": "profile.location", "dia diem": "profile.location",
+    "established year": "profile.establishedYear", "foundation year": "profile.establishedYear", "nam thanh lap": "profile.establishedYear", "founded year": "profile.establishedYear", "year founded": "profile.establishedYear",
+    "size": "profile.size", "company size": "profile.size", "quy mo": "profile.size",
+    "employees": "profile.employees", "so nhan su": "profile.employees", "number of employees": "profile.employees", "nhan su": "profile.employees", "headcount": "profile.employees",
+    "industry": "profile.industry", "nganh": "profile.industry", "nganh nghe": "profile.industry", "linh vuc": "profile.industry",
+    "website": "profile.website", "trang web": "profile.website",
+    "company linkedin url": "profile.linkedinUrl", "company linkedin": "profile.linkedinUrl", "linkedin cong ty": "profile.linkedinUrl",
+    "ultimate parent company name investors supported by": "profile.parentCompany", "ultimate parent company name": "profile.parentCompany", "parent company": "profile.parentCompany", "cong ty me": "profile.parentCompany",
+    "ultimate parent company investors company website": "profile.parentWebsite", "ultimate parent company website": "profile.parentWebsite", "parent company website": "profile.parentWebsite", "website cong ty me": "profile.parentWebsite",
+    "number of suborganizations": "profile.suborgCount", "so to chuc con": "profile.suborgCount",
+    "suborganization domains": "profile.suborgDomains", "domain to chuc con": "profile.suborgDomains",
+    "suborganization names": "profile.suborgNames", "ten to chuc con": "profile.suborgNames",
+    "buying signals": "profile.buyingSignals", "tin hieu mua": "profile.buyingSignals",
+    "vertical": "profile.vertical", "nganh doc": "profile.vertical",
+    "sava offering": "profile.savaOffering",
+    "biz model": "profile.bizModel", "business model": "profile.bizModel", "mo hinh kinh doanh": "profile.bizModel",
+    "priority": "profile.priority", "muc uu tien": "profile.priority",
+  };
+  function guessMapping(headers) {
+    const used = new Set();
+    return (Array.isArray(headers) ? headers : []).map(h => {
+      const f = impFold(h);
+      if (!f) return "";
+      const key = HEADER_ALIASES[f] || "";
+      if (!key || used.has(key)) return "";
+      used.add(key);
+      return key;
+    });
+  }
+  /* Dòng header thật của file Raw data KHÔNG luôn ở dòng đầu (các tab có
+     khối tổng quan phía trên): tìm trong 50 dòng đầu dòng mà guessMapping
+     ghép được CẢ Tên công ty lẫn PIC. Không thấy -> -1 (UI rơi về dòng 0
+     và để người dùng ghép tay). */
+  function findHeaderRow(aoa) {
+    if (!Array.isArray(aoa)) return -1;
+    const n = Math.min(aoa.length, 50);
+    for (let i = 0; i < n; i++) {
+      const m = guessMapping((aoa[i] || []).map(impCellStr));
+      if (m.includes("companyName") && m.includes("picName")) return i;
+    }
+    return -1;
+  }
+  const EMAIL_RE = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/;
+  const PHONE_RE = /(?:\+|00)(?:[\s.\-]?\d){8,14}|(?:\+?84|0)(?:[\s.\-]?\d){8,10}/;
+  function extractPhone(raw) {
+    const m = PHONE_RE.exec(String(raw || ""));
+    return m ? m[0].replace(/[\s.\-]/g, "") : "";
+  }
+  function parseEmailPhone(cell) {
+    const raw = String(cell === null || cell === undefined ? "" : cell).trim();
+    if (!raw) return { email: "", phone: "", emailRaw: "" };
+    const m = EMAIL_RE.exec(raw);
+    const email = m ? m[0] : "";
+    /* Tìm SĐT trên phần còn lại sau khi gỡ email (tránh bắt dãy số trong
+       chính email); không thấy thì mới tìm trên cả ô như transform cũ. */
+    const rest = email ? raw.replace(email, " ") : raw;
+    const phone = extractPhone(rest) || extractPhone(raw);
+    return { email, phone, emailRaw: email ? "" : raw };
+  }
+  const STATUS_BY_FOLDED = {
+    "": "new", "new": "new", "moi": "new",
+    "sent connect": "sent_connect", "1st message": "first_message", "1st email": "first_email", "1st fu": "first_fu",
+    "in response": "in_response", "in reply": "in_reply", "discovery meeting": "discovery_meeting",
+    "not yet have demand": "not_yet_have_demand",
+    "contacted": "contacted", "da lien he": "contacted",
+    "qualified": "qualified", "dat chuan": "qualified",
+    "converted": "converted", "da chuyen doi": "converted",
+  };
+  function mapStatus(raw) {
+    const r = String(raw === null || raw === undefined ? "" : raw).trim();
+    const f = impFold(r);
+    if (Object.prototype.hasOwnProperty.call(STATUS_BY_FOLDED, f)) return { key: STATUS_BY_FOLDED[f], known: true, raw: r };
+    return { key: "new", known: false, raw: r };
+  }
+  const NUMERIC_PROFILE_KEYS = { establishedYear: true, employees: true, suborgCount: true };
+  function normalizeNumericProfile(key, v) {
+    const s = String(v === null || v === undefined ? "" : v).trim();
+    if (NUMERIC_PROFILE_KEYS[key]) return s.replace(/^(\d+)\.0+$/, "$1");
+    return s;
+  }
+  function normalizeWhen(raw) {
+    if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? "" : raw.toISOString().slice(0, 10);
+    const s = String(raw === null || raw === undefined ? "" : raw).trim();
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+    return m ? m[1] : s;
+  }
+  /* aoa (mảng dòng x cột, giá trị thô từ SheetJS) + mapping (key đích theo
+     cột) + links ({"<row>,<col>": url} theo CHỈ SỐ aoa) -> records chuẩn
+     cho planImport. LinkedIn cá nhân lấy ở mức Ô: hyperlink của ô PIC
+     (ws[addr].l.Target phía UI) thắng giá trị ô (ô PIC chỉ chứa tên);
+     ô LinkedIn có hyperlink thì lấy Target thay cho chữ hiển thị. */
+  function rowsToRecords(aoa, headerRowIdx, mapping, links) {
+    const out = [];
+    if (!Array.isArray(aoa)) return out;
+    const map = Array.isArray(mapping) ? mapping : [];
+    const picCol = map.indexOf("picName");
+    const liCol = map.indexOf("linkedinUrl");
+    for (let r = headerRowIdx + 1; r < aoa.length; r++) {
+      const row = Array.isArray(aoa[r]) ? aoa[r] : [];
+      const rec = { _row: r + 1, empty: true, companyName: "", picName: "", person: "", emailCell: "", phoneCell: "", linkedinUrl: "", statusRaw: "", note: "", whenRaw: "", profile: {} };
+      /* "Rỗng" xét CHỈ trên các cột ĐÃ GHÉP: cột phụ trợ không ghép (vd cột
+         "Hiển thị (phụ trợ)" chứa 0/1 ở mọi dòng của file Raw data) không
+         được biến dòng trống thành dòng lỗi. */
+      map.forEach((target, c) => {
+        if (!target) return;
+        const val = impCellStr(row[c]);
+        if (val !== "") rec.empty = false;
+        if (target.indexOf("profile.") === 0) {
+          const k = target.slice("profile.".length);
+          if (val !== "") rec.profile[k] = normalizeNumericProfile(k, val);
+          return;
+        }
+        if (target === "companyName") rec.companyName = val;
+        else if (target === "picName") rec.picName = val;
+        else if (target === "person") rec.person = val;
+        else if (target === "email") rec.emailCell = val;
+        else if (target === "phone") rec.phoneCell = val;
+        else if (target === "linkedinUrl") rec.linkedinUrl = val;
+        else if (target === "status") rec.statusRaw = val;
+        else if (target === "note") rec.note = val;
+        else if (target === "when") rec.whenRaw = row[c] instanceof Date ? row[c] : val;
+      });
+      if (links) {
+        if (picCol >= 0 && links[r + "," + picCol]) rec.linkedinUrl = links[r + "," + picCol];
+        if (liCol >= 0 && links[r + "," + liCol]) rec.linkedinUrl = links[r + "," + liCol];
+      }
+      out.push(rec);
+    }
+    return out;
+  }
+  function planImport(state, records, opts) {
+    const s = state || {};
+    const o = opts || {};
+    const batch = String(o.batch || "").trim();
+    const line = String(o.line || "");
+    const ownerId = String(o.ownerId || "");
+    const companies = Array.isArray(s.companies) ? s.companies : [];
+    const leads = Array.isArray(s.leads) ? s.leads : [];
+    const compById = new Map(companies.filter(c => c && c.id).map(c => [String(c.id), c]));
+    const existingCompanyByNorm = new Map();
+    companies.forEach(c => { if (c && c.name) { const k = impFold(c.name); if (k && !existingCompanyByNorm.has(k)) existingCompanyByNorm.set(k, c); } });
+    const companyNameOfLead = l => { const c = l && l.company ? compById.get(String(l.company)) : null; return c ? String(c.name || "") : ""; };
+    const existingLeadKeys = new Set(leads.filter(Boolean).map(l => impFold(companyNameOfLead(l)) + "|" + impFold(l.name)));
+    const existingMainCompanyIds = new Set(leads.filter(l => l && l.mainContact && l.company).map(l => String(l.company)));
+    const groups = new Map();
+    const duplicates = [], errors = [];
+    const seenFileKeys = new Set();
+    let lastCompany = "", nonEmptyRows = 0;
+    (Array.isArray(records) ? records : []).forEach((rec, i) => {
+      if (!rec || rec.empty) return;
+      nonEmptyRows++;
+      const rowNo = rec._row || (i + 1);
+      let companyRaw = String(rec.companyName || "").trim();
+      if (companyRaw) lastCompany = companyRaw; else companyRaw = lastCompany; /* carry-down ô công ty trống (merge cell) */
+      const pic = String(rec.picName || "").trim();
+      if (!companyRaw || !pic) {
+        errors.push({ row: rowNo, companyName: companyRaw, picName: pic, reason: !companyRaw ? "missing_company" : "missing_pic" });
+        return;
+      }
+      const key = impFold(companyRaw) + "|" + impFold(pic);
+      if (existingLeadKeys.has(key)) { duplicates.push({ row: rowNo, companyName: companyRaw, picName: pic, reason: "crm" }); return; }
+      if (seenFileKeys.has(key)) { duplicates.push({ row: rowNo, companyName: companyRaw, picName: pic, reason: "file" }); return; }
+      seenFileKeys.add(key);
+      const gk = impFold(companyRaw);
+      let g = groups.get(gk);
+      if (!g) { g = { key: gk, nameCounts: new Map(), firstName: companyRaw, profile: {}, leads: [] }; groups.set(gk, g); }
+      g.nameCounts.set(companyRaw, (g.nameCounts.get(companyRaw) || 0) + 1);
+      const prof = rec.profile || {};
+      Object.keys(prof).forEach(k => { const v = String(prof[k] === null || prof[k] === undefined ? "" : prof[k]).trim(); if (v && !g.profile[k]) g.profile[k] = normalizeNumericProfile(k, v); });
+      g.leads.push({ rec, row: rowNo, pic });
+    });
+    const companiesToCreate = [], companiesMatched = [], leadsToCreate = [];
+    const unknownByRaw = new Map();
+    let unknownStatusTotal = 0;
+    groups.forEach(g => {
+      let name = g.firstName, best = -1;
+      g.nameCounts.forEach((cnt, raw) => { if (cnt > best) { best = cnt; name = raw; } });
+      const existing = existingCompanyByNorm.get(g.key) || null;
+      let companyId = null, mainTaken = false;
+      if (existing) {
+        companyId = String(existing.id);
+        const fill = {};
+        Object.keys(g.profile).forEach(k => {
+          const cur = existing[k];
+          if ((cur === undefined || cur === null || String(cur).trim() === "") && g.profile[k]) fill[k] = g.profile[k];
+        });
+        companiesMatched.push({ id: companyId, name: String(existing.name || name), fill });
+        mainTaken = existingMainCompanyIds.has(companyId);
+      } else {
+        const profile = {};
+        Object.keys(g.profile).forEach(k => { profile[k] = g.profile[k]; });
+        if (!profile.vertical && o.vertical) profile.vertical = String(o.vertical);
+        const L = (typeof LINES !== "undefined" && LINES[line]) ? LINES[line] : null;
+        companiesToCreate.push({ key: g.key, name, profile, type: L ? L.target : "Doanh nghiệp", roles: L ? { [line]: L.target } : {}, importBatch: batch });
+      }
+      g.leads.forEach((entry, idx) => {
+        const rec = entry.rec;
+        const ep = parseEmailPhone(rec.emailCell);
+        const phone = extractPhone(rec.phoneCell) || ep.phone;
+        const st = mapStatus(rec.statusRaw);
+        if (!st.known) { unknownStatusTotal++; unknownByRaw.set(st.raw, (unknownByRaw.get(st.raw) || 0) + 1); }
+        leadsToCreate.push({
+          name: entry.pic, companyKey: g.key, companyId, companyName: name,
+          person: String(rec.person || "").trim(), phone, email: ep.email, emailRaw: ep.emailRaw,
+          linkedinUrl: String(rec.linkedinUrl || "").trim(),
+          status: st.key, statusRaw: st.raw, statusUnknown: !st.known,
+          note: String(rec.note || "").trim(), when: normalizeWhen(rec.whenRaw),
+          line, ownerId, importBatch: batch,
+          mainContact: idx === 0 && !mainTaken,
+        });
+      });
+    });
+    const stats = {
+      totalRows: nonEmptyRows,
+      newCompanies: companiesToCreate.length, matchedCompanies: companiesMatched.length,
+      newLeads: leadsToCreate.length, duplicates: duplicates.length, errors: errors.length,
+      unknownStatus: unknownStatusTotal,
+    };
+    return {
+      batch, line, ownerId, companiesToCreate, companiesMatched, leadsToCreate, duplicates, errors,
+      unknownStatuses: Array.from(unknownByRaw, ([raw, count]) => ({ raw, count })),
+      stats,
+      preview: leadsToCreate.slice(0, 10).map(l => ({ company: l.companyName, pic: l.name, email: l.email, phone: l.phone, linkedin: !!l.linkedinUrl, status: l.status })),
+    };
+  }
+  function listBatches(state) {
+    const s = state || {};
+    const byBatch = new Map();
+    const bump = (ent, kind) => {
+      const b = ent && ent.importBatch ? String(ent.importBatch).trim() : "";
+      if (!b) return;
+      if (!byBatch.has(b)) byBatch.set(b, { batch: b, leads: 0, companies: 0 });
+      byBatch.get(b)[kind]++;
+    };
+    (Array.isArray(s.leads) ? s.leads : []).forEach(l => bump(l, "leads"));
+    (Array.isArray(s.companies) ? s.companies : []).forEach(c => bump(c, "companies"));
+    return Array.from(byBatch.values()).sort((a, b) => a.batch < b.batch ? -1 : a.batch > b.batch ? 1 : 0);
+  }
+  function planRemoveBatch(state, batch) {
+    const s = state || {};
+    const b = String(batch || "").trim();
+    const leads = Array.isArray(s.leads) ? s.leads : [];
+    const companies = Array.isArray(s.companies) ? s.companies : [];
+    const deals = Array.isArray(s.deals) ? s.deals : [];
+    const leadsToDelete = leads.filter(l => l && String(l.importBatch || "").trim() === b && b).map(l => String(l.id));
+    const delSet = new Set(leadsToDelete);
+    const remainingLeads = leads.filter(l => l && !delSet.has(String(l.id)));
+    const companiesToDelete = [], companiesToKeep = [];
+    companies.filter(c => c && String(c.importBatch || "").trim() === b && b).forEach(c => {
+      const leadRefs = remainingLeads.filter(l => String(l.company || "") === String(c.id)).length;
+      const dealRefs = deals.filter(d => d && String(d.company || "") === String(c.id)).length;
+      if (leadRefs === 0 && dealRefs === 0) companiesToDelete.push(String(c.id));
+      else companiesToKeep.push({ id: String(c.id), name: String(c.name || ""), leadRefs, dealRefs });
+    });
+    return { batch: b, leadsToDelete, companiesToDelete, companiesToKeep, stats: { leads: leadsToDelete.length, companiesDeleted: companiesToDelete.length, companiesKept: companiesToKeep.length } };
+  }
+  return { impFold, impCellStr, DESTINATIONS, HEADER_ALIASES, guessMapping, findHeaderRow, extractPhone, parseEmailPhone, mapStatus, normalizeNumericProfile, normalizeWhen, rowsToRecords, planImport, listBatches, planRemoveBatch };
+})();
+if (typeof window !== "undefined") { window.SavaImport = SavaImport; }

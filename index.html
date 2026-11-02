@@ -147,9 +147,10 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="workspace-design.css?v=20261102.3">
+<link rel="stylesheet" href="workspace-design.css?v=20261102.4">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="supabase-client.js"></script>
 <script src="supabase-adapter.js"></script>
 <script src="supabase-data.js"></script>
@@ -216,6 +217,7 @@
 <button data-view="tasks" class=""><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="tasksByMember" class=""><i data-icon="team"></i><span>Việc theo người</span></button>
 <button data-view="members" class=""><i data-icon="company"></i><span>Thành viên</span></button>
+<button data-view="import" class="import-bd-only" style="display:none"><i data-icon="inbox"></i><span>Import</span></button>
 <button data-view="auditHistory" class="audit-admin-only" style="display:none"><i data-icon="clock"></i><span>Lịch sử tổng</span></button></nav>
   <div class="side-nav-cards">
     <a href="publishing.html" class="nav-card"><span class="nav-card-icon"><i data-icon="chart"></i></span><span class="nav-card-text"><strong>Thị trường &amp; Đánh giá game</strong><small>Dữ liệu thị trường, chấm điểm game và đối tác</small></span><i data-icon="arrow"></i></a>
@@ -247,6 +249,7 @@
 <button data-view="tasks" class="" aria-label="Việc"><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="tasksByMember" class="" aria-label="Việc theo người"><i data-icon="team"></i><span>Việc theo người</span></button>
 <button data-view="members" class="" aria-label="Thành viên"><i data-icon="company"></i><span>Thành viên</span></button>
+<button data-view="import" class="import-bd-only" style="display:none" aria-label="Import"><i data-icon="inbox"></i><span>Import</span></button>
 <button data-view="auditHistory" class="audit-admin-only" style="display:none" aria-label="Lịch sử tổng"><i data-icon="clock"></i><span>Lịch sử tổng</span></button></nav>
 
 
@@ -779,11 +782,13 @@ function render() {
   /* P6: mục nav "Lịch sử tổng" CHỈ Admin thấy — ẩn/hiện theo vai ở mỗi lần
      render, đúng mẫu gate theo vai của view Thành viên (isAdminViewer). */
   document.querySelectorAll(".audit-admin-only").forEach(el => { el.style.display = isAdminViewer() ? "" : "none"; });
-  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", auditHistory:"Lịch sử tổng" };
-  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
+  /* Mục nav "Import" hiện cho Admin + BD (isImportViewer), ẩn với vai khác — cùng mẫu gate theo vai của Lịch sử tổng. */
+  document.querySelectorAll(".import-bd-only").forEach(el => { el.style.display = isImportViewer() ? "" : "none"; });
+  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
+  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
-  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, events:vEvents, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers, auditHistory:vAuditHistory })[curView]();
+  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, events:vEvents, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers, import:vImport, auditHistory:vAuditHistory })[curView]();
 }
 
 function pipelineValue(ds) {
@@ -1757,6 +1762,229 @@ function auditHistRowHTML(row) {
   const entry = (typeof window !== "undefined" && window.SavaAuditUI && typeof window.SavaAuditUI.entryHTML === "function") ? window.SavaAuditUI.entryHTML(S, row) : "";
   return `<div class="audit-history-row" style="margin-bottom:10px"><div style="display:flex;gap:8px;align-items:center;margin-bottom:2px;flex-wrap:wrap">${badge}<b style="font-size:13.5px">${nameHTML}</b></div>${entry}</div>`;
 }
+/* ===== Import xlsx/csv (vImport) =====
+   Nạp công ty + lead hàng loạt từ file Excel/CSV. Toàn bộ logic nghiệp vụ
+   thuần nằm ở window.SavaImport (shared.js): đoán header, chuẩn hoá, tách
+   email/SĐT, map status, planner dry-run + planner gỡ lô — view này chỉ
+   đọc file (SheetJS qua CDN, cùng mẫu supabase-js), dựng bước ghép cột /
+   thiết lập lô, HIỂN THỊ plan rồi mới ghi ĐÚNG plan đó qua save() (đường
+   lưu duy nhất của app: sys-stamp createdAt/updatedAt/updatedBy + audit
+   tự sinh như tạo tay). LinkedIn cá nhân lấy ở mức ô: hyperlink của ô PIC
+   (ws[addr].l.Target) — giá trị ô PIC chỉ là tên người.
+   Trạng thái phiên (impData/impPlan/impSettings) là UI-state thuần trong
+   bộ nhớ, không nằm trong S, không qua save(). */
+let impData = null;      /* {fileName, wb, sheetNames, sheetName, aoa, links, headerIdx, headers, mapping} */
+let impPlan = null;      /* plan dry-run hiện hành (window.SavaImport.planImport) */
+let impResult = null;    /* kết quả lần nạp gần nhất trong phiên */
+let impBatchList = [];   /* danh sách lô đang hiển thị (để nút Gỡ lô tham chiếu theo chỉ số) */
+let impBusyFlag = false;
+const impSettings = { ownerId: null, line: "", vertical: "", batch: "" };
+function impDefaultBatchName() {
+  if (!impData) return "";
+  return impData.fileName.replace(/\.[^.]+$/, "") + "-" + todayStr();
+}
+function impDestOptions(selected) {
+  const D = (window.SavaImport && window.SavaImport.DESTINATIONS) || [];
+  return `<option value="" ${!selected ? "selected" : ""}>— Bỏ qua —</option>` + D.map(d => `<option value="${esc(d.key)}" ${selected === d.key ? "selected" : ""}>${esc(d.label)}</option>`).join("");
+}
+function vImport() {
+  const view = document.getElementById("view");
+  if (!isImportViewer()) { view.innerHTML = '<div class="panel"><h3>Chỉ Admin và BD dùng được Import</h3><p class="mut">Tài khoản của bạn không có quyền nạp dữ liệu hàng loạt.</p></div>'; return; }
+  if (!window.SavaImport) { view.innerHTML = '<div class="panel"><h3>Chưa nạp được module Import</h3><p class="mut">window.SavaImport (shared.js) chưa sẵn sàng — hãy tải lại trang.</p></div>'; return; }
+  const I = window.SavaImport;
+  let h = "";
+  /* Bước 1 — chọn file (+ chọn sheet khi file nhiều sheet) */
+  h += `<section class="panel"><div class="panel-title"><h3>1 · Chọn file Excel / CSV</h3></div>
+    <input type="file" id="imp_file" accept=".xlsx,.xls,.csv" onchange="impOnFile(event)">
+    <p class="mut" style="margin-top:8px">Chấp nhận .xlsx / .csv. LinkedIn cá nhân được đọc từ hyperlink của ô PIC trong file Excel (file CSV không có hyperlink nên chỉ lấy từ giá trị cột LinkedIn nếu có). Dòng tiêu đề được tự tìm trong file (không nhất thiết ở dòng đầu).</p>`;
+  if (impData) {
+    h += `<p style="margin-top:8px">📄 <b>${esc(impData.fileName)}</b> · dòng tiêu đề: <b>dòng ${impData.headerIdx + 1}</b> · ${(impData.aoa || []).length - impData.headerIdx - 1} dòng dữ liệu phía dưới</p>`;
+    if (impData.sheetNames.length > 1) {
+      h += `<label style="display:block;margin-top:8px">Sheet</label><select id="imp_sheet" onchange="impOnSheet(this.value)">${impData.sheetNames.map(n => `<option value="${esc(n)}" ${n === impData.sheetName ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>`;
+    }
+  }
+  h += `</section>`;
+  if (impData) {
+    /* Bước 2 — ghép cột */
+    const width = impData.headers.length;
+    const sampleOf = c => {
+      for (let r = impData.headerIdx + 1; r < Math.min(impData.aoa.length, impData.headerIdx + 21); r++) {
+        const v = I.impCellStr((impData.aoa[r] || [])[c]);
+        if (v) return v.length > 42 ? v.slice(0, 42) + "…" : v;
+      }
+      return "";
+    };
+    const rows = impData.headers.map((hdr, c) => `<tr><td>${c + 1}</td><td><b>${esc(hdr || "(không tên)")}</b></td><td class="mut">${esc(sampleOf(c))}</td><td><select onchange="impSetMapping(${c}, this.value)">${impDestOptions(impData.mapping[c] || "")}</select></td></tr>`).join("");
+    h += `<section class="panel"><div class="panel-title"><h3>2 · Ghép cột file → field CRM</h3></div>
+      <p class="mut" style="margin-bottom:8px">Hệ thống đã tự đoán theo tên cột (Anh/Việt, có dấu hay không đều khớp). Mỗi field chỉ nhận tối đa 1 cột — chọn trùng thì cột trước tự bỏ. Bắt buộc có: Tên công ty + Tên PIC.</p>
+      <div class="imp-table-wrap"><table class="imp-table"><thead><tr><th>#</th><th>Cột trong file</th><th>Giá trị mẫu</th><th>Field CRM</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+    /* Bước 3 — thiết lập lô */
+    const ownerId = impSettings.ownerId !== null && impSettings.ownerId !== undefined ? impSettings.ownerId : defaultOwnerId();
+    const ownerOpts = memberList(S).filter(m => m.active).map(m => `<option value="${esc(m.id)}" ${ownerId === m.id ? "selected" : ""}>${esc(m.name)} (${esc(m.role)})</option>`).join("");
+    const lineSel = impSettings.line || (curLine !== "all" ? curLine : "metaverse");
+    const lineOpts = Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${lineSel === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
+    const vertOpts = [`<option value="" ${!impSettings.vertical ? "selected" : ""}>— Không đặt —</option>`].concat(companyProfileVerticalOptions().map(v => `<option value="${esc(v)}" ${impSettings.vertical === v ? "selected" : ""}>${esc(v)}</option>`)).join("");
+    const batchVal = impSettings.batch || impDefaultBatchName();
+    h += `<section class="panel"><div class="panel-title"><h3>3 · Thiết lập lô</h3></div>
+      <div class="imp-settings">
+        <div>${field("Người phụ trách lead mới", `<select id="imp_owner" onchange="impSetSetting('ownerId', this.value)">${ownerOpts}</select>`)}</div>
+        <div>${field("Mảng (line) cho lead mới", `<select id="imp_line" onchange="impSetSetting('line', this.value)">${lineOpts}</select>`)}</div>
+        <div>${field("Ngành dọc cho công ty MỚI tạo", `<select id="imp_vertical" onchange="impSetSetting('vertical', this.value)">${vertOpts}</select>`)}</div>
+        <div>${field("Tên lô (importBatch)", `<input id="imp_batch" style="width:100%" value="${esc(batchVal)}" onchange="impSetSetting('batch', this.value)">`)}</div>
+      </div>
+      <p class="mut" style="margin-top:8px">Tên lô được ghi vào mọi công ty + lead do lô này TẠO MỚI — dùng để gỡ cả lô về sau. Công ty khớp sẵn có chỉ được điền field hồ sơ đang trống, không ghi đè, không gắn marker lô.</p>
+      <div style="margin-top:12px"><button class="btn" onclick="impRunPreview()">🔍 Xem trước (dry-run) — chưa ghi gì</button></div></section>`;
+    /* Bước 4 — xem trước + nạp */
+    if (impPlan) h += impPreviewHTML();
+    if (impResult) h += `<section class="panel imp-result"><h3>✅ Đã nạp lô “${esc(impResult.batch)}”</h3><p>Tạo mới <b>${impResult.newCompanies}</b> công ty · tạo mới <b>${impResult.newLeads}</b> lead · điền hồ sơ cho <b>${impResult.matchedCompanies}</b> công ty có sẵn · bỏ qua <b>${impResult.duplicates}</b> dòng trùng · <b>${impResult.errors}</b> dòng lỗi — khớp đúng số đã xem trước.</p></section>`;
+  }
+  /* Danh sách lô + gỡ lô */
+  impBatchList = I.listBatches(S);
+  h += `<section class="panel"><div class="panel-title"><h3>Các lô đã nạp</h3></div>`;
+  if (!impBatchList.length) h += `<p class="mut">Chưa có lô nào — bản ghi tạo tay không mang marker lô nên không hiện ở đây.</p>`;
+  else h += `<div class="imp-table-wrap"><table class="imp-table"><thead><tr><th>Lô (importBatch)</th><th>Lead</th><th>Công ty tạo bởi lô</th><th></th></tr></thead><tbody>${impBatchList.map((b, i) => `<tr><td><b>${esc(b.batch)}</b></td><td>${b.leads}</td><td>${b.companies}</td><td><button class="btn danger small" onclick="impRemoveBatch(${i})">Gỡ lô</button></td></tr>`).join("")}</tbody></table></div>
+    <p class="mut" style="margin-top:8px">Gỡ lô: xoá toàn bộ lead của lô; công ty do lô tạo chỉ bị xoá khi không còn lead/deal nào ngoài lô tham chiếu tới — còn được dùng thì giữ lại và báo rõ.</p>`;
+  h += `</section>`;
+  view.innerHTML = h;
+}
+function impPreviewHTML() {
+  const p = impPlan, st = p.stats;
+  const fillCount = p.companiesMatched.reduce((n, m) => n + Object.keys(m.fill || {}).length, 0);
+  const dupList = p.duplicates.slice(0, 8).map(d => `<li>Dòng ${d.row}: ${esc(d.companyName)} — ${esc(d.picName)} (${d.reason === "crm" ? "đã có trong CRM" : "trùng trong file"})</li>`).join("");
+  const errList = p.errors.slice(0, 20).map(e => `<li>Dòng ${e.row}: ${e.reason === "missing_company" ? "thiếu tên công ty" : "thiếu PIC"}${e.companyName ? " — công ty: " + esc(e.companyName) : ""}${e.picName ? " — PIC: " + esc(e.picName) : ""}</li>`).join("");
+  const unkList = p.unknownStatuses.map(u => `“${esc(u.raw)}” (${u.count})`).join(", ");
+  const sample = p.preview.map(r => `<tr><td>${esc(r.company)}</td><td>${esc(r.pic)}</td><td>${esc(r.email || "—")}</td><td>${esc(r.phone || "—")}</td><td>${r.linkedin ? "Có" : "—"}</td><td>${esc(leadStatusText(r.status))}</td></tr>`).join("");
+  return `<section class="panel"><div class="panel-title"><h3>4 · Xem trước lô “${esc(p.batch)}”</h3></div>
+    <div class="kpis imp-kpis">
+      <div class="kpi"><div class="k">Công ty MỚI sẽ tạo</div><div class="v">${st.newCompanies}</div></div>
+      <div class="kpi"><div class="k">Công ty khớp sẵn có</div><div class="v">${st.matchedCompanies}</div><div class="s">chỉ điền ${fillCount} field hồ sơ đang trống, không ghi đè</div></div>
+      <div class="kpi"><div class="k">Lead mới sẽ tạo</div><div class="v">${st.newLeads}</div></div>
+      <div class="kpi"><div class="k">Dòng trùng bỏ qua</div><div class="v">${st.duplicates}</div></div>
+      <div class="kpi"><div class="k">Dòng lỗi</div><div class="v">${st.errors}</div><div class="s">sau khi đã nối công ty xuống dòng (carry-down)</div></div>
+      <div class="kpi"><div class="k">Trạng thái lạ → “Mới”</div><div class="v">${st.unknownStatus}</div>${unkList ? `<div class="s">${unkList}</div>` : ""}</div>
+    </div>
+    ${p.duplicates.length ? `<h4 class="imp-subhead">Ví dụ dòng trùng (bỏ qua)</h4><ul class="imp-list">${dupList}</ul>` : ""}
+    ${p.errors.length ? `<h4 class="imp-subhead">Dòng lỗi</h4><ul class="imp-list">${errList}</ul>` : ""}
+    ${p.preview.length ? `<h4 class="imp-subhead">Mẫu ${p.preview.length} dòng đầu sau biến đổi</h4><div class="imp-table-wrap"><table class="imp-table"><thead><tr><th>Công ty</th><th>PIC</th><th>Email</th><th>SĐT</th><th>LinkedIn</th><th>Trạng thái đích</th></tr></thead><tbody>${sample}</tbody></table></div>` : ""}
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn" id="imp_applyBtn" onclick="impApply()" ${st.newLeads === 0 && st.newCompanies === 0 ? "disabled" : ""}>⬆️ Nạp đúng plan này</button><span class="mut" id="imp_progress"></span></div>
+  </section>`;
+}
+async function impOnFile(ev) {
+  const f = ev && ev.target && ev.target.files && ev.target.files[0];
+  if (!f) return;
+  if (typeof XLSX === "undefined") { toast("Chưa nạp được thư viện đọc Excel (SheetJS) — kiểm tra mạng rồi tải lại trang."); return; }
+  let wb;
+  try { wb = XLSX.read(await f.arrayBuffer(), { type: "array", cellDates: true }); }
+  catch (e) { toast("Không đọc được file này — hãy chắc chắn đó là file .xlsx hoặc .csv hợp lệ."); return; }
+  if (!wb.SheetNames || !wb.SheetNames.length) { toast("File không có sheet nào."); return; }
+  impData = { fileName: f.name, wb, sheetNames: wb.SheetNames.slice(), sheetName: wb.SheetNames[0], aoa: [], links: {}, headerIdx: 0, headers: [], mapping: [] };
+  impSettings.batch = impDefaultBatchName();
+  impPlan = null; impResult = null;
+  impLoadSheet();
+  render();
+  toast("Đã đọc file: " + f.name);
+}
+function impLoadSheet() {
+  const I = window.SavaImport;
+  const ws = impData.wb.Sheets[impData.sheetName];
+  const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+  /* Hyperlink ở mức ô: ws[addr].l.Target — khoá theo chỉ số aoa (đã trừ
+     điểm bắt đầu của range) để rowsToRecords tra cùng hệ toạ độ. */
+  const links = {};
+  Object.keys(ws).forEach(addr => {
+    if (addr.charAt(0) === "!") return;
+    const cell = ws[addr];
+    if (cell && cell.l && cell.l.Target) { const rc = XLSX.utils.decode_cell(addr); links[(rc.r - range.s.r) + "," + (rc.c - range.s.c)] = cell.l.Target; }
+  });
+  let hi = I.findHeaderRow(aoa);
+  impData.aoa = aoa; impData.links = links;
+  impData.headerIdx = hi >= 0 ? hi : 0;
+  const width = aoa.reduce((m, r) => Math.max(m, Array.isArray(r) ? r.length : 0), 0);
+  const hrow = aoa[impData.headerIdx] || [];
+  impData.headers = Array.from({ length: width }, (_, c) => I.impCellStr(hrow[c]));
+  impData.mapping = I.guessMapping(impData.headers);
+  impPlan = null;
+}
+function impOnSheet(name) { if (!impData) return; impData.sheetName = name; impLoadSheet(); render(); }
+function impSetMapping(col, val) {
+  if (!impData) return;
+  if (val) {
+    const other = impData.mapping.indexOf(val);
+    if (other >= 0 && other !== col) { impData.mapping[other] = ""; toast("Field này đã gán cho cột " + (other + 1) + " — đã bỏ gán ở cột đó (mỗi field chỉ nhận 1 cột)."); }
+  }
+  impData.mapping[col] = val;
+  impPlan = null;
+  render();
+}
+function impSetSetting(key, val) { impSettings[key] = val; impPlan = null; if (curView === "import") render(); }
+function impRunPreview() {
+  if (!impData) return;
+  const I = window.SavaImport;
+  if (!impData.mapping.includes("companyName") || !impData.mapping.includes("picName")) { toast("Cần ghép cột cho cả Tên công ty và Tên PIC trước khi xem trước."); return; }
+  const ownerEl = document.getElementById("imp_owner"), lineEl = document.getElementById("imp_line"), vertEl = document.getElementById("imp_vertical"), batchEl = document.getElementById("imp_batch");
+  const batch = ((batchEl && batchEl.value) || "").trim() || impDefaultBatchName();
+  impSettings.batch = batch;
+  const records = I.rowsToRecords(impData.aoa, impData.headerIdx, impData.mapping, impData.links);
+  impPlan = I.planImport(S, records, { batch, ownerId: ownerEl ? ownerEl.value : "", line: lineEl ? lineEl.value : "metaverse", vertical: vertEl ? vertEl.value : "" });
+  impResult = null;
+  render();
+}
+async function impApply() {
+  if (!impPlan || impBusyFlag) return;
+  impBusyFlag = true;
+  const plan = impPlan;
+  const btn = document.getElementById("imp_applyBtn"); if (btn) btn.disabled = true;
+  const setProg = t => { const el = document.getElementById("imp_progress"); if (el) el.textContent = t; };
+  const usedIds = new Set([...S.companies.map(c => String(c.id)), ...S.leads.map(l => String(l.id))]);
+  const base = Date.now(); let seq = 0;
+  const nextId = prefix => { let id; do { seq++; id = prefix + String(base + seq); } while (usedIds.has(id)); usedIds.add(id); return id; };
+  const total = plan.companiesToCreate.length + plan.leadsToCreate.length;
+  let done = 0;
+  const compIdByKey = new Map();
+  for (const draft of plan.companiesToCreate) {
+    const id = nextId("c");
+    compIdByKey.set(draft.key, id);
+    const c = { id, name: draft.name, type: draft.type, roles: draft.roles, last: "Vừa tạo", importBatch: plan.batch };
+    Object.keys(draft.profile || {}).forEach(k => { if (draft.profile[k]) c[k] = draft.profile[k]; });
+    S.companies.push(c);
+    done++; if (done % 200 === 0) { setProg("Đang nạp " + done + "/" + total + "…"); await new Promise(r => setTimeout(r, 0)); }
+  }
+  plan.companiesMatched.forEach(m => {
+    const c = S.companies.find(x => x.id === m.id);
+    if (!c) return;
+    Object.keys(m.fill || {}).forEach(k => { c[k] = m.fill[k]; });
+  });
+  for (const draft of plan.leadsToCreate) {
+    const id = nextId("l");
+    const l = { id, name: draft.name, company: draft.companyId || compIdByKey.get(draft.companyKey) || "", person: draft.person || "", phone: draft.phone || "", email: draft.email || "", linkedinUrl: draft.linkedinUrl || "", ownerId: draft.ownerId || "", line: draft.line, source: "", status: draft.status, note: draft.note || "", when: draft.when || todayStr(), mainContact: !!draft.mainContact, importBatch: plan.batch };
+    if (draft.emailRaw) l.emailRaw = draft.emailRaw;
+    S.leads.push(l);
+    done++; if (done % 200 === 0) { setProg("Đang nạp " + done + "/" + total + "…"); await new Promise(r => setTimeout(r, 0)); }
+  }
+  save();
+  impResult = { batch: plan.batch, ...plan.stats };
+  impPlan = null;
+  impBusyFlag = false;
+  render();
+  toast("Đã nạp lô “" + plan.batch + "”: " + plan.stats.newCompanies + " công ty mới, " + plan.stats.newLeads + " lead mới.");
+}
+function impRemoveBatch(idx) {
+  const item = impBatchList[idx];
+  if (!item) return;
+  const plan = window.SavaImport.planRemoveBatch(S, item.batch);
+  const keepTxt = plan.companiesToKeep.length ? "\nGiữ lại " + plan.companiesToKeep.length + " công ty (còn lead/deal ngoài lô tham chiếu): " + plan.companiesToKeep.map(c => c.name).slice(0, 5).join(", ") : "";
+  if (!confirm("Gỡ lô “" + item.batch + "”?\n- Xoá " + plan.leadsToDelete.length + " lead của lô\n- Xoá " + plan.companiesToDelete.length + " công ty do lô tạo và không còn được dùng" + keepTxt + "\nTiếp tục?")) return;
+  const delLeads = new Set(plan.leadsToDelete), delComps = new Set(plan.companiesToDelete);
+  S.leads = S.leads.filter(l => !delLeads.has(String(l.id)));
+  S.companies = S.companies.filter(c => !delComps.has(String(c.id)));
+  S.deals.forEach(d => { if (Array.isArray(d.leads)) d.leads = d.leads.filter(id => !delLeads.has(String(id))); });
+  if (Array.isArray(S.events)) S.events.forEach(ev => { if (Array.isArray(ev.leads)) ev.leads = ev.leads.filter(id => !delLeads.has(String(id))); });
+  save();
+  impResult = null;
+  render();
+  toast("Đã gỡ lô “" + item.batch + "”: xoá " + plan.leadsToDelete.length + " lead, " + plan.companiesToDelete.length + " công ty; giữ " + plan.companiesToKeep.length + " công ty.");
+}
 /* ===== Lịch sử tổng chia theo LOẠI HÀNH ĐỘNG (gom block như vLeads) =====
    Trường phân loại THẬT của một mục audit là `action` — nguồn sự thật:
    cột audit_log.action có CHECK (action in ('create','update','delete'))
@@ -1854,6 +2082,8 @@ let memberFnUnavailable = false;  /* function gọi lỗi (chưa deploy / mất 
 let memberAcctLoading = false;
 function authCurrentUser() { try { return (window.SavaAuth && typeof window.SavaAuth.currentUser === "function") ? window.SavaAuth.currentUser() : null; } catch (e) { return null; } }
 function isAdminViewer() { const u = authCurrentUser(); return !!(u && u.role === "admin"); }
+/* View Import hiện cho Admin + BD (vai auth "admin"/"bd"); MKT/vai khác không thấy mục nav và không mở được view. */
+function isImportViewer() { const u = authCurrentUser(); return !!(u && (u.role === "admin" || u.role === "bd")); }
 function memberHasAccount(m) {
   if (memberFnStatus) return !!(memberFnStatus[m.id] && memberFnStatus[m.id].has_account);
   return !!(memberProfiles && memberProfiles[m.id]);
