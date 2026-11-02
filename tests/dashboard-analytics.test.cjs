@@ -11,7 +11,8 @@
    - Tĩnh: render dashAnalyticsHTML gắn vào vDash, ghi chú trung thực của
      phễu, bộ màu DASH_COLORS định nghĩa một chỗ, CSS tiền tố dash-.
    - Hành vi qua harness index.html: vDash hiện đủ các khối; phễu trình
-     bày bản chốt (dòng mốc, chip mũi tên, % nguyên kèm số lead thật, cột
+     bày bản chốt (dòng mốc, % nguyên kèm số lead thật, dòng phụ % đi tiếp
+     ngay dưới % lớn — không còn pill mũi tên giữa các dòng, cột
      lối ra, dòng tóm tắt) trên fixture N=7 số lẻ đối chiếu tay; bấm một
      dòng phễu mở view Lead lọc đúng trạng thái; chuyển scope sang 1 BD
      thì bảng so sánh biến mất và ghi chú phạm vi BD xuất hiện. */
@@ -258,13 +259,15 @@ test('tĩnh: vDash gắn dashAnalyticsHTML; đủ nhãn trung thực + điều k
   assert.ok(css.includes('.dash-wrap') && css.includes('.dash-funnel-row') && css.includes('.dash-table'), 'CSS dash- phải có trong workspace-design.css');
 });
 
-test('tĩnh phễu bản chốt: đủ mẫu câu/mẫu chip/nhãn bắt buộc; không sót diễn giải cũ; % phễu làm tròn nguyên qua helper riêng', () => {
+test('tĩnh phễu bản chốt: đủ mẫu câu/mẫu dòng phụ % đi tiếp/nhãn bắt buộc; không còn pill mũi tên; % phễu làm tròn nguyên qua helper riêng', () => {
   const html = read('index.html'), css = read('workspace-design.css');
-  assert.ok(html.includes('Số % trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % ở mũi tên: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.'), '2 câu chú thích nguyên văn ngay trên phễu');
+  assert.ok(html.includes('Số % lớn trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % nhỏ có mũi tên ↓ ngay dưới % lớn: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.'), '2 câu chú thích nguyên văn ngay trên phễu (đã khớp trình bày mới)');
   assert.ok(html.includes('Tổng lead đưa vào — ${funnel.total} lead · 100%'), 'dòng mốc đầu phễu');
   assert.ok(html.includes('lead đã tới bước này'), 'mỗi dòng trạng thái kèm số lead thật + câu "đã tới bước này"');
   assert.ok(html.includes('% so với điểm bắt đầu'), 'nhãn % của dòng');
-  assert.ok(html.includes('lead đi tiếp ('), 'chip mũi tên theo mẫu "↓ {m} trong {n} lead đi tiếp ({p}%)"');
+  assert.ok(html.includes('dash-funnel-fromprev') && html.includes('đi tiếp ${j === 0 ? "từ đầu vào" : "từ bước trước"}'), 'dòng phụ % đi tiếp nằm trong khối % của dòng đích; Sent connect ghi "từ đầu vào", dòng sau ghi "từ bước trước"');
+  assert.ok(!html.includes('dash-funnel-arrow'), 'KHÔNG còn pill mũi tên đứng riêng giữa các dòng trong source render');
+  assert.ok(!html.includes('lead đi tiếp ('), 'mẫu chip cũ "↓ {m} trong {n} lead đi tiếp ({p}%)" đã bỏ hẳn');
   assert.ok(html.includes('tạm dừng — chưa có nhu cầu'), 'nhãn phụ cột lối ra');
   assert.ok(html.includes('trên tổng ban đầu'), 'cột lối ra hiện % trên tổng ban đầu');
   assert.ok(html.includes('lead đã tới bước Đạt chuẩn trở lên') && html.includes('lead đã chuyển thành deal'), 'dòng tóm tắt dưới phễu');
@@ -274,7 +277,8 @@ test('tĩnh phễu bản chốt: đủ mẫu câu/mẫu chip/nhãn bắt buộc;
   for (const stale of ['Rớt phễu', '→ bước tiếp:', 'từ bước đầu:', 'đang ở hoặc đã vượt qua']) {
     assert.ok(!html.includes(stale), 'không sót diễn giải/mẫu cũ của phễu: ' + stale);
   }
-  assert.ok(css.includes('.dash-funnel-arrow') && css.includes('.dash-funnel-exit') && css.includes('.dash-funnel-summary') && css.includes('.dash-funnel-pct'), 'CSS dash- cho chip/dòng lối ra/tóm tắt/% lớn phải có');
+  assert.ok(!css.includes('.dash-funnel-arrow'), 'CSS pill mũi tên cũ đã gỡ hẳn');
+  assert.ok(css.includes('.dash-funnel-fromprev') && css.includes('.dash-funnel-exit') && css.includes('.dash-funnel-summary') && css.includes('.dash-funnel-pct'), 'CSS dash- cho dòng phụ % đi tiếp/dòng lối ra/tóm tắt/% lớn phải có');
 });
 
 /* ---------- 8) Hành vi render qua harness ---------- */
@@ -326,7 +330,7 @@ test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; ch
   run("setDashScope('')");
 });
 
-test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, chip mũi tên, % nguyên kèm số thật, lối ra, tóm tắt; chip 0/0 không NaN', () => {
+test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng phụ % đi tiếp trong dòng đích (không pill, không lặp số lead), lối ra, tóm tắt; prev=0 hiện ↓ —, không NaN', () => {
   const { run, getEl } = loadIndex();
   const mk = (id, status) => ({ id, company: 'c1', line: 'ai', status, name: 'Lead ' + id, person: '', note: '', source: '', when: '2026-11-02', createdAt: isoDaysAgo(1) });
   run(`S.leads = ${JSON.stringify([mk('f1', 'new'), mk('f2', 'new'), mk('f3', 'sent_connect'), mk('f4', 'first_email'), mk('f5', 'in_reply'), mk('f6', 'qualified'), mk('f7', 'converted'), mk('f8', 'not_yet_have_demand'), mk('f9', 'trang-thai-la')])}`);
@@ -334,21 +338,26 @@ test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, chip 
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 7 lead · 100%'), 'dòng mốc: N=7 (lối ra + trạng thái lạ không tính vào N)');
   assert.ok(!html.includes("dashOpenLeadStatus('new')"), 'KHÔNG vẽ dòng Mới riêng');
-  assert.ok(html.includes('↓ 5 trong 7 lead đi tiếp (71%)'), 'mũi tên đầu: m = N − số ở Mới = 5, p = 5/7 làm tròn nguyên 71%');
-  assert.ok(html.includes('↓ 4 trong 5 lead đi tiếp (80%)'), 'chip sent_connect -> first_message: 4/5 = 80%');
-  assert.ok(html.includes('↓ 1 trong 2 lead đi tiếp (50%)'), 'chip qualified -> converted: 1/2 = 50%');
+  assert.ok(!html.includes('dash-funnel-arrow'), 'render KHÔNG còn pill .dash-funnel-arrow nào');
+  assert.ok(!/trong \d+ lead đi tiếp/.test(html), 'phần % đi tiếp KHÔNG lặp số đếm lead kiểu chip cũ');
+  assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 71% đi tiếp từ đầu vào</span>'), 'dòng Sent connect: % đi tiếp từ dòng mốc tổng (5/7 -> 71%) ghi "từ đầu vào", nằm trong khối % của chính dòng');
+  assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 80% đi tiếp từ bước trước</span>'), 'dòng first_message: đi tiếp từ Sent connect 4/5 = 80%');
+  assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 50% đi tiếp từ bước trước</span>'), 'dòng converted: đi tiếp từ qualified 1/2 = 50%');
   assert.ok(html.includes('5 lead đã tới bước này') && html.includes('<b>71%</b>'), 'dòng Sent connect: số tích luỹ thật + % nguyên so với điểm bắt đầu');
   assert.ok(html.includes('<b>29%</b>'), 'dòng tích luỹ 2/7 hiện 29% (làm tròn nguyên)');
   assert.ok(html.includes('1 lead · 14% trên tổng ban đầu') && html.includes('tạm dừng — chưa có nhu cầu'), 'cột lối ra: 1 lead, 1/7 -> 14% trên tổng ban đầu, nhãn tạm dừng');
+  const exitSlice = html.slice(html.indexOf('dash-funnel-exit'), html.indexOf('dash-funnel-summary'));
+  assert.ok(!exitSlice.includes('dash-funnel-fromprev') && !exitSlice.includes('đi tiếp'), 'khối lối ra Not yet have demand KHÔNG có % đi tiếp');
   assert.ok(html.includes('Trong 7 lead: 2 lead đã tới bước Đạt chuẩn trở lên (29%) · 1 lead đã chuyển thành deal (14%)'), 'dòng tóm tắt đúng mẫu câu + % nguyên');
   assert.ok(html.includes('1 lead có trạng thái lạ') && html.includes('không tính vào tổng lead đưa vào'), 'ghi chú trạng thái lạ bị loại tại phễu');
-  assert.ok(html.includes('Số % trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % ở mũi tên: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.'), '2 câu chú thích nguyên văn trên phễu');
-  /* Mọi lead kẹt ở Mới: các dòng tích luỹ = 0, chip sau dòng 0 hiện (—). */
+  assert.ok(html.includes('Số % lớn trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % nhỏ có mũi tên ↓ ngay dưới % lớn: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.'), '2 câu chú thích nguyên văn trên phễu (trình bày mới)');
+  /* Mọi lead kẹt ở Mới: các dòng tích luỹ = 0; dòng đầu (prev = N = 2) hiện 0%, các dòng sau (prev = 0) hiện ↓ —. */
   run(`S.leads = ${JSON.stringify([mk('g1', 'new'), mk('g2', 'new')])}`);
   run("render()");
   const zero = getEl('view').innerHTML;
-  assert.ok(zero.includes('↓ 0 trong 2 lead đi tiếp (0%)'), 'mũi tên đầu khi không ai đi tiếp: 0/2 = 0%');
-  assert.ok(zero.includes('↓ 0 trong 0 lead đi tiếp (—)'), 'dòng trên = 0 -> chip (—), không NaN');
+  assert.ok(zero.includes('<span class="dash-funnel-fromprev">↓ 0% đi tiếp từ đầu vào</span>'), 'dòng Sent connect khi không ai đi tiếp: 0/2 = 0% từ đầu vào');
+  assert.ok(zero.includes('<span class="dash-funnel-fromprev">↓ —</span>'), 'bước ngay trên = 0 lead -> dòng phụ "↓ —", không NaN');
+  assert.ok(!zero.includes('dash-funnel-arrow'), 'kể cả fixture 0 cũng không có pill mũi tên');
   assert.ok(!zero.includes('NaN'), 'không NaN khi mẫu số 0');
   assert.ok(zero.includes('Trong 2 lead: 0 lead đã tới bước Đạt chuẩn trở lên (0%) · 0 lead đã chuyển thành deal (0%)'));
   /* N=0: câu tóm tắt thay thế, không chia cho 0. */

@@ -212,7 +212,7 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-funnel-pct span {display:block;font-size:10.5px;color:#60717d}
 .dash-funnel-start {grid-template-columns:1fr;gap:6px;background:#e6f4f1;padding:10px 12px;cursor:pointer}
 .dash-funnel-start-txt {font-size:14px;font-weight:700;color:#213846}
-.dash-funnel-arrow {width:fit-content;max-width:100%;margin:4px auto;padding:3px 12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;font-size:12px;font-weight:600;color:#42586a;text-align:center}
+.dash-funnel-pct .dash-funnel-fromprev {margin-top:3px;font-size:11px;font-weight:600;color:#0f766e}
 .dash-funnel-exit {margin-top:14px;border-top:2px dashed #d9a5a5;padding-top:10px}
 .dash-funnel-exit-row {background:#fbf3f3;border:1px dashed #d9a5a5;padding:8px 10px}
 .dash-funnel-exit-row:hover {background:#f9e9e9}

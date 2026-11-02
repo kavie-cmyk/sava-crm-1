@@ -147,7 +147,7 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="workspace-design.css?v=20261102.2">
+<link rel="stylesheet" href="workspace-design.css?v=20261102.3">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="supabase-client.js"></script>
@@ -904,23 +904,27 @@ function dashAnalyticsHTML() {
   const fOwnerIds = []; scoped.leads.forEach(l => { if (l.ownerId && !fOwnerIds.includes(l.ownerId)) fOwnerIds.push(l.ownerId); });
   const fOwnerOpts = `<option value="" ${!dashFunnelOwner ? "selected" : ""}>Tất cả người phụ trách</option>` + fOwnerIds.map(id => `<option value="${esc(id)}" ${dashFunnelOwner === id ? "selected" : ""}>${esc(memberName(S, id))}</option>`).join("") + `<option value="__none__" ${dashFunnelOwner === "__none__" ? "selected" : ""}>Chưa gán</option>`;
   /* Trình bày BẢN CHỐT (tích luỹ, trực quan): dòng mốc đầu phễu = N lead ·
-     100% (KHÔNG vẽ dòng "Mới" riêng — số đang ở Mới suy ra từ mũi tên đầu:
-     N − tích luỹ Sent connect); mỗi dòng trạng thái từ Sent connect trở đi
-     hiện số tích luỹ + "{n} lead đã tới bước này" + % lớn "% so với điểm
-     bắt đầu"; giữa hai dòng là chip mũi tên "↓ {m} trong {n} lead đi tiếp
-     ({p}%)". Mọi % trong khối phễu làm tròn 0 thập phân qua dashPctIntTxt
-     và LUÔN kèm số lead thật. Cột dài tỉ lệ theo N (điểm bắt đầu = 100%).
+     100% (KHÔNG vẽ dòng "Mới" riêng); mỗi dòng trạng thái từ Sent connect
+     trở đi hiện số tích luỹ + "{n} lead đã tới bước này" + % lớn "% so với
+     điểm bắt đầu", và NGAY DƯỚI % lớn là dòng phụ nhỏ "% đi tiếp" của
+     chính dòng đó: "↓ {p}% đi tiếp từ bước trước" — KHÔNG lặp số đếm lead
+     (số lead đã có ở cột số của dòng); riêng dòng Sent connect, bước ngay
+     trên nó là dòng mốc tổng nên ghi "↓ {p}% đi tiếp từ đầu vào". Bước
+     ngay trên có 0 lead -> dòng phụ là "↓ —". KHÔNG còn pill mũi tên đứng
+     riêng giữa các dòng (bản trước lặp lại số lead của dòng dưới + trùng
+     % ở dòng đầu, gây rối). Mọi % trong khối phễu làm tròn 0 thập phân
+     qua dashPctIntTxt. Cột dài tỉ lệ theo N (điểm bắt đầu = 100%).
      Mọi dòng bấm được -> dashOpenLeadStatus(key) mở view Lead lọc đúng
      trạng thái đó (dòng mốc mở view Lead không lọc trạng thái). */
   const fStart = `<div class="dash-funnel-row dash-funnel-start" role="button" tabindex="0" onclick="dashOpenLeadStatus('')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('')" title="Bấm để mở view Lead (tất cả trạng thái)"><div class="dash-funnel-start-txt">Tổng lead đưa vào — ${funnel.total} lead · 100%</div><div class="dash-funnel-bar"><i style="width:${funnel.total ? 100 : 0}%;background:${cols.lead}"></i></div></div>`;
   const fBody = funnel.steps.slice(1).map((st, j) => {
     const prev = funnel.steps[j];
     const def = leadStatusDef(st.key) || { label: st.key, color: "#64748b" };
-    const chip = `<div class="dash-funnel-arrow">↓ ${st.count} trong ${prev.count} lead đi tiếp (${dashPctIntTxt(prev.toNext)})</div>`;
-    const row = `<div class="dash-funnel-row${st.count ? "" : " dash-funnel-row--zero"}" role="button" tabindex="0" onclick="dashOpenLeadStatus('${st.key}')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('${st.key}')" title="Bấm để mở view Lead — trạng thái ${esc(def.label)}"><div class="dash-funnel-nm">${esc(def.label)}</div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? st.count / funnel.total * 100 : 0).toFixed(1)}%;background:${def.color}"></i></div><div class="dash-funnel-num">${st.count} lead đã tới bước này</div><div class="dash-funnel-pct"><b>${dashPctIntTxt(st.pct)}</b><span>% so với điểm bắt đầu</span></div></div>`;
-    return chip + row;
+    const fromPrev = prev.count ? `↓ ${dashPctIntTxt(prev.toNext)} đi tiếp ${j === 0 ? "từ đầu vào" : "từ bước trước"}` : "↓ —";
+    const row = `<div class="dash-funnel-row${st.count ? "" : " dash-funnel-row--zero"}" role="button" tabindex="0" onclick="dashOpenLeadStatus('${st.key}')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('${st.key}')" title="Bấm để mở view Lead — trạng thái ${esc(def.label)}"><div class="dash-funnel-nm">${esc(def.label)}</div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? st.count / funnel.total * 100 : 0).toFixed(1)}%;background:${def.color}"></i></div><div class="dash-funnel-num">${st.count} lead đã tới bước này</div><div class="dash-funnel-pct"><b>${dashPctIntTxt(st.pct)}</b><span>% so với điểm bắt đầu</span><span class="dash-funnel-fromprev">${fromPrev}</span></div></div>`;
+    return row;
   }).join("");
-  /* Cột LỐI RA riêng ở cuối: Not yet have demand — không chip % đi tiếp,
+  /* Cột LỐI RA riêng ở cuối: Not yet have demand — không có dòng % đi tiếp,
      không vào dãy tích luỹ; số + % trên tổng ban đầu N, vẫn bấm được. */
   const dropDef = leadStatusDef(funnel.dropped.key) || { label: funnel.dropped.key, color: "#94a3b8" };
   const fExit = `<div class="dash-funnel-exit"><div class="dash-funnel-row dash-funnel-exit-row" role="button" tabindex="0" onclick="dashOpenLeadStatus('${funnel.dropped.key}')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('${funnel.dropped.key}')" title="Bấm để mở view Lead — trạng thái ${esc(dropDef.label)}"><div class="dash-funnel-nm">${esc(dropDef.label)}<span class="dash-funnel-exit-sub">tạm dừng — chưa có nhu cầu</span></div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? funnel.dropped.count / funnel.total * 100 : 0).toFixed(1)}%;background:#cbd5e1"></i></div><div class="dash-funnel-num">${funnel.dropped.count} lead · ${dashPctIntTxt(funnel.dropped.pct)} trên tổng ban đầu</div></div></div>`;
@@ -928,7 +932,7 @@ function dashAnalyticsHTML() {
     ? `<div class="dash-funnel-summary">Trong ${funnel.total} lead: ${funnel.summary.qualifiedPlus} lead đã tới bước Đạt chuẩn trở lên (${dashPctIntTxt(funnel.summary.qualifiedPlusPct)}) · ${funnel.summary.converted} lead đã chuyển thành deal (${dashPctIntTxt(funnel.summary.convertedPct)})</div>`
     : `<div class="dash-funnel-summary">Chưa có lead nào trong phạm vi này.</div>`;
   const funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">ảnh chụp hiện tại</span></h3><div class="dash-ctl"><select class="dash-select" onchange="setDashFunnelLine(this.value)" aria-label="Lọc phễu theo mảng">${fLineOpts}</select><select class="dash-select" onchange="setDashFunnelOwner(this.value)" aria-label="Lọc phễu theo người phụ trách">${fOwnerOpts}</select></div></div>
-  <p class="dash-note">Số % trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % ở mũi tên: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.</p>
+  <p class="dash-note">Số % lớn trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % nhỏ có mũi tên ↓ ngay dưới % lớn: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.</p>
   ${fStart}${fBody}${fExit}${fSummary}
   <p class="dash-note">Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead.</p>
   ${funnel.unknown ? `<p class="dash-note">⚠️ ${funnel.unknown} lead có trạng thái lạ (không thuộc danh sách trạng thái chuẩn) — không đưa vào phễu, không tính vào tổng lead đưa vào.</p>` : ""}</section>`;
