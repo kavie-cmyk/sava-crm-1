@@ -947,6 +947,241 @@ function fmtFinalScore(v) {
 if (typeof window !== "undefined") { window.fmtFinalScore = fmtFinalScore; }
 function stageOf(line, key) { return LINES[line].stages.find(s => s[0] === key); }
 function isOpen(d) { return d.stage !== "won" && d.stage !== "lost"; }
+/* === Dashboard Phân tích (khu "Phân tích" ở Tổng quan BD) — HELPER THUẦN ===
+   Mọi con số của khu Phân tích tính qua các helper dưới đây: hàm thuần nhận
+   danh sách/state + kỳ + mốc "now", KHÔNG đọc biến toàn cục của trang,
+   KHÔNG ghi dữ kiện — unit-test trực tiếp qua window.SavaDash.
+   Bộ màu dùng chung cho MỌI biểu đồ trong khu (định nghĩa MỘT chỗ duy nhất):
+   company = teal đậm (màu chủ đạo theme), lead = xanh dương, deal = hổ phách. */
+const DASH_COLORS = { company: "#0f766e", lead: "#0284c7", deal: "#d97706" };
+function dashParseDate(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const d = v instanceof Date ? new Date(v.getTime()) : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function dashDayStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function dashMondayStart(d) { const x = dashDayStart(d); const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); return x; }
+/* % thuần: mẫu số 0 / không hợp lệ -> null (tầng hiển thị tự đổi thành "—"
+   hoặc nhãn chữ "Chưa có deal đóng"); có mẫu số -> % dạng số (0–100). */
+function dashPct(num, den) {
+  if (!den || !Number.isFinite(den)) return null;
+  return (num / den) * 100;
+}
+/* Đếm "mới trong kỳ": kỳ = days ngày gần nhất tính cả hôm nay (days = null
+   -> "Tất cả": mọi bản ghi có createdAt hợp lệ). Bản ghi thiếu/rỗng/không
+   parse được createdAt bị LOẠI và đếm vào missing để UI ghi chú trung thực. */
+function dashCountNew(list, days, now) {
+  const nowD = dashDayStart(now || new Date());
+  const start = (days === null || days === undefined) ? null : (() => { const s = new Date(nowD); s.setDate(s.getDate() - (days - 1)); return s; })();
+  let count = 0, missing = 0;
+  (list || []).forEach(e => {
+    const d = dashParseDate(e && e.createdAt);
+    if (!d) { missing++; return; }
+    if (!start || dashDayStart(d) >= start) count++;
+  });
+  return { count, missing };
+}
+/* Xu hướng thêm mới — quy tắc bucket:
+   - Kỳ 7 / 30 ngày -> theo NGÀY (đúng N bucket, bucket cuối = hôm nay).
+   - Kỳ 90 ngày -> theo TUẦN (bucket tuần bắt đầu thứ Hai; tuần đầu là tuần
+     chứa ngày bắt đầu kỳ, tuần cuối là tuần hiện tại).
+   - "Tất cả" (days = null) -> theo TUẦN nếu toàn bộ dữ kiện trải ≤ 730 ngày
+     (từ createdAt sớm nhất tới hôm nay), theo THÁNG nếu trải > 730 ngày.
+   Bản ghi thiếu createdAt: loại khỏi mọi bucket, đếm vào missing.
+   Bản ghi có createdAt TRƯỚC cửa sổ kỳ (kỳ cố định): không vào bucket nào
+   và không tính missing (chỉ nằm ngoài kỳ). */
+function dashTrend(sets, days, now) {
+  const nowD = dashDayStart(now || new Date());
+  const keys = ["company", "lead", "deal"];
+  const parsed = {}, allDates = [];
+  let missing = 0;
+  keys.forEach(k => {
+    parsed[k] = [];
+    ((sets && sets[k]) || []).forEach(e => {
+      const d = dashParseDate(e && e.createdAt);
+      if (!d) { missing++; return; }
+      const dd = dashDayStart(d);
+      parsed[k].push(dd); allDates.push(dd);
+    });
+  });
+  let gran, starts = [];
+  const pushWeeks = (from, to) => { for (let t = new Date(from); t <= to; t.setDate(t.getDate() + 7)) starts.push(new Date(t)); };
+  if (days === 7 || days === 30) {
+    gran = "day";
+    const s0 = new Date(nowD); s0.setDate(s0.getDate() - (days - 1));
+    for (let i = 0; i < days; i++) { const t = new Date(s0); t.setDate(t.getDate() + i); starts.push(t); }
+  } else if (days === 90) {
+    gran = "week";
+    const raw = new Date(nowD); raw.setDate(raw.getDate() - 89);
+    pushWeeks(dashMondayStart(raw), nowD);
+  } else {
+    if (!allDates.length) return { granularity: "week", buckets: [], missing };
+    const earliest = new Date(Math.min.apply(null, allDates));
+    const spanDays = Math.round((nowD - earliest) / 86400000);
+    if (spanDays > 730) {
+      gran = "month";
+      let t = new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+      const last = new Date(nowD.getFullYear(), nowD.getMonth(), 1);
+      while (t <= last) { starts.push(new Date(t)); t = new Date(t.getFullYear(), t.getMonth() + 1, 1); }
+    } else {
+      gran = "week";
+      pushWeeks(dashMondayStart(earliest), nowD);
+    }
+  }
+  const fmtDM = d => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0");
+  const buckets = starts.map((s, i) => {
+    let label;
+    if (gran === "day") label = fmtDM(s);
+    else if (gran === "week") { const e = new Date(starts[i + 1] || new Date(s.getTime() + 7 * 86400000)); e.setDate(e.getDate() - 1); label = fmtDM(s) + "–" + fmtDM(e > nowD && days !== null && days !== undefined ? nowD : e); }
+    else label = String(s.getMonth() + 1).padStart(2, "0") + "/" + s.getFullYear();
+    return { label, company: 0, lead: 0, deal: 0 };
+  });
+  const bucketIdx = d => {
+    if (gran === "month") {
+      const di = (d.getFullYear() - starts[0].getFullYear()) * 12 + (d.getMonth() - starts[0].getMonth());
+      return di >= 0 && di < starts.length ? di : -1;
+    }
+    const di = Math.floor((d - starts[0]) / (gran === "day" ? 86400000 : 7 * 86400000));
+    return di >= 0 && di < starts.length ? di : -1;
+  };
+  keys.forEach(k => parsed[k].forEach(d => { const i = bucketIdx(d); if (i >= 0) buckets[i][k]++; }));
+  return { granularity: gran, buckets, missing };
+}
+/* Phễu Lead LUỸ KẾ từ phân bố trạng thái HIỆN TẠI (hệ thống không lưu lịch
+   sử từng bước): số ở bước i = số lead có status ở vị trí >= i trong đường
+   chính mainKeys (không gồm droppedKey = "not_yet_have_demand").
+   toNext = % sang bước kề tiếp (null ở bước cuối / khi bước này = 0);
+   fromStart = % so với bước đầu. Status lạ -> unknown, không vào phễu. */
+function dashLeadFunnel(leads, mainKeys, droppedKey) {
+  const idx = {}; (mainKeys || []).forEach((k, i) => { idx[k] = i; });
+  const exact = (mainKeys || []).map(() => 0);
+  let dropped = 0, unknown = 0;
+  const list = leads || [];
+  list.forEach(l => {
+    const st = l && l.status;
+    if (st === droppedKey) { dropped++; return; }
+    if (Object.prototype.hasOwnProperty.call(idx, st)) exact[idx[st]]++;
+    else unknown++;
+  });
+  const cum = exact.slice();
+  for (let i = cum.length - 2; i >= 0; i--) cum[i] += cum[i + 1];
+  const steps = (mainKeys || []).map((k, i) => ({
+    key: k, count: cum[i],
+    toNext: i < mainKeys.length - 1 ? dashPct(cum[i + 1], cum[i]) : null,
+    fromStart: dashPct(cum[i], cum[0]),
+  }));
+  return { steps, dropped: { count: dropped, pct: dashPct(dropped, list.length) }, unknown, total: list.length };
+}
+function dashWinRate(deals) {
+  const won = (deals || []).filter(d => d && d.stage === "won").length;
+  const lost = (deals || []).filter(d => d && d.stage === "lost").length;
+  return { won, lost, rate: dashPct(won, won + lost) };
+}
+/* Deal theo từng mảng: số deal ở từng stage theo ĐÚNG thứ tự pipeline của
+   mảng (gồm won/lost ở cuối như định nghĩa stage) + tỉ lệ thắng của mảng +
+   tổng amount của deal ĐANG MỞ nhóm theo tiền tệ (chỉ mảng có amount —
+   mảng game không có amount nên openAmounts rỗng, đúng money() ở render). */
+function dashDealStages(deals, linesDef) {
+  return Object.keys(linesDef || {}).map(k => {
+    const L = linesDef[k];
+    const ds = (deals || []).filter(d => d && d.line === k);
+    const stages = (L.stages || []).map(s => ({ key: s[0], label: s[1], count: ds.filter(d => d.stage === s[0]).length }));
+    const wr = dashWinRate(ds);
+    const openAmounts = {};
+    ds.filter(d => isOpen(d)).forEach(d => { if (d.amount && !GAME_LINES.includes(k)) openAmounts[d.cur || "VND"] = (openAmounts[d.cur || "VND"] || 0) + d.amount; });
+    return { line: k, stages, won: wr.won, lost: wr.lost, rate: wr.rate, openCount: ds.filter(d => isOpen(d)).length, openAmounts };
+  });
+}
+/* Tập owner phụ trách thật trong dữ kiện: lead.ownerId ∪ deal.owner
+   (không gồm rỗng). Dùng cho bộ chọn phạm vi + bảng so sánh BD. */
+function dashScopeOwners(state) {
+  const out = [];
+  const push = v => { if (v && !out.includes(v)) out.push(v); };
+  ((state && state.leads) || []).forEach(l => push(l && l.ownerId));
+  ((state && state.deals) || []).forEach(d => push(d && d.owner));
+  return out;
+}
+/* Lọc toàn bộ dashboard theo 1 BD (scopeId = member id; rỗng = Toàn hệ).
+   Khoá phụ trách: lead -> ownerId, deal -> owner, việc -> assignee.
+   Company KHÔNG có owner: "công ty của BD" = tập công ty PHÂN BIỆT của
+   (các lead BD phụ trách) ∪ (các deal BD phụ trách). */
+function dashScopeFilter(state, scopeId) {
+  const s = state || {};
+  const all = { companies: s.companies || [], leads: s.leads || [], deals: s.deals || [], tasks: s.tasks || [], scoped: false, companyIds: null };
+  if (!scopeId) return all;
+  const leads = all.leads.filter(l => l && l.ownerId === scopeId);
+  const deals = all.deals.filter(d => d && d.owner === scopeId);
+  const tasks = all.tasks.filter(t => t && t.assignee === scopeId);
+  const ids = new Set();
+  leads.forEach(l => { if (l.company) ids.add(l.company); });
+  deals.forEach(d => { if (d.company) ids.add(d.company); });
+  const companies = all.companies.filter(c => c && ids.has(c.id));
+  return { companies, leads, deals, tasks, scoped: true, companyIds: Array.from(ids) };
+}
+/* 3 tỉ lệ chuyển đổi tổng hợp trên MỘT tập đã lọc (Toàn hệ hoặc 1 BD):
+   (a) Lead -> Deal = lead status "converted" / tổng lead;
+   (b) Deal thắng = won / (won + lost) của tập deal;
+   (c) Công ty có deal = số công ty (trong tập) có >= 1 deal (trong tập)
+       / tổng công ty của tập. Mỗi tỉ lệ kèm tử/mẫu dạng "x / y". */
+function dashConversions(scoped) {
+  const sc = scoped || {};
+  const leads = sc.leads || [], deals = sc.deals || [], companies = sc.companies || [];
+  const converted = leads.filter(l => l && l.status === "converted").length;
+  const wr = dashWinRate(deals);
+  const compIds = new Set(companies.map(c => c && c.id));
+  const withDeal = new Set();
+  deals.forEach(d => { if (d && d.company && compIds.has(d.company)) withDeal.add(d.company); });
+  return {
+    leadToDeal: { x: converted, y: leads.length, pct: dashPct(converted, leads.length) },
+    dealWin: { x: wr.won, y: wr.won + wr.lost, pct: wr.rate },
+    companyWithDeal: { x: withDeal.size, y: companies.length, pct: dashPct(withDeal.size, companies.length) },
+  };
+}
+/* Quá hạn DỰ PHÒNG khi không có hàm của app: chưa xong + dueDate hợp lệ
+   (YYYY-MM-DD) đã qua hôm nay — bản sao tối thiểu của isOverdue ở BD app;
+   khi render thật, app truyền isOverdue của chính nó vào dashCompare. */
+function dashIsOverdueFallback(t, now) {
+  if (!t || t.done) return false;
+  if (typeof t.dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(t.dueDate)) return !!t.overdue;
+  const n = now || new Date();
+  const today = n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-" + String(n.getDate()).padStart(2, "0");
+  return t.dueDate < today;
+}
+/* Bảng so sánh BD (chỉ ở phạm vi Toàn hệ): 1 hàng / owner có mặt trong
+   lead.ownerId ∪ deal.owner ∪ task.assignee (xếp theo thứ tự S.members,
+   id lạ xếp sau), cộng hàng "__none__" (Chưa gán) ở cuối. Các chỉ số cộng
+   được (lead phụ trách, lead mới, converted, deal mở, won, lost, việc quá
+   hạn) cộng dồn mọi hàng PHẢI bằng đúng toàn hệ. */
+function dashCompare(state, days, now, isOverdueFn) {
+  const s = state || {};
+  const overdue = typeof isOverdueFn === "function" ? isOverdueFn : (t => dashIsOverdueFallback(t, now));
+  const memberOrder = memberList(s).map(m => m.id);
+  const ids = dashScopeOwners(s);
+  ((s.tasks) || []).forEach(t => { if (t && t.assignee && !ids.includes(t.assignee)) ids.push(t.assignee); });
+  ids.sort((a, b) => {
+    const ia = memberOrder.indexOf(a), ib = memberOrder.indexOf(b);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+  const rowFor = id => {
+    const none = id === "__none__";
+    const leads = (s.leads || []).filter(l => l && (none ? !l.ownerId : l.ownerId === id));
+    const deals = (s.deals || []).filter(d => d && (none ? !d.owner : d.owner === id));
+    const tasks = (s.tasks || []).filter(t => t && (none ? !t.assignee : t.assignee === id));
+    const wr = dashWinRate(deals);
+    const converted = leads.filter(l => l.status === "converted").length;
+    return {
+      id, none,
+      leadTotal: leads.length,
+      leadNew: dashCountNew(leads, days, now).count,
+      converted, leadRate: dashPct(converted, leads.length),
+      open: deals.filter(d => isOpen(d)).length,
+      won: wr.won, lost: wr.lost, winRate: wr.rate,
+      overdue: tasks.filter(overdue).length,
+    };
+  };
+  return ids.map(rowFor).concat([rowFor("__none__")]);
+}
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;

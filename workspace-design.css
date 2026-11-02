@@ -180,3 +180,50 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}button:active,.btn:active{transform:none}}
 @media(prefers-reduced-transparency:reduce){.side,.workspace-header,.mobile-nav,.publishing-shell .topbar,.publishing-shell .dialog-head,.publishing-shell .dialog-foot{background:#f4f7fa;backdrop-filter:none}.scrim,.modal,dialog::backdrop{backdrop-filter:none}}
 @media(prefers-contrast:more){:root{--workspace-muted:#425f70;--workspace-border:#9cafbd}.panel,.kpi,.gcard,.sava-auth-card,.publishing-shell .panel,.publishing-shell .metric{border-color:#9cafbd}.page-description,.kpi .s,.line-panel .line-value,.activity-content p,.publishing-shell .mut,.publishing-shell .source-text,.auth-context p,.sava-auth-sub{color:#456879}}
+
+/* ===== Dashboard Phân tích (Tổng quan) — tiền tố dash-, chỉ khu Phân tích ===== */
+.dash-wrap {margin-top:34px}
+.dash-head {margin-bottom:12px}
+.dash-controls {display:flex;flex-wrap:wrap;gap:14px 26px;align-items:center;margin-bottom:8px}
+.dash-ctl {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dash-ctl-label {font-size:12px;font-weight:600;color:#42586a}
+.dash-chip {border:1px solid #cfdde5;background:#fff;color:#42586a;border-radius:999px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;min-height:34px}
+.dash-chip.on {background:#0f766e;border-color:#0f766e;color:#fff}
+.dash-select {border:1px solid #cfdde5;border-radius:9px;padding:7px 10px;font-size:12.5px;background:#fff;color:#294552;min-height:34px}
+.dash-note {font-size:12px;line-height:1.65;color:#60717d;margin:6px 0}
+.dash-badge {font-size:11px;font-weight:600;color:#0f766e;background:#e6f4f1;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.dash-kpis {margin-bottom:18px}
+.dash-kpi {cursor:pointer;position:relative}
+.dash-kpi:hover {border-color:#0f766e}
+.dash-kpi-dot {position:absolute;top:16px;right:16px;width:10px;height:10px;border-radius:50%}
+.dash-panel {margin-bottom:18px}
+.dash-legend {display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:#42586a;margin-bottom:6px}
+.dash-legend i {display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+.dash-legend-note {color:#82909a}
+.dash-chart {width:100%;height:auto;display:block}
+.dash-funnel-row {display:grid;grid-template-columns:minmax(120px,180px) 1fr 44px minmax(150px,240px);gap:10px;align-items:center;padding:5px 0}
+.dash-funnel-nm {font-size:12.5px;font-weight:600;color:#294552}
+.dash-funnel-bar {background:#edf2f5;border-radius:6px;height:18px;overflow:hidden}
+.dash-funnel-bar i {display:block;height:100%;border-radius:6px}
+.dash-funnel-num {font-size:13px;font-weight:700;color:#213846;text-align:right}
+.dash-funnel-meta {font-size:11.5px;color:#60717d}
+.dash-drop {margin-top:10px;padding:10px 13px;background:#f6f8f9;border:1px dashed #b9cbd4;border-radius:10px;font-size:12.5px;color:#42586a}
+.dash-subhead {margin-top:6px}
+.dash-line-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:18px}
+.dash-cols {display:flex;align-items:flex-end;gap:6px;height:170px;padding-top:6px}
+.dash-col {flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.dash-col-num {font-size:12px;font-weight:700;color:#213846;margin-bottom:4px}
+.dash-col-bar {width:min(34px,80%);border-radius:5px 5px 0 0}
+.dash-col-lb {font-size:9.5px;line-height:1.35;color:#60717d;text-align:center;margin-top:5px;max-height:26px;overflow:hidden}
+.dash-conv-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:18px}
+.dash-conv {display:flex;gap:16px;align-items:center;margin-bottom:0}
+.dash-conv h3 {font-size:14.5px;margin:0 0 4px;color:#294552}
+.dash-conv-donut {position:relative;width:84px;height:84px;flex:none}
+.dash-donut {width:84px;height:84px;display:block}
+.dash-conv-pct {position:absolute;inset:0;display:grid;place-items:center;font-size:16px;font-weight:700;color:#213846}
+.dash-table-wrap {overflow-x:auto}
+.dash-table {width:100%;border-collapse:collapse;font-size:12.5px}
+.dash-table th {text-align:left;font-size:11.5px;color:#60717d;padding:8px 10px;border-bottom:1px solid #e2e8ed}
+.dash-table td {padding:9px 10px;border-bottom:1px solid #eef3f5;color:#294552}
+.dash-table tbody tr:hover {background:#f2f8f7}
+@media(max-width:900px){.dash-line-grid{grid-template-columns:1fr}.dash-conv-grid{grid-template-columns:1fr}.dash-funnel-row{grid-template-columns:minmax(96px,130px) 1fr 36px}.dash-funnel-meta{grid-column:1/-1}}

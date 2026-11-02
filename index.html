@@ -825,7 +825,118 @@ function vDash() {
     const d = S.deals.find(x=>x.id===a.deal);
     return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(d?d.title:a.type)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
-  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>`;
+  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>` + dashAnalyticsHTML();
+}
+/* ===== Khu PHÂN TÍCH (Dashboard) trong Tổng quan =====
+   UI-state THUẦN (không nằm trong S, không qua save(), cùng họ
+   leadOwnerFilter): dashPeriodDays = 7 / 30 / 90 / null (null = "Tất cả",
+   mặc định 30) — chỉ chi phối số "mới trong kỳ" ở KPI + biểu đồ xu hướng
+   (+ cột "Lead mới trong kỳ" của bảng so sánh BD); dashScope = "" (Toàn
+   hệ) hoặc member id — chọn 1 BD thì TOÀN BỘ khu tính lại theo BD đó;
+   dashFunnelLine / dashFunnelOwner chỉ áp cho riêng phễu Lead.
+   Phễu + tỉ lệ + deal theo stage là ẢNH CHỤP HIỆN TẠI, không đổi theo kỳ
+   (ghi nhãn rõ ngay trên UI). Mọi con số qua helper thuần window.SavaDash
+   (shared.js) — khu này CHỈ hiển thị, không đổi đường lưu nào. */
+let dashPeriodDays = 30, dashScope = "", dashFunnelLine = "", dashFunnelOwner = "";
+function setDashPeriod(v) { dashPeriodDays = v === "all" ? null : Number(v); render(); }
+function setDashScope(v) { dashScope = v || ""; render(); }
+function setDashFunnelLine(v) { dashFunnelLine = v || ""; render(); }
+function setDashFunnelOwner(v) { dashFunnelOwner = v || ""; render(); }
+function dashPctTxt(p) { return (p === null || p === undefined) ? "—" : fmtPctVal(p); }
+function dashDonutHTML(pct, color) {
+  const p = (pct === null || pct === undefined) ? 0 : Math.max(0, Math.min(100, pct));
+  const c = 2 * Math.PI * 34;
+  return `<svg class="dash-donut" viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="34" fill="none" stroke="#e2e8f0" stroke-width="10"/><circle cx="42" cy="42" r="34" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(p / 100 * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 42 42)"/></svg>`;
+}
+function dashTrendChartHTML(trend) {
+  const D = window.SavaDash, cols = D.DASH_COLORS;
+  const bs = trend.buckets;
+  if (!bs.length) return '<div class="empty-state">Chưa có bản ghi nào có ngày tạo để vẽ xu hướng.</div>';
+  const maxV = Math.max(1, ...bs.map(b => Math.max(b.company, b.lead, b.deal)));
+  const W = 760, H = 246, top = 20, bottom = 26, plotH = H - top - bottom;
+  const gw = W / bs.length, bw = Math.max(2, Math.min(11, gw / 4.2));
+  const showNums = bs.length <= 15, labelEvery = bs.length <= 15 ? 1 : Math.ceil(bs.length / 12);
+  const series = [["company", cols.company], ["lead", cols.lead], ["deal", cols.deal]];
+  let svg = "";
+  bs.forEach((b, i) => {
+    const cx = i * gw + gw / 2;
+    series.forEach(([k, color], si) => {
+      const v = b[k], h = Math.max(v ? 2 : 0, v / maxV * plotH), x = cx + (si - 1) * (bw + 1.5) - bw / 2, y = top + plotH - h;
+      svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${color}"><title>${esc(b.label)} · ${k === "company" ? "Công ty" : k === "lead" ? "Lead" : "Deal"} mới: ${v}</title></rect>`;
+      if (showNums && v) svg += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="9" fill="#475569">${v}</text>`;
+    });
+    if (i % labelEvery === 0) svg += `<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#64748b">${esc(b.label)}</text>`;
+  });
+  const granTxt = trend.granularity === "day" ? "theo ngày" : trend.granularity === "week" ? "theo tuần" : "theo tháng";
+  return `<div class="dash-legend"><span><i style="background:${cols.company}"></i>Công ty mới</span><span><i style="background:${cols.lead}"></i>Lead mới</span><span><i style="background:${cols.deal}"></i>Deal mới</span><span class="dash-legend-note">Cột nhóm ${granTxt}</span></div><svg class="dash-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Biểu đồ xu hướng thêm mới">${svg}</svg>`;
+}
+function dashAnalyticsHTML() {
+  const D = window.SavaDash;
+  if (!D) return "";
+  const cols = D.DASH_COLORS, now = new Date();
+  const scoped = D.dashScopeFilter(S, dashScope);
+  const periodTxt = dashPeriodDays === null ? "từ trước tới nay (kỳ: Tất cả)" : `trong ${dashPeriodDays} ngày gần nhất`;
+  /* --- Điều khiển: kỳ + phạm vi --- */
+  const ownerIds = D.dashScopeOwners(S);
+  const scopeOpts = `<option value="" ${!dashScope ? "selected" : ""}>Toàn hệ</option>` + ownerIds.map(id => `<option value="${esc(id)}" ${dashScope === id ? "selected" : ""}>${esc(memberName(S, id))}</option>`).join("");
+  const periodBtns = [[7, "7 ngày"], [30, "30 ngày"], [90, "90 ngày"], [null, "Tất cả"]].map(([v, l]) => `<button class="dash-chip ${dashPeriodDays === v ? "on" : ""}" onclick="setDashPeriod('${v === null ? "all" : v}')">${l}</button>`).join("");
+  const controls = `<div class="dash-controls"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div><div class="dash-ctl"><span class="dash-ctl-label">Phạm vi</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Phạm vi phân tích">${scopeOpts}</select></div></div>
+  <p class="dash-note">Bộ chọn kỳ chỉ chi phối số “mới trong kỳ” (KPI + xu hướng + cột Lead mới của bảng so sánh). Phễu Lead, deal theo mảng/stage và các tỉ lệ chuyển đổi là <b>ảnh chụp hiện tại</b> — không đổi theo kỳ.${dashScope ? ` Đang xem phạm vi của <b>${esc(memberName(S, dashScope))}</b>: “công ty của BD” = tập công ty phân biệt của các lead BD đó phụ trách ∪ các deal BD đó phụ trách (công ty không có trường người phụ trách riêng).` : ""}</p>`;
+  /* --- Dải KPI --- */
+  const nC = D.dashCountNew(scoped.companies, dashPeriodDays, now), nL = D.dashCountNew(scoped.leads, dashPeriodDays, now), nD = D.dashCountNew(scoped.deals, dashPeriodDays, now);
+  const openDeals = scoped.deals.filter(isOpen), wonDeals = scoped.deals.filter(d => d.stage === "won");
+  const kpiCard = (label, value, sub, view, color) => `<div class="kpi dash-kpi" role="button" tabindex="0" onclick="setView('${view}')" onkeydown="if(event.key==='Enter')setView('${view}')" title="Bấm để mở view ${label}"><span class="dash-kpi-dot" style="background:${color}"></span><div class="k">${label}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
+  const kpis = `<div class="kpis dash-kpis">${kpiCard("Công ty", scoped.companies.length, `+${nC.count} mới ${periodTxt}`, "companies", cols.company)}${kpiCard("Lead", scoped.leads.length, `+${nL.count} mới ${periodTxt}`, "leads", cols.lead)}${kpiCard("Deal đang mở", openDeals.length, `+${nD.count} deal mới ${periodTxt} · trên tổng ${scoped.deals.length} deal`, "board", cols.deal)}${kpiCard("Deal đã won", wonDeals.length, `Trên tổng ${scoped.deals.length} deal toàn tập`, "board", cols.deal)}</div>`;
+  /* --- Xu hướng thêm mới --- */
+  const trend = D.dashTrend({ company: scoped.companies, lead: scoped.leads, deal: scoped.deals }, dashPeriodDays, now);
+  const trendHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Xu hướng thêm mới</h3><span class="dash-badge">${dashPeriodDays === null ? "Tất cả" : dashPeriodDays + " ngày"}</span></div>${dashTrendChartHTML(trend)}${trend.missing ? `<p class="dash-note">⚠️ ${trend.missing} bản ghi thiếu ngày tạo — không tính vào xu hướng.</p>` : ""}</section>`;
+  /* --- Phễu Lead --- */
+  let fLeads = scoped.leads;
+  if (dashFunnelLine) fLeads = fLeads.filter(l => l.line === dashFunnelLine);
+  if (dashFunnelOwner) fLeads = fLeads.filter(l => dashFunnelOwner === "__none__" ? !l.ownerId : l.ownerId === dashFunnelOwner);
+  const mainKeys = LEAD_STATUSES.filter(s => s.key !== "not_yet_have_demand").map(s => s.key);
+  const funnel = D.dashLeadFunnel(fLeads, mainKeys, "not_yet_have_demand");
+  const fLineOpts = `<option value="" ${!dashFunnelLine ? "selected" : ""}>Tất cả mảng</option>` + Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${dashFunnelLine === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
+  const fOwnerIds = []; scoped.leads.forEach(l => { if (l.ownerId && !fOwnerIds.includes(l.ownerId)) fOwnerIds.push(l.ownerId); });
+  const fOwnerOpts = `<option value="" ${!dashFunnelOwner ? "selected" : ""}>Tất cả người phụ trách</option>` + fOwnerIds.map(id => `<option value="${esc(id)}" ${dashFunnelOwner === id ? "selected" : ""}>${esc(memberName(S, id))}</option>`).join("") + `<option value="__none__" ${dashFunnelOwner === "__none__" ? "selected" : ""}>Chưa gán</option>`;
+  const fMax = Math.max(1, funnel.steps.length ? funnel.steps[0].count : 0);
+  const fRows = funnel.steps.map((st, i) => {
+    const def = leadStatusDef(st.key) || { label: st.key, color: "#64748b" };
+    const meta = [];
+    if (st.toNext !== null && st.toNext !== undefined) meta.push(`→ bước tiếp: ${dashPctTxt(st.toNext)}`);
+    if (i > 0) meta.push(`từ bước đầu: ${dashPctTxt(st.fromStart)}`);
+    return `<div class="dash-funnel-row"><div class="dash-funnel-nm">${esc(def.label)}</div><div class="dash-funnel-bar"><i style="width:${(st.count / fMax * 100).toFixed(1)}%;background:${def.color}"></i></div><div class="dash-funnel-num">${st.count}</div><div class="dash-funnel-meta">${meta.join(" · ")}</div></div>`;
+  }).join("");
+  const funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">ảnh chụp hiện tại</span></h3><div class="dash-ctl"><select class="dash-select" onchange="setDashFunnelLine(this.value)" aria-label="Lọc phễu theo mảng">${fLineOpts}</select><select class="dash-select" onchange="setDashFunnelOwner(this.value)" aria-label="Lọc phễu theo người phụ trách">${fOwnerOpts}</select></div></div>
+  <p class="dash-note">Số ở mỗi bước = số lead <b>đang ở hoặc đã vượt qua</b> bước đó (luỹ kế theo trạng thái hiện tại). Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead.</p>
+  ${fRows || '<div class="empty-state">Không có lead nào trong phễu.</div>'}
+  <div class="dash-drop">Rớt phễu — Not yet have demand: <b>${funnel.dropped.count}</b> lead (${dashPctTxt(funnel.dropped.pct)} trên tổng ${funnel.total} lead trong tập đang lọc)</div>
+  ${funnel.unknown ? `<p class="dash-note">⚠️ ${funnel.unknown} lead có trạng thái lạ (không thuộc danh sách trạng thái chuẩn) — không đưa vào phễu.</p>` : ""}</section>`;
+  /* --- Deal theo mảng / stage --- */
+  const byLine = D.dashDealStages(scoped.deals, LINES);
+  const lineCards = byLine.map(r => {
+    const L = LINES[r.line], maxC = Math.max(1, ...r.stages.map(s => s.count));
+    const bars = r.stages.map(s => `<div class="dash-col" title="${esc(s.label)}: ${s.count} deal"><div class="dash-col-num">${s.count}</div><div class="dash-col-bar" style="height:${Math.max(s.count ? 6 : 0, s.count / maxC * 100)}%;background:${L.color}"></div><div class="dash-col-lb">${esc(s.label)}</div></div>`).join("");
+    const amt = Object.entries(r.openAmounts).map(([c, v]) => money(v, c)).join(" + ");
+    return `<section class="panel dash-panel dash-line-card" style="--line-accent:${L.color}"><div class="panel-title"><h3>${esc(L.name)}</h3><span class="dash-badge">${r.openCount} deal đang mở</span></div><div class="dash-cols">${bars}</div><p class="dash-note">Tỉ lệ thắng: ${r.rate === null ? "Chưa có deal đóng" : `<b>${dashPctTxt(r.rate)}</b> (${r.won} won / ${r.lost} lost)`}${amt ? ` · Tổng giá trị deal đang mở: <b>${amt}</b>` : ""}</p></section>`;
+  }).join("");
+  const dealHTML = `<div class="section-heading dash-subhead"><div><h2>Tiến trình Deal theo mảng</h2><p>Số deal đang ở từng stage theo đúng thứ tự pipeline của mảng — ảnh chụp hiện tại.</p></div></div><div class="dash-line-grid">${lineCards}</div>`;
+  /* --- Thẻ tỉ lệ chuyển đổi --- */
+  const conv = D.dashConversions(scoped);
+  const convCard = (label, c, color, nullTxt) => `<section class="panel dash-panel dash-conv"><div class="dash-conv-donut">${dashDonutHTML(c.pct, color)}<div class="dash-conv-pct">${c.pct === null ? "—" : dashPctTxt(c.pct)}</div></div><div><h3>${label}</h3><p class="dash-note">${c.pct === null && nullTxt ? nullTxt : `${c.x} / ${c.y}`}${c.pct !== null ? ` · ${c.x} / ${c.y}` : ""}</p></div></section>`;
+  const convHTML = `<div class="dash-conv-grid">${convCard("Lead → Deal (Đã chuyển đổi)", conv.leadToDeal, cols.lead, "")}${convCard("Deal thắng toàn tập", conv.dealWin, cols.deal, "Chưa có deal đóng")}${convCard("Công ty có deal", conv.companyWithDeal, cols.company, "")}</div>`;
+  /* --- Bảng so sánh BD (chỉ phạm vi Toàn hệ) --- */
+  let compareHTML = "";
+  if (!dashScope) {
+    const rows = D.dashCompare(S, dashPeriodDays, now, isOverdue);
+    const trs = rows.map(r => {
+      const name = r.none ? "Chưa gán" : memberName(S, r.id);
+      const click = r.none ? "" : ` onclick="setDashScope('${esc(r.id)}')" style="cursor:pointer" title="Bấm để xem phạm vi của ${esc(name)}"`;
+      return `<tr${click}><td><b>${esc(name)}</b></td><td>${r.leadTotal}</td><td>${r.leadNew}</td><td>${r.converted} (${dashPctTxt(r.leadRate)})</td><td>${r.open}</td><td>${r.won} / ${r.lost} (${r.winRate === null ? "Chưa có deal đóng" : dashPctTxt(r.winRate)})</td><td>${r.overdue}</td></tr>`;
+    }).join("");
+    compareHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>So sánh theo BD</h3><span class="dash-badge">bấm vào 1 BD để xem phạm vi của người đó</span></div><div class="dash-table-wrap"><table class="dash-table"><thead><tr><th>BD</th><th>Lead phụ trách</th><th>Lead mới trong kỳ</th><th>Lead đã chuyển đổi (tỉ lệ Lead→Deal)</th><th>Deal đang mở</th><th>Won / Lost (tỉ lệ thắng)</th><th>Việc quá hạn</th></tr></thead><tbody>${trs}</tbody></table></div><p class="dash-note">Việc quá hạn: việc chưa xong và đã qua hạn theo đúng logic hạn việc của app (isOverdue). Hàng “Chưa gán” gồm lead/deal/việc chưa có người phụ trách.</p></section>`;
+  }
+  return `<div class="dash-wrap"><div class="section-heading dash-head"><div><h2>Phân tích</h2><p>KPI, xu hướng, phễu và tỉ lệ chuyển đổi — chỉ hiển thị, không đổi dữ kiện.</p></div></div>${controls}${kpis}${trendHTML}${funnelHTML}${dealHTML}${convHTML}${compareHTML}</div>`;
 }
 /* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ (YYYY-MM-DD)
    -> quá hạn khi dueDate < hôm nay (giờ local, so chuỗi cùng định dạng); không có
