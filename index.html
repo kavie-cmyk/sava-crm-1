@@ -55,6 +55,15 @@
   /* Leads chia theo trạng thái: mỗi trạng thái là 1 block ngang xếp dọc */
   .lead-status-block { margin-bottom:12px; }
   .lead-status-block .panel-title { margin-bottom:10px; }
+  /* Lead Pipeline (kanban): tái dùng khung .board/.col/.dcard của pipeline
+     deal; hàng đầu view Lead chứa nút thêm + toggle Block ⇄ Pipeline (mẫu
+     .tabs/.linetabs sẵn có). Cột kết thúc âm "Not yet have demand" trình
+     bày như cột đóng kiểu Lost của pipeline deal: nền xám lặng + thẻ mờ. */
+  .lead-view-head { display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .lead-view-head .tabs { margin-bottom:0; }
+  .col.lead-col-closed { background:#e8ebee; }
+  .col.lead-col-closed .dcard { opacity:.72; }
+  .lead-show-more { width:100%; margin-top:2px; }
   /* Lịch sử tổng chia theo loại hành động: mỗi loại là 1 block ngang xếp dọc */
   .audit-action-block { margin-bottom:12px; }
   .audit-action-block .panel-title { margin-bottom:10px; }
@@ -1029,8 +1038,33 @@ function leadRowHTML(l) {
   return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
 }
+/* Tập lead SAU LỌC của view Lead — MỘT nguồn lọc duy nhất cho cả hai
+   cách trình bày (Block + Pipeline): tab mảng (curLine) + ô tìm kiếm
+   (query trên tên lead + person + tên công ty + ghi chú), đúng như bộ
+   lọc view Lead từ trước tới nay. */
+function filteredLeads() {
+  return S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)));
+}
+/* ===== Chế độ xem Lead: Block ⇄ Pipeline =====
+   leadViewMode là STATE HIỂN THỊ THUẦN TUÝ (không nằm trong S, không
+   qua save()): "block" = các block ngang theo trạng thái (vLeads như
+   cũ, giữ nguyên vẹn); "pipeline" = bảng kanban vLeadsPipeline — CÁCH
+   TRÌNH BÀY THỨ HAI của CÙNG dữ kiện lead.status (LEAD_STATUSES vẫn là
+   nguồn sự thật duy nhất, TUYỆT ĐỐI không field/stage mới). Toggle dùng
+   đúng mẫu .tabs/.linetabs sẵn có của app (nút mang class "on" = đang
+   chọn, cùng mẫu nút chuyển mảng và nút chuyển view). */
+let leadViewMode = "block";
+function setLeadViewMode(mode) { leadViewMode = mode === "pipeline" ? "pipeline" : "block"; render(); }
+function leadViewHeadHTML() {
+  return `<div class="lead-view-head"><button class="btn" onclick="editLead(null)">+ Thêm lead</button>
+    <div class="tabs" role="group" aria-label="Chế độ xem lead">
+      <button class="${leadViewMode === "block" ? "on" : ""}" onclick="setLeadViewMode('block')">▦ Block</button>
+      <button class="${leadViewMode === "pipeline" ? "on" : ""}" onclick="setLeadViewMode('pipeline')">▤ Pipeline</button>
+    </div></div>`;
+}
 function vLeads() {
-  const filtered = S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)));
+  if (leadViewMode === "pipeline") { vLeadsPipeline(); return; }
+  const filtered = filteredLeads();
   /* Đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước ẩn-cột-rỗng-khi-đang-lọc của vTasksByMember:
      khi đang lọc, block nào không còn lead khớp thì ẨN hẳn; khi không
@@ -1047,8 +1081,95 @@ function vLeads() {
     return `<section class="panel lead-status-block" data-lead-status="${g.key}"><div class="panel-title"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.leads.length} lead</span></h3></div>${body}</section>`;
   }).join("");
   const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div>${blocks}${emptyFiltered}
+  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${blocks}${emptyFiltered}
   <div class="mut" style="margin-top:10px">💡 Lead được chia thành từng block theo trạng thái (${LEAD_STATUSES.map(s => esc(s.label)).join(" → ")}). <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div>`;
+}
+/* ===== Lead Pipeline (kanban) — cách trình bày THỨ HAI của lead.status =====
+   Tái sử dụng từ pipeline deal (vBoard): khung .board/.col/.dcard, mẫu
+   kéo-thả (draggable + ondragover gắn class "drag" + ondrop), helper
+   confirm DÙNG CHUNG confirmStageChange (deal và lead cùng một helper —
+   huỷ = không mutate, không save, board dựng lại nguyên trạng) và đường
+   lưu save() chuẩn (đóng dấu thời gian + audit như sửa tay). Khác deal:
+   cột = trạng thái lead theo đúng thứ tự LEAD_STATUSES; danh tính kéo-thả
+   nằm ở leadDragId RIÊNG (không đụng dragId của deal); đổi trạng thái còn
+   qua syncLeadDealStatus với preserveManualConverted — CÙNG quy tắc của
+   form sửa lead (saveLead): lead đang gắn ≥1 deal thì trạng thái cuối
+   vẫn là "converted", lead không deal đặt tay "converted" được giữ.
+   HIỆU NĂNG: mỗi cột chỉ dựng tối đa LEAD_BOARD_PAGE_SIZE thẻ đầu tiên
+   của tập ĐÃ LỌC + nút "Hiển thị thêm" tăng dần theo trang (cột Sent
+   connect thật có 632 lead — không dựng 600+ node DOM ngay từ đầu); số
+   đếm và kéo-thả luôn tính trên TOÀN tập đã lọc, không phải phần đã hiện. */
+const LEAD_BOARD_PAGE_SIZE = 50;
+let leadBoardShown = {};
+let leadBoardFilterSig = null;
+let leadDragId = null;
+function showMoreLeadBoard(statusKey) {
+  leadBoardShown[statusKey] = (leadBoardShown[statusKey] || LEAD_BOARD_PAGE_SIZE) + LEAD_BOARD_PAGE_SIZE;
+  render();
+}
+function dragLead(e, id) { leadDragId = id; }
+function dropLead(e, statusKey) {
+  e.preventDefault(); document.querySelectorAll(".col").forEach(c => c.classList.remove("drag"));
+  const l = S.leads.find(x => x.id === leadDragId); leadDragId = null; if (!l) return;
+  /* Thả về ĐÚNG cột cũ: không hỏi, không mutate, không save — chỉ dựng lại board. */
+  if (l.status === statusKey) { render(); return; }
+  const newDef = leadStatusDef(statusKey); if (!newDef) return;
+  const oldDef = leadStatusDef(l.status);
+  if (!confirmStageChange(l, oldDef ? oldDef.label : String(l.status || "—"), newDef.label)) { render(); return; }
+  l.status = statusKey;
+  syncLeadDealStatus(l.id, { preserveManualConverted: true });
+  save(); render();
+  toast("Đã chuyển trạng thái lead: " + leadDisplayName(l) + " → " + leadStatusText(l.status));
+}
+/* Thẻ lead trên board — cùng mẫu thẻ leadMini/dealLeadMiniHTML: tên lead
+   là chính (bấm mở drawer lead), công ty là phụ (bấm mở drawer công ty,
+   draggable="false" để kéo-thả thẻ không biến thành kéo link), Position
+   (field person, chỉ hiện khi khác hẳn tên lead qua leadPersonShown),
+   chip ★ Đầu mối chính (mainContactBadgeHTML), chip mảng (lineColor/
+   lineName — cùng helper an toàn enum của leadRowHTML). */
+function leadCardHTML(l) {
+  const lc = leadCompany(l);
+  const person = leadPersonShown(l);
+  return `<div class="dcard" draggable="true" ondragstart="dragLead(event,'${l.id}')" onclick="openLead('${l.id}')" title="Bấm để xem chi tiết lead — kéo sang cột khác để đổi trạng thái">
+    <div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
+    <div class="c">🏢 ${lc ? `<a href="#" draggable="false" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
+    ${person ? `<div class="c">👤 ${esc(person)}</div>` : ""}
+    ${l.phone ? `<div class="c">📞 ${esc(l.phone)}</div>` : ""}
+    <div class="c" style="margin-top:4px"><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></div>
+    <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
+}
+function vLeadsPipeline() {
+  /* Đổi bộ lọc (từ khóa / tab mảng) -> số thẻ đang mở rộng của mọi cột
+     quay về trang đầu; cùng bộ lọc thì giữ nguyên (Hiển thị thêm và
+     kéo-thả render lại không làm mất phần đã mở rộng). */
+  const sig = curLine + "|" + query;
+  if (leadBoardFilterSig !== sig) { leadBoardFilterSig = sig; leadBoardShown = {}; }
+  const filtered = filteredLeads();
+  const filtering = !!query || curLine !== "all";
+  const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
+  const cols = LEAD_STATUSES.map(def => {
+    const inCol = filtered.filter(l => l.status === def.key);
+    const totalInStatus = S.leads.filter(l => l.status === def.key).length;
+    const shownCount = Math.min(leadBoardShown[def.key] || LEAD_BOARD_PAGE_SIZE, inCol.length);
+    const cards = inCol.slice(0, shownCount).map(leadCardHTML).join("");
+    const more = inCol.length > shownCount
+      ? `<button class="btn ghost small lead-show-more" onclick="showMoreLeadBoard('${def.key}')">Hiển thị thêm (${inCol.length - shownCount} lead nữa)</button><div class="mut" style="margin-top:4px">Đang hiện ${shownCount} / ${inCol.length} lead của cột</div>` : "";
+    /* Đếm ở đầu cột = số SAU LỌC (như pill số lượng của pipeline deal);
+       khi khác tổng toàn bộ của trạng thái đó thì dòng .sum kèm "trên
+       tổng N lead" — đúng mẫu đếm KPI ở Tổng quan ("Trên tổng … cơ hội"). */
+    const sum = inCol.length !== totalInStatus ? `${inCol.length} sau lọc · trên tổng ${totalInStatus} lead` : `${totalInStatus} lead`;
+    const closedCls = def.key === "not_yet_have_demand" ? " lead-col-closed" : "";
+    return `<div class="col${closedCls}" data-lead-status="${def.key}" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="dropLead(event,'${def.key}')">
+      <h4>${esc(def.label)} <span class="pill" style="background:${def.color}">${inCol.length}</span></h4><div class="sum">${sum}</div>${cards || '<div class="mut" style="padding:4px 2px">Kéo lead vào đây</div>'}${more}</div>`;
+  }).join("");
+  /* Lead trạng thái lạ KHÔNG có cột riêng trên board và KHÔNG bị ép vào
+     bất kỳ cột nào: chỉ hiện dòng ghi chú ghi rõ số lượng bị ẩn (sau lọc)
+     + đường quay về view Block — nơi chúng nằm ở block "Khác / Chưa rõ
+     trạng thái" để xử lý. */
+  const unknownNote = unknownLeads.length ? `<div class="prototype-note" style="padding:11px 14px;margin-bottom:12px">⚠️ Có <b>${unknownLeads.length} lead</b> có trạng thái lạ (không thuộc ${LEAD_STATUSES.length} trạng thái chuẩn) nên không hiện trên bảng Pipeline. <button class="btn ghost small" onclick="setLeadViewMode('block')">Xem ở chế độ Block để xử lý →</button></div>` : "";
+  const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut" style="margin-bottom:12px">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
+  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${unknownNote}${emptyFiltered}<div class="board lead-board">${cols}</div>
+  <div class="mut" style="margin-top:10px">💡 Kéo thẻ lead sang cột khác để đổi trạng thái (sẽ hỏi xác nhận, cùng helper với đổi stage của deal), hoặc bấm vào thẻ để xem chi tiết lead — lead ở cột Đã chuyển đổi vẫn mở xem các deal của nó như thường; bấm tên công ty để mở hồ sơ công ty. Cột <b>Not yet have demand</b> là cột kết thúc âm (chưa có nhu cầu): lead vẫn xem/sửa được và kéo ra cột khác được khi có nhu cầu trở lại. Mỗi cột chỉ hiện ${LEAD_BOARD_PAGE_SIZE} thẻ đầu — bấm "Hiển thị thêm" ở cuối cột để xem tiếp.</div>`;
 }
 /* ===== Sự kiện (Events) =====
    Liên kết Event↔entity nằm Ở EVENT — nguồn sự thật DUY NHẤT:
@@ -2031,9 +2152,13 @@ function toggleDealActivityForm() { const el = document.getElementById("dealActF
 function moveStage(id, stage) { const d = S.deals.find(x=>x.id===id); d.stage = stage; d.idle = 0; save(); openDeal(id); render(); toast("Đã chuyển stage: " + stagePairSafe(d.line, stage)[1]); }
 /* F5: confirm đổi stage DÙNG CHUNG duy nhất — cả select trong drawer
    (confirmMoveStage) lẫn kéo-thả pipeline (drop) đều hỏi qua đây, cùng
-   một câu chữ nêu stage cũ → mới; KHÔNG có bản sao logic confirm nào khác. */
-function confirmStageChange(d, oldLabel, newLabel) {
-  return confirm(`Chuyển stage của deal "${d.title}" từ "${oldLabel}" sang "${newLabel}"?`);
+   một câu chữ nêu stage cũ → mới; KHÔNG có bản sao logic confirm nào khác.
+   Lead Pipeline (kéo-thả đổi TRẠNG THÁI lead, dropLead) cũng hỏi qua
+   ĐÚNG helper này: đối tượng có `title` là deal (giữ nguyên câu chữ cũ),
+   đối tượng không có `title` là lead -> câu chữ tương ứng cho lead. */
+function confirmStageChange(ent, oldLabel, newLabel) {
+  if (ent && ent.title) return confirm(`Chuyển stage của deal "${ent.title}" từ "${oldLabel}" sang "${newLabel}"?`);
+  return confirm(`Chuyển trạng thái của lead "${leadDisplayName(ent)}" từ "${oldLabel}" sang "${newLabel}"?`);
 }
 /* FIX-C1 B5: chuyển stage từ select trong drawer phải qua confirm nêu rõ
    stage cũ → mới (nhãn hiển thị); huỷ thì khôi phục giá trị select về stage cũ. */
