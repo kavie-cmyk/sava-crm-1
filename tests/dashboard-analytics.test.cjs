@@ -265,6 +265,7 @@ test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; ch
   for (const needle of ['Phân tích', 'Xu hướng thêm mới', 'Phễu Lead', 'Tiến trình Deal theo mảng', 'Lead → Deal', 'So sánh theo BD', 'Rớt phễu', 'Yến', 'Hoàng Daden', 'Chưa gán']) {
     assert.ok(html.includes(needle), 'thiếu khối/nội dung: ' + needle);
   }
+  assert.ok(!html.includes('/ 4 · 1 / 4'), 'thẻ tỉ lệ không được in trùng số tử/mẫu');
   run("setDashScope('yen')");
   const scoped = getEl('view').innerHTML;
   assert.ok(!scoped.includes('So sánh theo BD'), 'scope 1 BD thì không hiện bảng so sánh');

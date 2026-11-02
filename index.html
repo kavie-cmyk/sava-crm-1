@@ -923,7 +923,7 @@ function dashAnalyticsHTML() {
   const dealHTML = `<div class="section-heading dash-subhead"><div><h2>Tiến trình Deal theo mảng</h2><p>Số deal đang ở từng stage theo đúng thứ tự pipeline của mảng — ảnh chụp hiện tại.</p></div></div><div class="dash-line-grid">${lineCards}</div>`;
   /* --- Thẻ tỉ lệ chuyển đổi --- */
   const conv = D.dashConversions(scoped);
-  const convCard = (label, c, color, nullTxt) => `<section class="panel dash-panel dash-conv"><div class="dash-conv-donut">${dashDonutHTML(c.pct, color)}<div class="dash-conv-pct">${c.pct === null ? "—" : dashPctTxt(c.pct)}</div></div><div><h3>${label}</h3><p class="dash-note">${c.pct === null && nullTxt ? nullTxt : `${c.x} / ${c.y}`}${c.pct !== null ? ` · ${c.x} / ${c.y}` : ""}</p></div></section>`;
+  const convCard = (label, c, color, nullTxt) => `<section class="panel dash-panel dash-conv"><div class="dash-conv-donut">${dashDonutHTML(c.pct, color)}<div class="dash-conv-pct">${c.pct === null ? "—" : dashPctTxt(c.pct)}</div></div><div><h3>${label}</h3><p class="dash-note">${c.pct === null && nullTxt ? `${nullTxt} (${c.x} / ${c.y})` : `${c.x} / ${c.y}`}</p></div></section>`;
   const convHTML = `<div class="dash-conv-grid">${convCard("Lead → Deal (Đã chuyển đổi)", conv.leadToDeal, cols.lead, "")}${convCard("Deal thắng toàn tập", conv.dealWin, cols.deal, "Chưa có deal đóng")}${convCard("Công ty có deal", conv.companyWithDeal, cols.company, "")}</div>`;
   /* --- Bảng so sánh BD (chỉ phạm vi Toàn hệ) --- */
   let compareHTML = "";
