@@ -199,6 +199,7 @@
 <button data-view="companies" class=""><i data-icon="company"></i><span>Khách hàng</span></button>
 <button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
+<button data-view="events" class=""><i data-icon="meeting"></i><span>Sự kiện</span></button>
 <button data-view="tasks" class=""><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="tasksByMember" class=""><i data-icon="team"></i><span>Việc theo người</span></button>
 <button data-view="members" class=""><i data-icon="company"></i><span>Thành viên</span></button>
@@ -229,6 +230,7 @@
 <button data-view="companies" class="" aria-label="Khách hàng"><i data-icon="company"></i><span>Khách hàng</span></button>
 <button data-view="games" class="" aria-label="Games"><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class="" aria-label="Leads"><i data-icon="inbox"></i><span>Leads</span></button>
+<button data-view="events" class="" aria-label="Sự kiện"><i data-icon="meeting"></i><span>Sự kiện</span></button>
 <button data-view="tasks" class="" aria-label="Việc"><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="tasksByMember" class="" aria-label="Việc theo người"><i data-icon="team"></i><span>Việc theo người</span></button>
 <button data-view="members" class="" aria-label="Thành viên"><i data-icon="company"></i><span>Thành viên</span></button>
@@ -505,10 +507,15 @@ function companyLeadsHTML(companyId) {
 /* Nhãn chính của lead = TÊN LEAD (người đầu mối); tên công ty chỉ là thông tin phụ. */
 function leadDisplayName(l) { return (l && l.name) ? l.name : leadCompanyName(l); }
 function leadLabel(l) { const nm = leadDisplayName(l); const cn = leadCompanyName(l); return nm + (cn && cn !== nm ? " · " + cn : "") + (l.person ? " — " + l.person : ""); }
+/* Nhãn trạng thái lead cho các thẻ gọn (leadMini / dealLeadMiniHTML):
+   lấy từ LEAD_STATUSES — NGUỒN SỰ THẬT DUY NHẤT về trạng thái lead
+   (định nghĩa ở khối vLeads bên dưới, cùng script toàn cục nên tra được
+   khi hàm này được GỌI lúc render, sau khi mọi script đã nạp). Trạng
+   thái ngoài danh sách -> hiện nguyên giá trị đã lưu như cũ. */
+function leadStatusText(status) { const def = (typeof leadStatusDef === "function") ? leadStatusDef(status) : null; return def ? def.label : (status ? String(status) : ""); }
 function leadMini(l) {
-  const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
   return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
-    <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person && l.person !== l.name ? " · 👤 " + esc(l.person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person && l.person !== l.name ? " · 👤 " + esc(l.person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(leadStatusText(l.status))}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 /* === Khối đầu mối trong DRAWER DEAL ===
@@ -542,14 +549,13 @@ function dealLeadContactLineHTML(l) {
    công ty + person + SĐT là phụ, chip mảng + trạng thái), chỉ khác ở chỗ
    person gần trùng tên lead thì không hiện lại. */
 function dealLeadMiniHTML(l, dealCompanyId) {
-  const stMap = {new:"Mới", contacted:"Đã liên hệ", qualified:"Đạt chuẩn", converted:"Đã chuyển đổi"};
   const person = leadPersonShown(l);
   /* P1: liên kết chéo ĐÃ TỒN TẠI (lead khác công ty với deal đang xem) vẫn
      hiển thị/gỡ được — chỉ thêm hậu tố nhẹ "(khác công ty)" ngay sau tên
      công ty của lead để biết nó là liên kết cũ, không gắn thêm được nữa. */
   const crossNote = dealCompanyId && l.company !== dealCompanyId ? " (khác công ty)" : "";
   return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
-    <div class="c">🏢 ${esc(leadCompanyName(l))}${crossNote}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(stMap[l.status] || l.status || "")}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${crossNote}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(leadStatusText(l.status))}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 /* Nút "＋ Gắn vào deal" ngay tại khối đầu mối của drawer deal: đi qua ĐÚNG
@@ -597,6 +603,7 @@ function refreshDrawer() {
   else if (type === "game") openGame(id);
   else if (type === "lead") openLead(id);
   else if (type === "member") openMember(id);
+  else if (type === "event") openEvent(id);
 }
 function game(id) { return S.games.find(g => g.id === id); }
 /* Guard bar điểm (16c): width chỉ tính từ số finite; điểm lưu hỏng (NaN/chuỗi rác)
@@ -759,11 +766,11 @@ function render() {
   /* P6: mục nav "Lịch sử tổng" CHỈ Admin thấy — ẩn/hiện theo vai ở mỗi lần
      render, đúng mẫu gate theo vai của view Thành viên (isAdminViewer). */
   document.querySelectorAll(".audit-admin-only").forEach(el => { el.style.display = isAdminViewer() ? "" : "none"; });
-  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", auditHistory:"Lịch sử tổng" };
-  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
+  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", auditHistory:"Lịch sử tổng" };
+  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
-  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers, auditHistory:vAuditHistory })[curView]();
+  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, events:vEvents, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers, auditHistory:vAuditHistory })[curView]();
 }
 
 function pipelineValue(ds) {
@@ -964,24 +971,48 @@ function vGames() {
 }
 
 /* ===== Leads chia theo trạng thái (vLeads) =====
-   Tập trạng thái lead + thứ tự vòng đời — NGUỒN SỰ THẬT duy nhất cho view
-   Lead phía BD, khớp đúng các nơi khác đang dùng cùng từ vựng này:
-   form sửa lead editLead (ô chọn e_lstatus, cùng thứ tự), drawer lead
-   openLead, thẻ leadMini, convertLead (đặt "converted") và
-   revertLeadIfOrphaned (hồi về "qualified"). KHÔNG thêm/đổi trạng thái
-   ở đây mà không sửa đồng bộ các nơi đó.
-     new       "Mới"           — lead vừa vào, chưa xử lý
-     contacted "Đã liên hệ"    — đã liên hệ với đầu mối
-     qualified "Đạt chuẩn"     — đã đủ chuẩn để chuyển thành deal
-     converted "Đã chuyển đổi" — đã chuyển thành deal trong pipeline
-   Lead có status ngoài tập này (dữ liệu cũ/lạ, hoặc thiếu status) KHÔNG
-   bị ẩn: vLeads gom chúng vào block "Khác / Chưa rõ trạng thái" ở cuối
-   và pill trong hàng hiện nguyên giá trị đã lưu (hoặc "—" khi thiếu). */
+   Tập trạng thái lead + thứ tự block — LEAD_STATUSES dưới đây là NGUỒN
+   SỰ THẬT DUY NHẤT cho MỌI bề mặt lead phía BD: view Lead (block theo
+   thứ tự này), form sửa lead editLead (ô chọn e_lstatus dựng từ chính
+   danh sách này), drawer lead openLead (pill trạng thái qua
+   leadStatusDef), thẻ leadMini / dealLeadMiniHTML (qua leadStatusText),
+   hàng leadRowHTML (pill qua leadStatusDef), convertLead (đặt
+   "converted") và syncLeadDealStatus / revertLeadIfOrphaned (hồi về
+   "qualified"). KHÔNG nơi nào được giữ danh sách trạng thái cứng riêng.
+   Thứ tự = tiến trình tiếp cận rồi mới tới vòng đời deal:
+     new                  "Mới"                — lead vừa vào, chưa xử lý
+     sent_connect         "Sent connect"       — đã gửi lời mời kết nối
+     first_message        "1st message"        — đã gửi tin nhắn đầu
+     first_email          "1st email"          — đã gửi email đầu
+     first_fu             "1st FU"             — đã follow-up lần 1
+     in_response          "In-response"        — đang trong luồng phản hồi
+     in_reply             "In reply"           — lead đã trả lời
+     discovery_meeting    "Discovery meeting"  — đã/đang họp discovery
+     contacted            "Đã liên hệ"         — đã liên hệ với đầu mối
+     qualified            "Đạt chuẩn"          — đã đủ chuẩn để chuyển thành deal
+     converted            "Đã chuyển đổi"      — đã chuyển thành deal trong pipeline
+     not_yet_have_demand  "Not yet have demand" — chưa có nhu cầu (đặt CUỐI,
+                                                  sau converted, theo hợp đồng)
+   Nhãn 8 trạng thái tiếp cận giữ NGUYÊN VĂN tiếng Anh như hợp đồng.
+   Lead có status ngoài 12 key này (dữ liệu lạ thật sự, hoặc thiếu
+   status) KHÔNG bị ẩn: vLeads gom chúng vào block "Khác / Chưa rõ
+   trạng thái" ở cuối và pill trong hàng hiện nguyên giá trị đã lưu
+   (hoặc "—" khi thiếu). Phía máy chủ: CHECK status của bảng leads
+   phải nới đủ 12 key này — xem supabase/lead-status-expand.sql (điều
+   kiện tiên quyết trước payload nạp Metaverse v2). */
 const LEAD_STATUSES = [
   { key: "new", label: "Mới", color: "#f59e0b" },
+  { key: "sent_connect", label: "Sent connect", color: "#8b5cf6" },
+  { key: "first_message", label: "1st message", color: "#0ea5e9" },
+  { key: "first_email", label: "1st email", color: "#2563eb" },
+  { key: "first_fu", label: "1st FU", color: "#f97316" },
+  { key: "in_response", label: "In-response", color: "#06b6d4" },
+  { key: "in_reply", label: "In reply", color: "#14b8a6" },
+  { key: "discovery_meeting", label: "Discovery meeting", color: "#db2777" },
   { key: "contacted", label: "Đã liên hệ", color: "#38bdf8" },
   { key: "qualified", label: "Đạt chuẩn", color: "#22c55e" },
   { key: "converted", label: "Đã chuyển đổi", color: "#64748b" },
+  { key: "not_yet_have_demand", label: "Not yet have demand", color: "#94a3b8" },
 ];
 const LEAD_STATUS_UNKNOWN = { key: "__unknown__", label: "Khác / Chưa rõ trạng thái", color: "#64748b" };
 function leadStatusDef(status) { return LEAD_STATUSES.find(s => s.key === status) || null; }
@@ -1017,8 +1048,209 @@ function vLeads() {
   }).join("");
   const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editLead(null)">+ Thêm lead</button></div>${blocks}${emptyFiltered}
-  <div class="mut" style="margin-top:10px">💡 Lead được chia thành từng block theo trạng thái (Mới → Đã liên hệ → Đạt chuẩn → Đã chuyển đổi). <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div>`;
+  <div class="mut" style="margin-top:10px">💡 Lead được chia thành từng block theo trạng thái (${LEAD_STATUSES.map(s => esc(s.label)).join(" → ")}). <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó.</div>`;
 }
+/* ===== Sự kiện (Events) =====
+   Liên kết Event↔entity nằm Ở EVENT — nguồn sự thật DUY NHẤT:
+   ev.companies / ev.leads / ev.deals là 3 mảng id trên chính sự kiện.
+   Phía công ty/lead/deal KHÔNG lưu chiều ngược: mọi hiển thị "nguồn sự
+   kiện" ở drawer entity đều suy ra bằng cách quét S.events (eventsLinkedTo).
+   S.events có thể chưa có ở state cũ (tầng dữ liệu bổ sung sau) nên mọi
+   truy cập đều qua eventsList()/ensureEvents() — không giả định mảng tồn tại. */
+let pendingEventLink = null;
+function eventsList() { return Array.isArray(S.events) ? S.events : []; }
+function ensureEvents() { if (!Array.isArray(S.events)) S.events = []; return S.events; }
+function eventById(id) { return eventsList().find(e => e.id === id) || null; }
+function eventAttendeeNames(ev) { return (Array.isArray(ev.attendees) ? ev.attendees : []).map(mid => memberName(S, mid)); }
+function vEvents() {
+  const all = eventsList();
+  const filtered = all.filter(ev => {
+    if (!query) return true;
+    const hay = [ev.name || "", ev.date || "", ev.location || "", ev.note || "", eventAttendeeNames(ev).join(" ")].join(" ").toLowerCase();
+    return hay.includes(query);
+  });
+  const rows = filtered.map(ev => {
+    const nc = Array.isArray(ev.companies) ? ev.companies.length : 0;
+    const nl = Array.isArray(ev.leads) ? ev.leads.length : 0;
+    const nd = Array.isArray(ev.deals) ? ev.deals.length : 0;
+    const counts = `<span class="chip" style="background:#0f766e">${nc} công ty</span> <span class="chip" style="background:#b45309">${nl} lead</span> <span class="chip" style="background:#2563eb">${nd} deal</span>`;
+    return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td><b>🎪 ${esc(ev.name || "—")}</b><div class="mut">${esc(ev.note || "")}</div></td><td>${esc(ev.date || "—")}<div class="mut">${esc(ev.location || "")}</div></td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${counts}</td></tr>`;
+  }).join("");
+  const emptyMsg = !all.length ? "Chưa có sự kiện nào." : "Không có sự kiện nào khớp tìm kiếm hiện tại.";
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Sự kiện</th><th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th></tr>${rows || `<tr><td colspan="4" class="mut">${emptyMsg}</td></tr>`}</table></div>
+  <div class="mut" style="margin-top:10px">Sự kiện là nơi team gặp gỡ đối tác: công ty, lead và deal phát sinh từ sự kiện được gắn ngay trong chi tiết sự kiện.</div></div>`;
+}
+/* --- 3 loại liên kết của sự kiện: cấu hình dùng chung cho drawer event --- */
+const EVENT_LINK_KINDS = {
+  company: { field: "companies", heading: "🏢 Công ty từ sự kiện này", noun: "công ty", pickerId: "event_link_company", openFn: "openCompany", icon: "🏢" },
+  lead: { field: "leads", heading: "📥 Lead từ sự kiện này", noun: "lead", pickerId: "event_link_lead", openFn: "openLead", icon: "📥" },
+  deal: { field: "deals", heading: "📋 Deal từ sự kiện này", noun: "deal", pickerId: "event_link_deal", openFn: "openDeal", icon: "📋" },
+};
+function eventLinkedEntities(ev, kind) {
+  const cfg = EVENT_LINK_KINDS[kind]; if (!cfg || !ev) return [];
+  const ids = Array.isArray(ev[cfg.field]) ? ev[cfg.field] : [];
+  const pool = kind === "company" ? S.companies : kind === "lead" ? S.leads : S.deals;
+  return ids.map(eid => (pool || []).find(x => x.id === eid)).filter(Boolean);
+}
+function eventEntityLabel(kind, ent) {
+  if (!ent) return "—";
+  if (kind === "company") return ent.name || "—";
+  if (kind === "lead") return leadDisplayName(ent);
+  return ent.title || "—";
+}
+function eventEntityContext(kind, ent) {
+  if (!ent) return "";
+  if (kind === "lead") return "🏢 " + leadCompanyName(ent);
+  if (kind === "deal") { const c = comp(ent.company); return "🏢 " + (c && c.id ? c.name : "—"); }
+  return ent.type || "";
+}
+function eventCandidateEntities(ev, kind) {
+  const cfg = EVENT_LINK_KINDS[kind]; if (!cfg || !ev) return [];
+  const attached = new Set(Array.isArray(ev[cfg.field]) ? ev[cfg.field] : []);
+  const pool = kind === "company" ? S.companies : kind === "lead" ? S.leads : S.deals;
+  return (pool || []).filter(x => x && x.id && !attached.has(x.id));
+}
+function eventLinkBlockHTML(ev, kind) {
+  const cfg = EVENT_LINK_KINDS[kind];
+  const linked = eventLinkedEntities(ev, kind);
+  const candidates = eventCandidateEntities(ev, kind);
+  const list = linked.map(ent => `<div style="margin-bottom:6px"><div class="dcard" onclick="${cfg.openFn}('${ent.id}')"><div class="t">${cfg.icon} ${esc(eventEntityLabel(kind, ent))}</div><div class="c">${esc(eventEntityContext(kind, ent))}</div></div><button class="btn ghost small" onclick="detachEventLink('${ev.id}','${kind}','${ent.id}')">✕ Gỡ liên kết</button></div>`).join("");
+  const picker = candidates.length
+    ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><select id="${cfg.pickerId}" style="flex:1;min-width:220px">${candidates.map(ent => `<option value="${esc(ent.id)}">${esc(eventEntityLabel(kind, ent))}${eventEntityContext(kind, ent) ? " · " + esc(eventEntityContext(kind, ent)) : ""}</option>`).join("")}</select><button class="btn" onclick="attachEventLinkFromPicker('${ev.id}','${kind}')">Gắn</button></div>`
+    : `<div class="mut" style="margin-top:8px">Không còn ${esc(cfg.noun)} nào chưa gắn để chọn.</div>`;
+  return `<h3 style="margin:18px 0 8px">${cfg.heading} (${linked.length})</h3>
+    ${list || `<div class="mut">Chưa gắn ${esc(cfg.noun)} nào vào sự kiện này.</div>`}
+    ${picker}
+    <div style="margin-top:10px"><button class="btn ghost" onclick="createEntityFromEvent('${ev.id}','${kind}')">＋ Tạo mới</button></div>`;
+}
+function attachEventLink(eventId, kind, entityId) {
+  const ev = eventById(eventId); const cfg = EVENT_LINK_KINDS[kind];
+  if (!ev || !cfg || !entityId) { toast("Không tìm thấy sự kiện / đối tượng để gắn"); return; }
+  if (!Array.isArray(ev[cfg.field])) ev[cfg.field] = [];
+  if (!ev[cfg.field].includes(entityId)) ev[cfg.field].push(entityId);
+  /* Gắn lead vào sự kiện CHỈ là liên kết nguồn — tuyệt đối không đổi
+     status lead (chỉ gắn lead vào DEAL mới auto-convert qua
+     syncLeadDealStatus, và đường này không gọi helper đó). */
+  save(); render(); openEvent(eventId);
+  toast("Đã gắn vào sự kiện: " + (ev.name || ""));
+}
+function attachEventLinkFromPicker(eventId, kind) {
+  const cfg = EVENT_LINK_KINDS[kind]; if (!cfg) return;
+  const selEl = document.getElementById(cfg.pickerId);
+  if (!selEl || !selEl.value) { toast("Chọn " + cfg.noun + " để gắn trước đã"); return; }
+  attachEventLink(eventId, kind, selEl.value);
+}
+function detachEventLink(eventId, kind, entityId) {
+  const ev = eventById(eventId); const cfg = EVENT_LINK_KINDS[kind];
+  if (!ev || !cfg) return;
+  ev[cfg.field] = (Array.isArray(ev[cfg.field]) ? ev[cfg.field] : []).filter(x => x !== entityId);
+  save(); render(); openEvent(eventId);
+  toast("Đã gỡ liên kết khỏi sự kiện: " + (ev.name || ""));
+}
+/* Tạo entity MỚI ngay từ drawer sự kiện: đặt pendingEventLink rồi mở ĐÚNG
+   form tạo sẵn có của entity đó (editCompany / editLead / openAdd) — không
+   fork form. saveCompany/saveLead/saveDeal tiêu thụ pending qua
+   consumePendingEventLink TRƯỚC save() của chúng (một lần lưu ghi cả
+   entity mới lẫn liên kết vào sự kiện) rồi mở lại drawer sự kiện.
+   Huỷ/đóng form giữa chừng: closeEdit() (form công ty/lead) và closeAdd()
+   (form deal) đều xoá pendingEventLink — xem hai hàm đóng form đó. */
+function createEntityFromEvent(eventId, kind) {
+  const ev = eventById(eventId); if (!ev) return;
+  if (!EVENT_LINK_KINDS[kind]) return;
+  pendingEventLink = { eventId, kind };
+  if (kind === "company") editCompany(null);
+  else if (kind === "lead") editLead(null);
+  else if (kind === "deal") openAdd();
+}
+function consumePendingEventLink(kind, newId) {
+  if (!pendingEventLink || pendingEventLink.kind !== kind || !newId) return null;
+  const ev = eventById(pendingEventLink.eventId);
+  const eid = pendingEventLink.eventId;
+  pendingEventLink = null;
+  if (!ev) return null;
+  const cfg = EVENT_LINK_KINDS[kind]; if (!cfg) return null;
+  if (!Array.isArray(ev[cfg.field])) ev[cfg.field] = [];
+  if (!ev[cfg.field].includes(newId)) ev[cfg.field].push(newId);
+  return eid;
+}
+function openEvent(id) {
+  const ev = eventById(id); if (!ev) return;
+  drawerCtx = { type: "event", id };
+  const attendeeNames = eventAttendeeNames(ev);
+  showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
+    <div style="margin-bottom:4px">${typeBadgeHTML("event")}</div>
+    <h2>🎪 ${esc(ev.name || "—")}</h2><div class="mut">${esc(ev.date || "")}${ev.date && ev.location ? " · " : ""}${esc(ev.location || "")}</div>
+    ${sysMetaHTML(ev)}
+    <div class="kv">
+      <div class="k">Tên sự kiện</div><div>${esc(ev.name || "—")}</div>
+      <div class="k">Ngày</div><div>${esc(ev.date || "—")}</div>
+      <div class="k">Địa điểm</div><div>${esc(ev.location || "—")}</div>
+      <div class="k">Người tham dự</div><div>${esc(attendeeNames.join(", ") || "—")}</div>
+      <div class="k">Ghi chú</div><div>${esc(ev.note || "—")}</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="openEventForm('${ev.id}')">✏️ Sửa</button><button class="btn danger" onclick="deleteEvent('${ev.id}')">🗑 Xoá sự kiện</button></div>
+    ${eventLinkBlockHTML(ev, "company")}
+    ${eventLinkBlockHTML(ev, "lead")}
+    ${eventLinkBlockHTML(ev, "deal")}
+    <div class="mut" style="margin-top:14px">Liên kết công ty / lead / deal nằm ngay trên sự kiện này — xoá sự kiện chỉ gỡ các liên kết đó, các đối tượng vẫn giữ nguyên trong CRM.</div>${auditSectionHTML("event", ev.id)}`);
+  loadDrawerAudit(document.getElementById("drawer"), "event", id);
+}
+function openEventForm(id) {
+  const ev = id ? eventById(id) : null;
+  if (id && !ev) return;
+  /* Tạo mới: mặc định tick sẵn người đang đăng nhập (tiền lệ P3 —
+     defaultOwnerId() resolve qua SavaAuth.currentUser()); sửa: giữ đúng
+     attendees đã lưu. Chỉ member đang active mới có ô tick. */
+  const attendees = ev ? (Array.isArray(ev.attendees) ? ev.attendees : []) : (defaultOwnerId() ? [defaultOwnerId()] : []);
+  const memberChecks = memberList(S).filter(m => m.active).map(m => `<label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px;margin:4px 0"><input type="checkbox" id="e_evatt_${esc(m.id)}" style="width:auto" ${attendees.includes(m.id) ? "checked" : ""}> ${esc(m.name)}</label>`).join("");
+  openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa sự kiện" : "🎪 Thêm sự kiện"}</h3>
+    <div style="margin-bottom:8px">${typeBadgeHTML("event")}</div>
+    ${field("Tên sự kiện", txt("e_evname", ev ? ev.name : ""))}
+    ${field("Ngày", txt("e_evdate", ev ? ev.date : "", "VD: 2026-11-15"))}
+    ${field("Địa điểm", txt("e_evlocation", ev ? ev.location : ""))}
+    <label>Người tham dự</label>
+    <div>${memberChecks || '<div class="mut">Chưa có thành viên đang hoạt động</div>'}</div>
+    ${field("Ghi chú", `<textarea id="e_evnote">${esc(ev ? (ev.note || "") : "")}</textarea>`)}
+    ${formFoot("saveEvent", id ? `'${id}'` : "null")}`);
+}
+function saveEvent(id) {
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const name = v("e_evname"); if (!name) { toast("Tên sự kiện không được để trống"); return; }
+  const attendees = memberList(S).filter(m => m.active).filter(m => { const el = document.getElementById("e_evatt_" + m.id); return !!(el && el.checked); }).map(m => m.id);
+  const data = { name, date: v("e_evdate"), location: v("e_evlocation"), note: v("e_evnote"), attendees };
+  let ev;
+  if (id) { ev = eventById(id); if (!ev) return; Object.assign(ev, data); }
+  else { ev = { id: "ev" + Date.now(), ...data, companies: [], leads: [], deals: [] }; ensureEvents().push(ev); }
+  save(); closeEdit();
+  if (curView === "events") render();
+  openEvent(ev.id);
+  toast("Đã lưu sự kiện: " + name);
+}
+function deleteEvent(id) {
+  const ev = eventById(id); if (!ev) return;
+  const nc = Array.isArray(ev.companies) ? ev.companies.length : 0;
+  const nl = Array.isArray(ev.leads) ? ev.leads.length : 0;
+  const nd = Array.isArray(ev.deals) ? ev.deals.length : 0;
+  if (!confirm(`Xoá hẳn sự kiện "${ev.name}"?\n\nSự kiện đang gắn ${nc} công ty, ${nl} lead và ${nd} deal — xoá sự kiện sẽ gỡ ${nc} liên kết công ty, ${nl} liên kết lead và ${nd} liên kết deal này, nhưng các công ty, lead và deal đó vẫn giữ nguyên trong CRM.\n\nKhông khôi phục được.`)) return;
+  S.events = eventsList().filter(x => x.id !== id);
+  save(); closeDrawer(); render(); toast("Đã xoá sự kiện: " + (ev.name || ""));
+}
+/* --- Phía entity: hiển thị nguồn sự kiện (suy ra từ S.events) --- */
+function eventsLinkedTo(field, entityId) { return eventsList().filter(ev => Array.isArray(ev[field]) && ev[field].includes(entityId)); }
+function eventSourceChipsHTML(field, entityId) {
+  return eventsLinkedTo(field, entityId).map(ev => ` <a href="#" onclick="openEvent('${ev.id}'); return false" title="Mở sự kiện"><span class="chip" style="background:#be185d">🎪 từ sự kiện ${esc(ev.name || "—")}</span></a>`).join("");
+}
+function eventLinkedBlockHTML(field, entityId, heading) {
+  const evs = eventsLinkedTo(field, entityId);
+  if (!evs.length) return "";
+  return `<h3 style="margin:18px 0 8px">${heading} (${evs.length})</h3>` + evs.map(ev => `<div class="dcard" onclick="openEvent('${ev.id}')"><div class="t">🎪 ${esc(ev.name || "—")}</div><div class="c">${esc(ev.date || "")}${ev.date && ev.location ? " · " : ""}${esc(ev.location || "")}</div></div>`).join("");
+}
+/* Xoá entity -> gỡ id của nó khỏi mảng tương ứng của MỌI sự kiện (cùng
+   lần save() của thao tác xoá — helper này chỉ mutate, không tự save). */
+function unlinkEntityFromAllEvents(field, entityId) {
+  eventsList().forEach(ev => { if (Array.isArray(ev[field])) ev[field] = ev[field].filter(x => x !== entityId); });
+}
+
 function convertLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   const firstStage = LINES[l.line].stages[0][0];
@@ -1139,8 +1371,8 @@ function vTasksByMember() {
    Danh sách trong cửa sổ 200 mục đã nạp được CHIA BLOCK theo loại hành
    động (trường `action`): Tạo mới -> Chỉnh sửa -> Xoá (+ "Khác" cho
    action lạ) qua auditHistGroupsHTML — xem khối AUDIT_ACTIONS bên dưới. */
-const AUDIT_HISTORY_TYPES = [["deal", "Deal"], ["company", "Công ty"], ["lead", "Lead"], ["game", "Game"], ["task", "Việc"], ["member", "Thành viên"], ["activity", "Hoạt động"], ["request", "Yêu cầu đánh giá"]];
-const AUDIT_NAME_FIELDS = { deal: "title", company: "name", lead: "name", game: "title", task: "title", member: "name", activity: "text" };
+const AUDIT_HISTORY_TYPES = [["deal", "Deal"], ["company", "Công ty"], ["lead", "Lead"], ["game", "Game"], ["task", "Việc"], ["member", "Thành viên"], ["activity", "Hoạt động"], ["event", "Sự kiện"], ["request", "Yêu cầu đánh giá"]];
+const AUDIT_NAME_FIELDS = { deal: "title", company: "name", lead: "name", game: "title", task: "title", member: "name", activity: "text", event: "name" };
 let auditHistTypeFilter = "", auditHistMemberFilter = "";
 function setAuditHistFilter(kind, v) { if (kind === "type") auditHistTypeFilter = v; else auditHistMemberFilter = v; loadAuditHistory(); }
 function auditHistEntity(type, id) {
@@ -1152,6 +1384,7 @@ function auditHistEntity(type, id) {
   if (type === "task") { const t = S.tasks.find(x => x.id === sid); return t ? { name: t.title || "—", open: "editTask" } : null; }
   if (type === "member") { const m = memberList(S).find(x => x.id === sid); return m ? { name: m.name || "—", open: "openMember" } : null; }
   if (type === "activity") { const a = S.activities.find(x => x.id === sid); return a ? { name: a.text || "—", open: "editActivity" } : null; }
+  if (type === "event") { const e = (Array.isArray(S.events) ? S.events : []).find(x => x.id === sid); return e ? { name: e.name || "—", open: "openEvent" } : null; }
   return null;
 }
 function auditHistDeletedName(row) {
@@ -1771,6 +2004,7 @@ function openDeal(id) {
     <label class="mut">Chuyển stage</label><br>
     <select id="stageSel" onchange="confirmMoveStage('${d.id}', this)" style="margin-top:5px; width:100%">${stageOpts}</select>
     ${leadsBox}
+    ${eventLinkedBlockHTML("deals", d.id, "🎪 Từ sự kiện")}
     ${evalBox}
     ${dealTasksBox}
     <h3 style="margin:18px 0 4px">🕘 Timeline hoạt động</h3>${acts}
@@ -1850,7 +2084,7 @@ function saveTermContract(id) {
   termEditDealId = null;
   save(); openDeal(id); render(); toast("Đã lưu term + link hợp đồng cho: " + d.title);
 }
-function closeDrawer() { termEditDealId = null; drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
+function closeDrawer() { termEditDealId = null; companyProfileEditId = null; drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
 function showDrawer(html) { /* Drawer khác (công ty/game/lead/member) thay drawer deal -> thoát chế độ sửa Term. openDeal không đi qua hàm này nên không bị ảnh hưởng. */ termEditDealId = null; document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); }
 function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${esc(d.title)}</div>
@@ -2059,7 +2293,82 @@ function openPartnerPager(id) {
 }
 function closePartnerPager() { document.getElementById("partnerPager").classList.remove("on"); }
 /* === PARTNER EVAL UI END === */
+/* === HỒ SƠ CÔNG TY (Company Profile) — khối xem-trước-sửa-sau trong drawer ===
+   Bộ field lấy từ COMPANY_PROFILE_FIELDS (shared.js) — DANH SÁCH DÙNG
+   CHUNG DUY NHẤT với mục "Hồ sơ công ty" trong form công ty
+   (companyProfileFormFieldsHTML ở editCompany). Các key đi qua
+   legacy_extra (không nằm trong COMPANY_KNOWN — xem shared.js).
+   Trạng thái xem/sửa theo ĐÚNG mẫu khối Term của drawer deal:
+   companyProfileEditId = id công ty đang ở chế độ SỬA; null = mọi công
+   ty ở chế độ XEM (mặc định — xem chỉ hiện field CÓ dữ kiện, field rỗng
+   ẩn hẳn). Bấm Sửa -> hiện ô nhập cho CẢ bộ 17 field; Lưu thành công ->
+   về xem ngay; Hủy -> về xem, bỏ thay đổi trong ô. Mở công ty khác /
+   đóng drawer thì reset về xem (ở đầu openCompany + closeDrawer). */
+let companyProfileEditId = null;
+function startCompanyProfileEdit(id) { companyProfileEditId = id; openCompany(id); }
+function cancelCompanyProfileEdit(id) { companyProfileEditId = null; openCompany(id); }
+/* Danh sách ngành cho ô SELECT "Ngành dọc": danh sách ngành CHÍNH THỨC
+   của app (metaverseVerticalsOfficial = 4 ngành mặc định + S.verticals
+   do người dùng thêm qua UI) — ĐÚNG nguồn deal Metaverse đang dùng cho
+   vertical. Giá trị đã lưu ngoài danh sách này được selLegacy giữ bằng
+   option "(dữ liệu cũ) <giá trị>" chọn sẵn, không mất dữ kiện. */
+function companyProfileVerticalOptions() { return (typeof metaverseVerticalsOfficial === "function") ? metaverseVerticalsOfficial(S) : (Array.isArray(S.verticals) ? S.verticals.slice() : []); }
+/* Ô nhập của 1 field hồ sơ: prefix là tiền tố id ("cp_" ở drawer,
+   "e_cp_" ở form công ty) — đọc/ghi cùng key qua tiền tố tương ứng. */
+function companyProfileInputHTML(f, prefix, c) {
+  const val = c && c[f.key] !== undefined && c[f.key] !== null ? String(c[f.key]) : "";
+  if (f.type === "vertical") return selLegacy(prefix + f.key, companyProfileVerticalOptions(), val, "— Chưa chọn —");
+  if (f.type === "textarea") return `<textarea id="${prefix}${f.key}">${esc(val)}</textarea>`;
+  return `<input id="${prefix}${f.key}" style="width:100%" value="${esc(val)}">`;
+}
+/* Mục "Hồ sơ công ty" trong FORM công ty (editCompany): cả 17 field,
+   dựng từ cùng COMPANY_PROFILE_FIELDS + cùng helper ô nhập như drawer. */
+function companyProfileFormFieldsHTML(c) {
+  return COMPANY_PROFILE_FIELDS.map(f => field(f.label, companyProfileInputHTML(f, "e_cp_", c))).join("");
+}
+/* Đọc bộ field hồ sơ từ các ô mang tiền tố prefix; phần tử không tồn tại
+   (form không dựng) -> coi như rỗng. Giá trị trim hai đầu như mọi form
+   của app, NỘI DUNG GIỮ NGUYÊN VĂN dạng chuỗi (không ép số/ngày). */
+function readCompanyProfileForm(prefix) {
+  const out = {};
+  COMPANY_PROFILE_FIELDS.forEach(f => { const el = document.getElementById(prefix + f.key); out[f.key] = el ? String(el.value || "").trim() : ""; });
+  return out;
+}
+/* Ghi bộ field hồ sơ vào object công ty: có giá trị -> gán chuỗi; RỖNG
+   -> XOÁ key (không ghi key rác, và xoá ở chế độ sửa/form = chủ động
+   dọn field — dạng xem sau đó ẩn field như field chưa từng có). */
+function applyCompanyProfile(c, values) {
+  if (!c || !values) return;
+  COMPANY_PROFILE_FIELDS.forEach(f => {
+    const val = values[f.key] === undefined || values[f.key] === null ? "" : String(values[f.key]).trim();
+    if (val) c[f.key] = val; else delete c[f.key];
+  });
+}
+function companyProfileBlockHTML(c) {
+  if (companyProfileEditId === c.id) {
+    const rows = COMPANY_PROFILE_FIELDS.map(f => `<div class="k">${esc(f.label)}</div><div>${companyProfileInputHTML(f, "cp_", c)}</div>`).join("");
+    return `<h3 style="margin:16px 0 4px">🏢 Hồ sơ công ty — đang sửa</h3>
+    <div class="kv">${rows}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="persistCompanyProfile('${c.id}')">💾 Lưu hồ sơ</button><button class="btn ghost" onclick="cancelCompanyProfileEdit('${c.id}')">Hủy</button></div>`;
+  }
+  const filled = COMPANY_PROFILE_FIELDS.filter(f => c[f.key] !== undefined && c[f.key] !== null && String(c[f.key]).trim() !== "");
+  const rows = filled.map(f => `<div class="k">${esc(f.label)}</div><div>${esc(String(c[f.key]))}</div>`).join("");
+  return `<h3 style="margin:16px 0 4px">🏢 Hồ sơ công ty</h3>
+    ${filled.length ? `<div class="kv">${rows}</div>` : '<div class="mut" style="margin-bottom:8px">Chưa có thông tin hồ sơ — bấm Sửa hồ sơ để bổ sung.</div>'}
+    <button class="btn" onclick="startCompanyProfileEdit('${c.id}')">✏️ Sửa hồ sơ</button>`;
+}
+/* Tên hàm lưu hồ sơ là persistCompanyProfile (không bắt đầu bằng
+   "saveCompany") để các trích đoạn tĩnh theo tiền tố "function
+   saveCompany" trong test cũ không bắt nhầm hàm này. */
+function persistCompanyProfile(id) {
+  const c = comp(id); if (!c || !c.id) return;
+  applyCompanyProfile(c, readCompanyProfileForm("cp_"));
+  /* Lưu THÀNH CÔNG mới thoát chế độ sửa -> quay về dạng xem ngay. */
+  companyProfileEditId = null;
+  save(); render(); openCompany(id); toast("Đã lưu hồ sơ công ty: " + c.name);
+}
 function openCompany(id) {
+  if (companyProfileEditId && companyProfileEditId !== id) companyProfileEditId = null;
   const c = comp(id); if (!c || !c.id) return;
   drawerCtx = { type: "company", id };
   const deals = S.deals.filter(d => d.company === id);
@@ -2085,8 +2394,10 @@ function openCompany(id) {
       <div class="k">Việc đang treo (tất cả mảng)</div><div>${tasks.length} việc chưa xong</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editCompany('${c.id}')">✏️ Sửa công ty</button><button class="btn danger" onclick="deleteCompany('${c.id}')">🗑 Xóa công ty</button></div>
-    <button class="btn" onclick="closeDrawer(); openAddFor('${c.id}')">+ Thêm deal cho công ty này</button>
+    ${companyProfileBlockHTML(c)}
+    <div style="margin-top:12px"><button class="btn" onclick="closeDrawer(); openAddFor('${c.id}')">+ Thêm deal cho công ty này</button></div>
     ${partnerSummaryBlockHTML(c)}
+    ${eventLinkedBlockHTML("companies", c.id, "🎪 Sự kiện đã gặp")}
     <h3 style="margin:18px 0 8px">📥 Leads của công ty này — chính là đầu mối liên hệ của công ty (bấm để xem chi tiết lead)</h3>
     ${leadsForCompany(c.id).map(leadMini).join("") || '<div class="mut">Chưa có lead nào thuộc công ty này.</div>'}
     <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>
@@ -2270,7 +2581,8 @@ function openGame(id) {
 function openLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
   drawerCtx = { type: "lead", id };
-  const st = {new:["Mới","#f59e0b"], contacted:["Đã liên hệ","#38bdf8"], qualified:["Đạt chuẩn","#22c55e"], converted:["Đã chuyển đổi","#64748b"]}[l.status] || [(l.status ? String(l.status) : "—"),"#64748b"];
+  const __stDef = leadStatusDef(l.status);
+  const st = __stDef ? [__stDef.label, __stDef.color] : [(l.status ? String(l.status) : "—"), "#64748b"];
   const lc = leadCompany(l);
   const relDeals = dealsForLead(l.id);
   /* P1: chỉ gắn được lead vào deal CÙNG CÔNG TY với lead — dropdown chỉ
@@ -2278,7 +2590,7 @@ function openLead(id) {
   const attachDeals = l.company ? S.deals.filter(d => d.company === l.company && !(Array.isArray(d.leads) && d.leads.includes(l.id))) : [];
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     ${typeBadgeHTML("lead")} <span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>
-    <h2>📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}</div>
+    <h2>📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</h2><div class="mut">${lc ? "🏢 " + esc(lc.name) + " · " : ""}${esc(fmtWhen(l.when || ""))} · Nguồn: ${esc(l.source || "")}${eventSourceChipsHTML("leads", l.id)}</div>
     <div class="kv">
       <div class="k">Công ty</div><div>${lc ? `<a href="#" onclick="openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
       <div class="k">Người đầu mối</div><div>${esc(l.person || "—")}</div>
@@ -2499,7 +2811,7 @@ function onDealFormGameChange() {
   const selG = document.getElementById("f_game"), nw = document.getElementById("f_newGameWrap");
   if (nw) nw.style.display = selG && selG.value === "__new__" ? "" : "none";
 }
-function closeAdd() { pendingDealLeads = null; dealFormReturnGameId = null; dealFormLeadSelByCompany = {}; document.getElementById("modal").classList.remove("on"); }
+function closeAdd() { pendingDealLeads = null; dealFormReturnGameId = null; dealFormLeadSelByCompany = {}; pendingEventLink = null; document.getElementById("modal").classList.remove("on"); }
 function saveDeal() {
   const title = document.getElementById("f_title").value.trim(); if (!title) { toast("Nhập tên deal trước đã"); return; }
   const line = document.getElementById("f_line").value;
@@ -2594,8 +2906,13 @@ function saveDeal() {
      đúng game đó (user đổi game/mảng ngay trong form thì tôn trọng lựa
      chọn cuối — deal thuộc về game khác, không kéo về game ban đầu). */
   const returnGameId = dealFormReturnGameId;
+  /* Tạo mới từ drawer sự kiện (pendingEventLink kind=deal): gắn deal mới
+     vào sự kiện TRƯỚC save() để một lần lưu ghi cả hai (tiêu thụ ở đây,
+     trước closeAdd() — closeAdd cũng xoá pending khi huỷ form). */
+  const evLinkDeal = consumePendingEventLink("deal", nd.id);
   save(); closeAdd(); curLine = line; setView("board");
-  if (returnGameId && nd.game === returnGameId && game(returnGameId)) openGame(returnGameId);
+  if (evLinkDeal) openEvent(evLinkDeal);
+  else if (returnGameId && nd.game === returnGameId && game(returnGameId)) openGame(returnGameId);
   if (leadMismatch) toast("Đã tạo deal mới, lead giữ nguyên vì khác mảng/công ty");
   else toast("Đã thêm deal vào pipeline " + LINES[line].name);
 }
@@ -2603,7 +2920,11 @@ function saveDeal() {
 /* ===== CRUD: sửa / xóa mọi đối tượng ngay trong prototype ===== */
 function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 function openEdit(html) { document.getElementById("editBox").innerHTML = html; document.getElementById("editModal").classList.add("on"); }
-function closeEdit() { document.getElementById("editModal").classList.remove("on"); }
+/* Đóng form sửa/tạo (editModal) giữa chừng = huỷ thao tác đang dở: pending
+   liên kết sự kiện (createEntityFromEvent) phải được xoá để lần tạo entity
+   sau không bị gắn nhầm vào sự kiện cũ. Đường lưu thành công tiêu thụ
+   pending TRƯỚC khi gọi closeEdit() nên không bị ảnh hưởng. */
+function closeEdit() { pendingEventLink = null; document.getElementById("editModal").classList.remove("on"); }
 function field(label, inner) { return `<label>${label}</label>${inner}`; }
 function txt(id, val, ph) { return `<input id="${id}" value="${esc(val ?? "")}" placeholder="${esc(ph || "")}">`; }
 function sel(id, opts, cur) { return `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`; }
@@ -3176,6 +3497,7 @@ function performDeleteDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
   const linkedLeadIds = Array.isArray(d.leads) ? [...d.leads] : [];
   S.deals = S.deals.filter(x => x.id !== id);
+  unlinkEntityFromAllEvents("deals", id); /* sự kiện giữ nguyên, chỉ gỡ liên kết tới deal đã xoá */
   linkedLeadIds.forEach(revertLeadIfOrphaned); /* C2: xóa deal -> lead converted mồ côi tự hồi "qualified" */
   S.activities = S.activities.filter(a => a.deal !== id);
   S.tasks.forEach(t => { if (t.deal === id) delete t.deal; });
@@ -3212,6 +3534,9 @@ function editCompany(id) {
     <div class="mut" style="margin-top:12px">Người liên hệ của công ty là các <b>Lead</b> thuộc công ty này (một nguồn sự thật duy nhất) — thêm/sửa người liên hệ ở mục Lead, không còn trường đầu mối riêng ở công ty.</div>
     <div class="mut" style="margin-top:12px">Vai trò theo mảng — bật mảng nào thì công ty hiện trong mảng đó:</div>
     ${rolesHtml}
+    <div style="margin-top:14px;font-weight:600;font-size:14px">🏢 Hồ sơ công ty</div>
+    <div class="mut" style="margin-top:4px">Bộ thông tin hồ sơ (địa điểm, quy mô, tín hiệu mua…) — để trống field nào thì field đó không được ghi vào hồ sơ.</div>
+    ${companyProfileFormFieldsHTML(c)}
     ${formFoot("saveCompany", id ? `'${id}'` : "null")}`);
 }
 function saveCompany(id) {
@@ -3236,7 +3561,16 @@ function saveCompany(id) {
   let c;
   if (id) { c = comp(id); Object.assign(c, { name, type: v("e_ctype"), roles, last: "Vừa sửa" }); }
   else { c = { id: "c" + Date.now(), name, type: v("e_ctype") || "Đối tác", last: "Vừa tạo", roles }; S.companies.push(c); }
-  save(); closeEdit(); render(); openCompany(c.id); toast("Đã lưu công ty: " + name);
+  /* Hồ sơ công ty (17 field phụ): đọc từ mục "Hồ sơ công ty" của form
+     (tiền tố e_cp_) qua ĐÚNG helper dùng chung với khối hồ sơ ở drawer —
+     có giá trị thì ghi chuỗi, để trống thì không ghi key (tạo mới) /
+     xoá key (sửa). */
+  applyCompanyProfile(c, readCompanyProfileForm("e_cp_"));
+  /* Tạo mới từ drawer sự kiện (pendingEventLink kind=company): gắn công ty
+     mới vào sự kiện TRƯỚC save() để một lần lưu ghi cả hai, rồi mở lại
+     drawer sự kiện thay vì drawer công ty. */
+  const evLinkCompany = id ? null : consumePendingEventLink("company", c.id);
+  save(); closeEdit(); render(); if (evLinkCompany) openEvent(evLinkCompany); else openCompany(c.id); toast("Đã lưu công ty: " + name);
 }
 function deleteCompany(id) {
   const c = comp(id); if (!c.id) return;
@@ -3249,6 +3583,7 @@ function deleteCompany(id) {
   if (pubN > 0) { toast(`⚠️ Không xoá được công ty "${c.name}" — còn ${pubN} yêu cầu đánh giá trong module Publishing đang tham chiếu tới công ty này. Hãy xoá các yêu cầu đó ở module Publishing trước, rồi mới xoá công ty ở đây.`); return; }
   if (!confirm(`Xóa hẳn công ty "${c.name}"?` + (n ? `\n\nCông ty này đang gắn với ${n} deal — các deal đó sẽ bị gỡ liên kết công ty (deal vẫn còn, chỉ mất tên công ty).` : "") + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với công ty này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với công ty).` : "") + `\nKhông khôi phục được.`)) return;
   S.companies = S.companies.filter(x => x.id !== id);
+  unlinkEntityFromAllEvents("companies", id); /* sự kiện giữ nguyên, chỉ gỡ liên kết tới công ty đã xoá */
   S.deals.forEach(d => { if (d.company === id) delete d.company; });
   S.games.forEach(g => { if (g.company === id) delete g.company; });
   /* Việc gắn trực tiếp với công ty: gỡ liên kết như deal/game ở trên — TUYỆT ĐỐI không xoá việc. */
@@ -3394,7 +3729,7 @@ function editLead(id, presetCompanyId) {
   /* FIX-C1 B12: tạo mới khi curLine='all' không còn cứng về 'publishing' —
      line để trống + placeholder "— Chọn mảng —", saveLead chặn khi chưa chọn;
      có ngữ cảnh mảng cụ thể / preset công ty thì chọn sẵn như cũ. */
-  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "", source: "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", mainContact: false };
+  const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "", source: (pendingEventLink && pendingEventLink.kind === "lead") ? "Sự kiện" : "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", mainContact: false };
   if (id && !l) return;
   const presetComp = presetCompanyId ? comp(presetCompanyId) : null;
   const curCompId = id ? (l.company || "") : (presetComp && presetComp.id ? presetComp.id : (l.company || ""));
@@ -3414,7 +3749,7 @@ function editLead(id, presetCompanyId) {
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_lmain" style="width:auto" ${l.mainContact ? "checked" : ""}> Đầu mối chính của công ty (mỗi công ty chỉ có một — tick lead này sẽ tự bỏ tick lead đang là đầu mối chính của cùng công ty)</label>
     ${leadLineField}
     ${field("Nguồn", selLegacy("e_lsource", ["Form savameta.com", "Giới thiệu", "Facebook", "Cộng đồng dev", "Sự kiện", "Chủ động tiếp cận", "Khác"], l.source || "", "— Chưa chọn —"))}
-    ${field("Trạng thái", sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"], ["converted", "Đã chuyển đổi"]], l.status) + (l.status === "converted" ? `<div class="mut" style="margin-top:4px">Lead đang ở trạng thái Đã chuyển đổi — đổi về Đạt chuẩn / Đã liên hệ tại đây để khôi phục tay nếu lead không còn deal liên kết (C2; bình thường hệ thống tự hồi về Đạt chuẩn khi deal bị xóa / lead bị gỡ khỏi deal).</div>` : ""))}
+    ${field("Trạng thái", sel("e_lstatus", LEAD_STATUSES.map(s => [s.key, s.label]), l.status) + (l.status === "converted" ? `<div class="mut" style="margin-top:4px">Lead đang ở trạng thái Đã chuyển đổi — đổi về Đạt chuẩn / Đã liên hệ tại đây để khôi phục tay nếu lead không còn deal liên kết (C2; bình thường hệ thống tự hồi về Đạt chuẩn khi deal bị xóa / lead bị gỡ khỏi deal).</div>` : ""))}
     ${field("Thời gian", `<input id="e_lwhen" type="date" value="${esc(isValidDateStr(l.when) ? l.when : "")}">` + (l.when && !isValidDateStr(l.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(l.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Ghi chú", `<textarea id="e_lnote">${esc(l.note || "")}</textarea>`)}
     ${formFoot("saveLead", id ? `'${id}'` : "null")}`);
@@ -3463,13 +3798,17 @@ function saveLead(id) {
      của lần lưu thấy đúng status cuối đó (không sinh mục mâu thuẫn).
      preserveManualConverted: lead KHÔNG có deal đặt tay "converted" ở
      form là đường khôi phục tay hợp lệ — helper không hồi nó. */
+  /* Tạo mới từ drawer sự kiện (pendingEventLink kind=lead): gắn lead mới
+     vào sự kiện TRƯỚC save() — CHỈ gắn liên kết nguồn, không đổi status
+     lead (helper status ở ngay dưới chỉ convert khi lead có deal). */
+  const evLinkLead = id ? null : consumePendingEventLink("lead", l.id);
   syncLeadDealStatus(l.id, { preserveManualConverted: true });
   /* Radio một-công-ty-một-đầu-mối-chính Ở TẦNG DỮ LIỆU (shared.js): lead
      này vừa được tick main -> lead main cũ của CÙNG công ty tự bỏ tick
      ngay trong state trước khi save() ghi xuống — không tạo đường ghi thứ
      hai, và bỏ tick (mainContact=false) thì helper không đụng ai. */
   enforceLeadMainContact(S.leads, l);
-  save(); closeEdit(); render(); openLead(l.id); toast("Đã lưu lead: " + name);
+  save(); closeEdit(); render(); if (evLinkLead) openEvent(evLinkLead); else openLead(l.id); toast("Đã lưu lead: " + name);
 }
 function deleteLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
@@ -3480,6 +3819,7 @@ function deleteLead(id) {
   const mainWarn = isMainContact(l) ? `\n\n⚠️ Lead này đang là ${MAIN_CONTACT_LABEL} của công ty${leadCompany(l) ? ` "${leadCompany(l).name}"` : ""} — xoá lead sẽ làm công ty mất đầu mối chính.` : "";
   if (!confirm(`Xóa hẳn lead "${l.name}"?` + (nDeal ? `\n\nLead này sẽ bị gỡ khỏi ${nDeal} deal đang gắn.` : "") + mainWarn + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với lead này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với lead).` : "") + `\nKhông khôi phục được.`)) return;
   S.leads = S.leads.filter(x => x.id !== id);
+  unlinkEntityFromAllEvents("leads", id); /* sự kiện giữ nguyên, chỉ gỡ liên kết tới lead đã xoá */
   // Quan hệ deal↔lead chỉ nằm ở deal.leads -> gỡ id lead khỏi mọi deal.
   S.deals.forEach(d => { if (Array.isArray(d.leads)) d.leads = d.leads.filter(x => x !== id); });
   // Việc gắn trực tiếp với lead: gỡ liên kết, không xoá việc (cùng quy ước gỡ liên kết khi xoá deal/company/game).

@@ -81,7 +81,12 @@ test('C2: lead converted mồ côi tự hồi "qualified" ở cả 2 đường m
   const del = section(html, 'function performDeleteDeal', 'function deleteDeal');
   assert.ok(del.includes('linkedLeadIds.forEach(revertLeadIfOrphaned)'), 'xóa deal phải hồi trạng thái các lead liên kết');
   const form = section(html, 'function editLead', 'function saveLead');
-  assert.ok(form.includes('["converted", "Đã chuyển đổi"]'), 'form sửa lead phải có option Đã chuyển đổi trong select status');
+  /* Hợp đồng B (trạng thái tiếp cận): select status của form KHÔNG còn
+     mảng cứng riêng — dựng từ LEAD_STATUSES (nguồn sự thật duy nhất), nên
+     option "Đã chuyển đổi" kiểm ở chính danh sách trung tâm đó. */
+  assert.ok(form.includes('sel("e_lstatus", LEAD_STATUSES.map(s => [s.key, s.label]), l.status)'), 'form sửa lead phải dựng select status từ LEAD_STATUSES');
+  const leadStatuses = section(html, 'const LEAD_STATUSES', 'const LEAD_STATUS_UNKNOWN');
+  assert.ok(leadStatuses.includes('{ key: "converted", label: "Đã chuyển đổi"'), 'LEAD_STATUSES phải có trạng thái converted (Đã chuyển đổi) cho select status');
   assert.ok(!form.includes('không sửa tay'), 'không còn khối khóa cứng trạng thái converted');
 });
 

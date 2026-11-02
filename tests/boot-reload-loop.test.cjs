@@ -226,8 +226,8 @@ test('loadAll ổn định: nạp lần 2 sau khi app đã ghi lại cache (load
   assert.equal(writes.length, 0);
 });
 
-test('adapter: crmRowsToState trả đủ hình dạng chuẩn của app (có khoá verticals)', () => {
+test('adapter: crmRowsToState trả đủ hình dạng chuẩn của app (có khoá verticals + events của module Sự kiện)', () => {
   const st = A.crmRowsToState(serverTables());
-  assert.deepEqual(Object.keys(st), ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'verticals']);
+  assert.deepEqual(Object.keys(st), ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events', 'verticals']);
   assert.deepEqual([...st.verticals], []);
 });

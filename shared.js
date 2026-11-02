@@ -106,15 +106,51 @@ if (typeof window !== "undefined") { window.memberList = memberList; window.memb
    deal.vertical / lead.mainContact) — KHÔNG cần cột/SQL mới.
    Entity cũ chưa có trường -> hiển thị "—", không bịa thời gian. */
 const SYS_FIELDS = ["createdAt", "updatedAt", "updatedBy"];
-const CRM_ENTITY_TYPES = [["deals", "deal"], ["companies", "company"], ["leads", "lead"], ["games", "game"], ["tasks", "task"], ["members", "member"], ["activities", "activity"]];
+const CRM_ENTITY_TYPES = [["deals", "deal"], ["companies", "company"], ["leads", "lead"], ["games", "game"], ["tasks", "task"], ["members", "member"], ["activities", "activity"], ["events", "event"]];
+/* === Hồ sơ công ty (Company Profile) — bộ field phụ qua legacy_extra ===
+   COMPANY_PROFILE_FIELDS là DANH SÁCH DÙNG CHUNG DUY NHẤT (key + nhãn +
+   loại input) cho cả khối "Hồ sơ công ty" xem/sửa trong drawer công ty
+   lẫn mục "Hồ sơ công ty" trong form công ty (editCompany) ở index.html
+   — hai bề mặt KHÔNG được giữ danh sách riêng. Các key này CỐ Ý không
+   nằm trong COMPANY_KNOWN của supabase-adapter.js: chúng đi qua
+   legacy_extra của bảng companies (extrasOf khi ghi / mergeExtras khi
+   đọc) như lead.phone/mainContact — KHÔNG cần cột/SQL mới. Giá trị luôn
+   là CHUỖI nguyên văn (không ép số: "Năm thành lập"/"Số nhân sự" giữ
+   đúng chữ người dùng nhập); field rỗng thì KHÔNG ghi key vào object
+   (đường ghi xoá key khi để trống — xem applyCompanyProfile ở index.html).
+   Loại input: "text" = ô 1 dòng; "textarea" = ô nhiều dòng (danh sách /
+   tín hiệu dài: domain, tên tổ chức con, buying signals — cùng mẫu ô
+   textarea của form game); "vertical" = SELECT ngành (xem
+   companyProfileVerticalOptions ở index.html). */
+const COMPANY_PROFILE_FIELDS = [
+  { key: "location", label: "Địa điểm", type: "text" },
+  { key: "establishedYear", label: "Năm thành lập", type: "text" },
+  { key: "size", label: "Quy mô", type: "text" },
+  { key: "employees", label: "Số nhân sự", type: "text" },
+  { key: "industry", label: "Ngành", type: "text" },
+  { key: "website", label: "Website", type: "text" },
+  { key: "linkedinUrl", label: "LinkedIn công ty", type: "text" },
+  { key: "parentCompany", label: "Công ty mẹ / Nhà đầu tư", type: "text" },
+  { key: "parentWebsite", label: "Website công ty mẹ", type: "text" },
+  { key: "suborgCount", label: "Số tổ chức con", type: "text" },
+  { key: "suborgDomains", label: "Domain tổ chức con", type: "textarea" },
+  { key: "suborgNames", label: "Tên tổ chức con", type: "textarea" },
+  { key: "buyingSignals", label: "Tín hiệu mua (Buying Signals)", type: "textarea" },
+  { key: "vertical", label: "Ngành dọc", type: "vertical" },
+  { key: "savaOffering", label: "SAVA Offering", type: "text" },
+  { key: "bizModel", label: "Mô hình kinh doanh (Biz Model)", type: "text" },
+  { key: "priority", label: "Mức ưu tiên (Priority)", type: "text" },
+];
+if (typeof window !== "undefined") { window.COMPANY_PROFILE_FIELDS = COMPANY_PROFILE_FIELDS; window.CompanyProfileFields = COMPANY_PROFILE_FIELDS; }
 const FIELD_LABELS = {
   deal: { title: "Tiêu đề", line: "Mảng", stage: "Giai đoạn", owner: "Người phụ trách", company: "Công ty", game: "Game", due: "Hạn chốt", amount: "Giá trị", cur: "Tiền tệ", vertical: "Phân khúc ngành", leads: "Lead gắn kèm", custom: "Thông tin riêng theo mảng", term: "Điều khoản (Term)", contract: "Hợp đồng", idle: "Số ngày chưa cập nhật" },
-  company: { name: "Tên công ty", type: "Loại hình", roles: "Vai trò theo mảng", last: "Tương tác cuối", partnerEval: "Đánh giá Partner (legacy)", partnerEvalMigrated: "Cờ chuyển dữ liệu Partner" },
+  company: { name: "Tên công ty", type: "Loại hình", roles: "Vai trò theo mảng", last: "Tương tác cuối", partnerEval: "Đánh giá Partner (legacy)", partnerEvalMigrated: "Cờ chuyển dữ liệu Partner", location: "Địa điểm", establishedYear: "Năm thành lập", size: "Quy mô", employees: "Số nhân sự", industry: "Ngành", website: "Website", linkedinUrl: "LinkedIn công ty", parentCompany: "Công ty mẹ / Nhà đầu tư", parentWebsite: "Website công ty mẹ", suborgCount: "Số tổ chức con", suborgDomains: "Domain tổ chức con", suborgNames: "Tên tổ chức con", buyingSignals: "Tín hiệu mua (Buying Signals)", vertical: "Ngành dọc", savaOffering: "SAVA Offering", bizModel: "Mô hình kinh doanh (Biz Model)", priority: "Mức ưu tiên (Priority)" },
   lead: { name: "Tên lead", company: "Công ty", person: "Người đầu mối", phone: "Điện thoại", line: "Mảng", source: "Nguồn", status: "Trạng thái", note: "Ghi chú", when: "Thời điểm", mainContact: "Đầu mối chính" },
   game: { title: "Tên game", own: "Loại game", company: "Studio sở hữu", genre: "Genre", platform: "Nền tảng", stage: "Giai đoạn phát triển", emoji: "Emoji", desc: "Mô tả", bdNote: "Ghi chú BD", buildUrl: "Link build", trailerUrl: "Link trailer", scores: "Điểm BD /10 (lưu trữ)", verdict: "Kết luận BD (lưu trữ)", mktEval: "Đánh giá MKT /10 (lưu trữ)" },
   task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
   member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
   activity: { deal: "Deal", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
+  event: { name: "Tên sự kiện", date: "Ngày diễn ra", location: "Địa điểm", attendees: "Người tham dự", note: "Ghi chú", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
   request: { kind: "Loại hồ sơ", entityId: "Hồ sơ CRM", requestedBy: "BD phụ trách", assignee: "MKT được giao", due: "Hạn đánh giá", requestNote: "Thông tin đầu vào / yêu cầu BD", source: "Link build / bằng chứng", build: "Build / phiên bản", status: "Trạng thái", intake: "Hồ sơ đầu vào", entitySnapshot: "Dữ liệu chụp hồ sơ" },
 };
 const REF_FIELDS = {
@@ -178,7 +214,12 @@ function resolveRefLabel(state, refKind, id, entityType, entity) {
    (3) auditValue trả "" cho field "expectations" + tóm tắt object của
        field "intake" cũng loại sub-key đó — phòng thủ chiều sâu nếu có
        đường gọi khác truyền nguyên object intake vào. */
-const AUDIT_LEAD_STATUS_LABELS = { new: "Mới", contacted: "Đã liên hệ", qualified: "Đạt chuẩn", converted: "Đã chuyển đổi" };
+/* Nhãn audit của lead.status — KHỚP ĐÚNG bộ nhãn của LEAD_STATUSES phía
+   index.html (nguồn sự thật cho UI lead: form/chip/block). shared.js nạp
+   ở cả 3 trang (kể cả trang không có LEAD_STATUSES) nên giữ bảng nhãn
+   riêng tại đây cho đường audit; đổi nhãn trạng thái lead thì sửa CẢ hai
+   nơi theo đúng cặp key↔nhãn này. */
+const AUDIT_LEAD_STATUS_LABELS = { new: "Mới", sent_connect: "Sent connect", first_message: "1st message", first_email: "1st email", first_fu: "1st FU", in_response: "In-response", in_reply: "In reply", discovery_meeting: "Discovery meeting", contacted: "Đã liên hệ", qualified: "Đạt chuẩn", converted: "Đã chuyển đổi", not_yet_have_demand: "Not yet have demand" };
 const AUDIT_GAME_OWN_LABELS = { ours: "Game của Sava", partner: "Game đối tác" };
 /* Nhãn sub-key intake: đúng bộ nhãn Publishing đang dùng (GAME_INTAKE_LABELS
    + COMPANY_INTAKE_LABELS trong publishing.js). "expectations" CỐ Ý không
@@ -481,6 +522,7 @@ function emptyState() { return {
   leads: [],
   tasks: [],
   activities: [],
+  events: [],
   verticals: [],
 };}
 /* seed() giữ lại như bí danh tương thích ngược cho code/test cũ còn tham
@@ -531,6 +573,7 @@ const TYPE_BADGE_META = {
   task: { icon: "✅", noun: "Việc", color: "#15803d" },
   member: { icon: "👤", noun: "Thành viên", color: "#475569" },
   activity: { icon: "🕘", noun: "Hoạt động", color: "#64748b" },
+  event: { icon: "🎪", noun: "Sự kiện", color: "#db2777" },
   market: { icon: "📊", noun: "Mechanic / Thị trường", color: "#137e90" },
   "company-review": { icon: "🏢", noun: "Đánh giá Partner", color: "#0f766e" },
   "game-review": { icon: "🎮", noun: "Đánh giá Game", color: "#7c3aed" },
@@ -615,6 +658,7 @@ function migrateState(s) {
   if (!Array.isArray(s.games)) s.games = [];
   if (!Array.isArray(s.tasks)) s.tasks = [];
   if (!Array.isArray(s.activities)) s.activities = [];
+  if (!Array.isArray(s.events)) s.events = [];
   /* Danh sách ngành Metaverse do người dùng thêm (S.verticals): chuẩn hoá
      thành mảng chuỗi đã trim, bỏ trùng, giữ thứ tự; kiểu lạ -> []. Ngành
      đã gán trên deal vẫn được metaverseVerticals() suy ra kể cả khi mảng
@@ -631,7 +675,7 @@ function migrateState(s) {
      (type "sanitized", kèm số lượng) để index.html hiện banner; nếu đã có cờ
      "corrupt" từ loadState thì không ghi đè, chỉ bổ sung số đếm riêng. */
   let droppedNonObjects = 0;
-  ["companies", "games", "deals", "leads", "tasks", "activities", "members"].forEach(k => {
+  ["companies", "games", "deals", "leads", "tasks", "activities", "events", "members"].forEach(k => {
     if (Array.isArray(s[k])) {
       const before = s[k].length;
       /* A12: đường xử lý đã chọn cho entity sai kiểu — phần tử là MẢNG hoặc
@@ -658,8 +702,17 @@ function migrateState(s) {
      ngoại dạng SỐ được ép về CHUỖI (định danh chuẩn trong app là chuỗi);
      id/khóa ngoại là chuỗi giữ nguyên, kiểu lạ khác để nguyên cho các lớp
      trên tự xử lý như trước. */
-  ["companies", "games", "deals", "leads", "tasks", "activities"].forEach(k => {
+  ["companies", "games", "deals", "leads", "tasks", "activities", "events"].forEach(k => {
     s[k].forEach(x => { if (typeof x.id === "number" && Number.isFinite(x.id)) x.id = String(x.id); });
+  });
+  /* Sự kiện: 3 mảng liên kết (companies/leads/deals) là nguồn sự thật của
+     quan hệ Event<->{Company,Lead,Deal} — luôn là mảng, id số ép về chuỗi
+     như deal.leads ở dưới. attendees cũng luôn là mảng id thành viên. */
+  s.events.forEach(e => {
+    ["companies", "leads", "deals", "attendees"].forEach(f => {
+      if (!Array.isArray(e[f])) e[f] = [];
+      else e[f] = e[f].map(v => (typeof v === "number" && Number.isFinite(v)) ? String(v) : v);
+    });
   });
   s.games.forEach(g => { if (typeof g.company === "number" && Number.isFinite(g.company)) g.company = String(g.company); });
   s.deals.forEach(d => {

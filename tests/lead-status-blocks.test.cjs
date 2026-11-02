@@ -1,8 +1,14 @@
 /* View Lead phía BD (vLeads) chia theo BLOCK TRẠNG THÁI:
-   - Tập trạng thái + thứ tự vòng đời lấy nguyên từ vựng app đang có
-     (field lead.status; form sửa lead e_lstatus / drawer / leadMini đều
-     dùng cùng tập): new "Mới" -> contacted "Đã liên hệ" -> qualified
-     "Đạt chuẩn" -> converted "Đã chuyển đổi". KHÔNG có trạng thái mới.
+   - Tập trạng thái + thứ tự block lấy từ LEAD_STATUSES — NGUỒN SỰ THẬT
+     DUY NHẤT (field lead.status; form sửa lead e_lstatus dựng từ chính
+     danh sách này / drawer / leadMini đều tra cùng def): 12 trạng thái
+     theo hợp đồng B (4 cũ + 8 trạng thái tiếp cận mới):
+     new "Mới" -> sent_connect "Sent connect" -> first_message
+     "1st message" -> first_email "1st email" -> first_fu "1st FU" ->
+     in_response "In-response" -> in_reply "In reply" ->
+     discovery_meeting "Discovery meeting" -> contacted "Đã liên hệ" ->
+     qualified "Đạt chuẩn" -> converted "Đã chuyển đổi" ->
+     not_yet_have_demand "Not yet have demand".
    - Mỗi trạng thái = 1 block ngang (section.panel.lead-status-block,
      data-lead-status=<key>) xếp dọc theo đúng thứ tự vòng đời; đầu block
      có pill tên trạng thái + count-badge "<n> lead".
@@ -22,13 +28,14 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const html = read('index.html');
 
 /* ---------- Tĩnh: tập trạng thái + thứ tự ---------- */
-test('tĩnh: LEAD_STATUSES đúng 4 trạng thái sẵn có, đúng thứ tự vòng đời, khớp ô chọn e_lstatus của editLead', () => {
+test('tĩnh: LEAD_STATUSES đúng 12 trạng thái (hợp đồng B), đúng thứ tự block, khớp ô chọn e_lstatus của editLead', () => {
   const seg = html.slice(html.indexOf('const LEAD_STATUSES'), html.indexOf('const LEAD_STATUS_UNKNOWN'));
   const keys = [...seg.matchAll(/key:\s*"([^"]+)"/g)].map(m => m[1]);
-  assert.deepEqual(keys, ['new', 'contacted', 'qualified', 'converted']);
-  for (const label of ['"Mới"', '"Đã liên hệ"', '"Đạt chuẩn"', '"Đã chuyển đổi"']) assert.ok(seg.includes('label: ' + label), 'thiếu nhãn ' + label);
-  /* Form sửa lead vẫn dùng đúng cùng tập + thứ tự (không chế trạng thái mới) */
-  assert.ok(html.includes('sel("e_lstatus", [["new", "Mới"], ["contacted", "Đã liên hệ"], ["qualified", "Đạt chuẩn"], ["converted", "Đã chuyển đổi"]]'), 'e_lstatus phải giữ nguyên tập trạng thái + thứ tự');
+  assert.deepEqual(keys, ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'qualified', 'converted', 'not_yet_have_demand']);
+  for (const label of ['"Mới"', '"Sent connect"', '"1st message"', '"1st email"', '"1st FU"', '"In-response"', '"In reply"', '"Discovery meeting"', '"Đã liên hệ"', '"Đạt chuẩn"', '"Đã chuyển đổi"', '"Not yet have demand"']) assert.ok(seg.includes('label: ' + label), 'thiếu nhãn ' + label);
+  /* Form sửa lead dựng ô chọn TỪ CHÍNH LEAD_STATUSES (cùng tập + thứ tự,
+     không còn danh sách cứng riêng ở form) */
+  assert.ok(html.includes('sel("e_lstatus", LEAD_STATUSES.map(s => [s.key, s.label]), l.status)'), 'e_lstatus phải dựng từ LEAD_STATUSES');
   assert.ok(html.includes('Khác / Chưa rõ trạng thái'), 'thiếu block gom trạng thái lạ');
   assert.ok(html.includes('data-lead-status='), 'block phải mang data-lead-status để nhận diện theo trạng thái');
 });
@@ -96,7 +103,7 @@ test('vLeads: block theo đúng thứ tự vòng đời, block lạ ở cuối, 
   renderLeads(run);
   const view = getEl('view').innerHTML;
   const bs = blocks(view);
-  assert.deepEqual(bs.map(b => b.key), ['new', 'contacted', 'qualified', 'converted', '__unknown__'], 'thứ tự block phải là vòng đời + Khác ở cuối');
+  assert.deepEqual(bs.map(b => b.key), ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'qualified', 'converted', 'not_yet_have_demand', '__unknown__'], 'thứ tự block phải là thứ tự LEAD_STATUSES (hợp đồng B) + Khác ở cuối');
   const byKey = Object.fromEntries(bs.map(b => [b.key, b.html]));
   assert.ok(byKey.new.includes('>Mới</span>') && byKey.new.includes('1 lead'), 'đầu block Mới: tên + số lượng');
   assert.ok(byKey.contacted.includes('>Đã liên hệ</span>') && byKey.contacted.includes('1 lead'));

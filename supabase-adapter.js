@@ -1,7 +1,7 @@
 /* Sava Meta CRM — Adapter ánh xạ dữ liệu (Giai đoạn 2b).
    Hàm THUẦN (không gọi mạng, không chạm DOM/localStorage): chuyển đổi hai
    chiều giữa hình dạng state mà UI/tính điểm hiện tại đang dùng
-     - CRM:        {members, companies, games, deals, leads, tasks, activities}
+     - CRM:        {members, companies, games, deals, leads, tasks, activities, events}
      - Publishing: {version:1, requests, marketUpdates}
    và các dòng (rows) của các bảng Supabase theo đúng supabase/DESIGN.md +
    supabase/MIGRATION.md:
@@ -160,13 +160,22 @@
   const TASK_KNOWN = ['id', 'title', 'assignee', 'deal', 'due', 'dueDate', 'done', 'overdue'];
   const ACTIVITY_KNOWN = ['id', 'deal', 'type', 'who', 'when', 'text', 'url'];
   const MEMBER_KNOWN = ['id', 'name', 'role', 'active'];
+  /* Sự kiện: attendees (mảng member id), note và 3 trường hệ thống
+     (createdAt/updatedAt/updatedBy) CỐ Ý không nằm trong EVENT_KNOWN:
+     bảng events không có cột cho chúng, chúng đi qua legacy_extra của
+     events khi ghi (extrasOf) và được mergeExtras khôi phục khi đọc —
+     đúng mẫu lead.phone/mainContact, deal.vertical, không cần cột riêng.
+     Ba mảng liên kết companies/leads/deals thì KHÔNG đi qua legacy_extra:
+     chúng là nguồn sự thật của quan hệ Event<->{Company,Lead,Deal} và
+     được vật hoá thành dòng ở bảng nối event_links (xem hai chiều dưới). */
+  const EVENT_KNOWN = ['id', 'name', 'date', 'location', 'companies', 'leads', 'deals'];
 
   function crmStateToRows(state) {
     const s = isObj(state) ? state : {};
     const rows = {
       members: [], companies: [], company_partner_eval_archive: [], games: [],
       deals: [], deal_terms: [], deal_contracts: [], deal_leads: [],
-      leads: [], tasks: [], activities: [],
+      leads: [], tasks: [], activities: [], events: [], event_links: [],
     };
     (Array.isArray(s.members) ? s.members : []).forEach(m => {
       if (!isObj(m) || !m.id) return;
@@ -279,6 +288,19 @@
         legacy_extra: extrasOf(a, ACTIVITY_KNOWN),
       });
     });
+    (Array.isArray(s.events) ? s.events : []).forEach(e => {
+      if (!isObj(e) || !e.id) return;
+      const date = datePair(e.date);
+      rows.events.push({
+        id: e.id, name: String(e.name || ''),
+        event_date: date.date, date_raw: date.raw,
+        location: String(e.location || ''),
+        legacy_extra: extrasOf(e, EVENT_KNOWN),
+      });
+      if (Array.isArray(e.companies)) e.companies.forEach(cid => { if (cid) rows.event_links.push({ event_id: e.id, entity_type: 'company', entity_id: String(cid) }); });
+      if (Array.isArray(e.leads)) e.leads.forEach(lid => { if (lid) rows.event_links.push({ event_id: e.id, entity_type: 'lead', entity_id: String(lid) }); });
+      if (Array.isArray(e.deals)) e.deals.forEach(did => { if (did) rows.event_links.push({ event_id: e.id, entity_type: 'deal', entity_id: String(did) }); });
+    });
     return rows;
   }
 
@@ -294,6 +316,14 @@
     arr('deal_terms').forEach(x => { if (x && x.deal_id) termsByDeal[x.deal_id] = x; });
     arr('deal_contracts').forEach(x => { if (x && x.deal_id) contractsByDeal[x.deal_id] = x; });
     arr('deal_leads').forEach(x => { if (x && x.deal_id) { (leadsByDeal[x.deal_id] = leadsByDeal[x.deal_id] || []).push(x.lead_id); } });
+    const linksByEvent = {};
+    arr('event_links').forEach(x => {
+      if (!x || !x.event_id || !x.entity_id) return;
+      const bucket = (linksByEvent[x.event_id] = linksByEvent[x.event_id] || { companies: [], leads: [], deals: [] });
+      if (x.entity_type === 'company') bucket.companies.push(x.entity_id);
+      else if (x.entity_type === 'lead') bucket.leads.push(x.entity_id);
+      else if (x.entity_type === 'deal') bucket.deals.push(x.entity_id);
+    });
 
     /* Hình dạng state PHẢI khớp đúng hình dạng chuẩn của app (emptyState()
        trong shared.js, gồm cả khoá `verticals` ở cuối): migrateState() bổ
@@ -304,7 +334,7 @@
        vòng lặp reload 30/10/2026). `verticals` không có cột máy chủ riêng:
        danh sách ngành sống lại từ deal.vertical qua legacy_extra (xem
        shared.js), nên ở đây luôn là mảng rỗng như emptyState(). */
-    const state = { members: [], companies: [], games: [], deals: [], leads: [], tasks: [], activities: [], verticals: [] };
+    const state = { members: [], companies: [], games: [], deals: [], leads: [], tasks: [], activities: [], events: [], verticals: [] };
     arr('members').forEach(m => {
       const o = { id: m.id, name: m.name, role: m.role, active: !!m.active };
       state.members.push(mergeExtras(o, m));
@@ -385,6 +415,14 @@
       };
       if (a.url !== null && a.url !== undefined) o.url = a.url;
       state.activities.push(mergeExtras(o, a));
+    });
+    arr('events').forEach(e => {
+      const links = linksByEvent[e.id] || { companies: [], leads: [], deals: [] };
+      const o = {
+        id: e.id, name: e.name, date: pairBack(e.event_date, e.date_raw), location: e.location || '',
+        companies: links.companies, leads: links.leads, deals: links.deals,
+      };
+      state.events.push(mergeExtras(o, e));
     });
     return state;
   }

@@ -128,13 +128,14 @@
     try { startCrm = localStorage.getItem(CRM_KEY); } catch (e) {}
     try { startPub = localStorage.getItem(PUB_KEY); } catch (e) {}
     const byCreated = qb => qb.order('created_at', { ascending: true });
-    const [members, companies, archive, games, leads, deals, dealTerms, dealContracts, dealLeads, tasks, activities] = await Promise.all([
+    const [members, companies, archive, games, leads, deals, dealTerms, dealContracts, dealLeads, tasks, activities, events, eventLinks] = await Promise.all([
       q('members', byCreated), q('companies', byCreated), qSafe('company_partner_eval_archive'),
       q('games', byCreated), q('leads', byCreated),
       qSafe('deals', byCreated), qSafe('deal_terms'), qSafe('deal_contracts'), qSafe('deal_leads'),
       qSafe('tasks', byCreated), qSafe('activities', byCreated),
+      qSafe('events', byCreated), qSafe('event_links'),
     ]);
-    const crmState = A.crmRowsToState({ members, companies, company_partner_eval_archive: archive, games, leads, deals, deal_terms: dealTerms, deal_contracts: dealContracts, deal_leads: dealLeads, tasks, activities });
+    const crmState = A.crmRowsToState({ members, companies, company_partner_eval_archive: archive, games, leads, deals, deal_terms: dealTerms, deal_contracts: dealContracts, deal_leads: dealLeads, tasks, activities, events, event_links: eventLinks });
     const [requests, revisions, revPriv, intakePriv, observations, audit] = await Promise.all([
       qSafe('publishing_requests', byCreated),
       qSafe('publishing_revisions', qb => qb.order('revision_no', { ascending: true })),
@@ -146,7 +147,7 @@
     const pubState = A.publishingRowsToState({ publishing_requests: requests, publishing_revisions: revisions, publishing_revision_private: revPriv, publishing_request_intake_private: intakePriv, market_observations: observations, market_observation_audit: audit });
 
     updMap = {};
-    [['members', members], ['companies', companies], ['games', games], ['leads', leads], ['deals', deals], ['tasks', tasks], ['activities', activities], ['publishing_requests', requests], ['market_observations', observations]]
+    [['members', members], ['companies', companies], ['games', games], ['leads', leads], ['deals', deals], ['tasks', tasks], ['activities', activities], ['events', events], ['publishing_requests', requests], ['market_observations', observations]]
       .forEach(([t, rows]) => noteUpdated(t, rows));
 
     /* Sao lưu bản localStorage gốc (dữ liệu thật trước Supabase) rồi mới
@@ -260,18 +261,20 @@
     if (error) throw new Error(table + ': ' + (error.message || error.code));
   }
 
-  const CONFLICT_TABLES = ['members', 'companies', 'games', 'leads', 'deals', 'tasks', 'activities', 'publishing_requests', 'market_observations'];
+  const CONFLICT_TABLES = ['members', 'companies', 'games', 'leads', 'deals', 'tasks', 'activities', 'events', 'publishing_requests', 'market_observations'];
 
   async function syncCrm(local) {
     const newRows = A.crmStateToRows(local);
     const snapRows = A.crmStateToRows(crmSnap || {});
     const conflicts = [];
     /* Thứ tự ghi tôn trọng FK: cha trước (members->companies->games->leads
-       ->deals->term/contract/leads->tasks->activities); xoá thì ngược lại. */
+       ->deals->term/contract/leads->tasks->activities->events); xoá thì
+       ngược lại. event_links (bảng nối của events) được xử lý riêng sau
+       vòng upsert bên dưới, như deal_leads. */
     const order = [
       ['members', 'id'], ['companies', 'id'], ['company_partner_eval_archive', 'company_id'],
       ['games', 'id'], ['leads', 'id'], ['deals', 'id'], ['deal_terms', 'deal_id'],
-      ['deal_contracts', 'deal_id'], ['tasks', 'id'], ['activities', 'id'],
+      ['deal_contracts', 'deal_id'], ['tasks', 'id'], ['activities', 'id'], ['events', 'id'],
     ];
     const plans = {};
     for (const [table, key] of order) {
@@ -284,6 +287,12 @@
     const groupLeads = rows => { const m = {}; (rows || []).forEach(r => { (m[r.deal_id] = m[r.deal_id] || []).push(r.lead_id); }); Object.values(m).forEach(v => v.sort()); return m; };
     const nl = groupLeads(newRows.deal_leads), sl = groupLeads(snapRows.deal_leads);
     const leadChangedDeals = new Set([...Object.keys(nl), ...Object.keys(sl)].filter(id => !A.deepEqual(nl[id] || [], sl[id] || [])));
+    /* event_links: so theo từng event như deal_leads — mỗi phần tử so là
+       cặp 'entity_type:entity_id' đã sắp xếp, vì một event liên kết tới
+       3 loại đối tượng khác nhau trong cùng một bảng nối. */
+    const groupEventLinks = rows => { const m = {}; (rows || []).forEach(r => { (m[r.event_id] = m[r.event_id] || []).push(r.entity_type + ':' + r.entity_id); }); Object.values(m).forEach(v => v.sort()); return m; };
+    const nev = groupEventLinks(newRows.event_links), sev = groupEventLinks(snapRows.event_links);
+    const linkChangedEvents = new Set([...Object.keys(nev), ...Object.keys(sev)].filter(id => !A.deepEqual(nev[id] || [], sev[id] || [])));
 
     for (const [table] of [...order].reverse()) {
       const key = order.find(([t]) => t === table)[1];
@@ -302,6 +311,22 @@
     for (const [table] of order) {
       const saved = await upsert(table, plans[table].upserts, undefined);
       if (CONFLICT_TABLES.includes(table)) noteUpdated(table, saved);
+    }
+    /* event_links: đúng mẫu deal_leads ở trên (event nào đổi -> xoá hết
+       links của event đó rồi nạp lại; chỉ với event còn sống — event đã
+       xoá thì FK cascade của DB tự dọn links). Khác deal_leads ở THỜI
+       ĐIỂM chạy: khối này đặt SAU vòng upsert để dòng events cha đã tồn
+       tại khi nạp links của event MỚI, không vi phạm FK
+       event_links.event_id -> events(id). */
+    if (linkChangedEvents.size) {
+      const aliveEvents = new Set(newRows.events.map(e => e.id));
+      const targets = [...linkChangedEvents].filter(id => aliveEvents.has(id));
+      if (targets.length) {
+        const { error } = await ctx.client.from('event_links').delete().in('event_id', targets);
+        if (error) throw new Error('event_links: ' + (error.message || error.code));
+        const ins = newRows.event_links.filter(r => targets.includes(r.event_id));
+        if (ins.length) await insertRows('event_links', ins);
+      }
     }
     return conflicts;
   }

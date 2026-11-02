@@ -76,12 +76,25 @@ test('C5(b): CHECK entity_type đúng tập app sinh — đối chiếu shared.j
   const pairs = [...m[1].matchAll(/\[\s*"[^"]+"\s*,\s*"([a-z]+)"\s*\]/g)].map(x => x[1]);
   assert.ok(pairs.length >= 7, 'phải trích được ít nhất 7 entityType từ CRM_ENTITY_TYPES, được: ' + pairs.join(','));
   const expected = [...new Set([...pairs, 'request'])].sort();
-  assert.deepEqual(expected, ['activity', 'company', 'deal', 'game', 'lead', 'member', 'request', 'task'],
-    'tập entityType đối chiếu từ app phải đúng tập task mô tả (sanity cho chính test này)');
+  assert.deepEqual(expected, ['activity', 'company', 'deal', 'event', 'game', 'lead', 'member', 'request', 'task'],
+    'tập entityType đối chiếu từ app phải đúng tập task mô tả (sanity cho chính test này — đã gồm event của module Sự kiện)');
   const check = sql.match(/check \(entity_type in \(([^)]+)\)\)/);
   assert.ok(check, 'thiếu CHECK entity_type trong file tighten');
   const inSql = [...check[1].matchAll(/'([a-z]+)'/g)].map(x => x[1]).sort();
-  assert.deepEqual(inSql, expected, 'CHECK trong SQL phải đúng tập app sinh, không thừa không thiếu');
+  /* Nguồn CHECK NAY GỒM CẢ supabase/events-module.sql: file đó chạy SAU
+     audit-log-tighten.sql và định nghĩa LẠI đúng constraint
+     audit_log_entity_type_known_check với tập cũ + 'event'. Tập CHECK
+     hiệu lực cuối = CHECK trong events-module.sql (và hợp của hai file
+     phải đúng tập app sinh, không thừa không thiếu). */
+  const evSql = read('supabase/events-module.sql');
+  /* Trích đúng CHECK của audit_log (constraint audit_log_entity_type_known_check)
+     — file events-module còn một CHECK entity_type khác của bảng
+     event_links ('company','lead','deal') không liên quan. */
+  const evCheck = evSql.match(/add constraint audit_log_entity_type_known_check\s+check \(entity_type in \(([^)]+)\)\)/);
+  assert.ok(evCheck, 'thiếu CHECK entity_type của audit_log trong file events-module');
+  const inEvSql = [...evCheck[1].matchAll(/'([a-z]+)'/g)].map(x => x[1]).sort();
+  assert.deepEqual(inEvSql, expected, 'CHECK entity_type trong events-module.sql (định nghĩa lại cuối cùng) phải đúng tập app sinh');
+  assert.deepEqual([...new Set([...inSql, ...inEvSql])].sort(), expected, 'hợp CHECK của tighten + events-module phải đúng tập app sinh, không thừa không thiếu');
   assert.ok(/drop constraint if exists audit_log_entity_type_known_check/.test(sql), 'constraint phải drop-if-exists để chạy lại an toàn');
   assert.ok(fromApp.length > 0);
 });
