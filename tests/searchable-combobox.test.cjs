@@ -277,6 +277,83 @@ test('select hữu hạn ngắn giữ nguyên (không data-combo): stage/trạng
   assert.ok(form.includes('id="e_lowner"') && !/id="e_lowner"[^>]*data-combo/.test(form), 'e_lowner (ownerSel, ít mục) giữ select thuần');
 });
 
+/* ---------- Hồi quy FAIL-2 (QA): lọc theo TOKEN ---------- */
+test('FAIL-2: lọc theo token — "nguyen duc" khớp "Nguyễn Văn Đức", thứ tự token không quan trọng, thiếu token thì không khớp', () => {
+  const { run } = loadIndex();
+  const opts = JSON.stringify([
+    { value: 'l1', label: 'Nguyễn Văn Đức' },
+    { value: 'l2', label: 'Nguyễn Thị Hoa' },
+    { value: 'l3', label: 'Trần Văn Đức' },
+  ]);
+  let r = run(`comboFilterOptions(${opts}, 'nguyen duc')`);
+  assert.deepEqual([...r.items.map(x => x.value)], ['l1'], '"nguyen duc" (2 token cách nhau bởi từ ở giữa) phải khớp "Nguyễn Văn Đức"');
+  r = run(`comboFilterOptions(${opts}, 'duc nguyen')`);
+  assert.deepEqual([...r.items.map(x => x.value)], ['l1'], 'đảo thứ tự token vẫn khớp');
+  r = run(`comboFilterOptions(${opts}, 'nguyen hoa')`);
+  assert.deepEqual([...r.items.map(x => x.value)], ['l2'], 'mọi token đều phải xuất hiện');
+  r = run(`comboFilterOptions(${opts}, 'nguyen duc anh')`);
+  assert.equal(r.total, 0, 'thừa một token không có trong nhãn -> 0 kết quả');
+  r = run(`comboFilterOptions(${opts}, 'van duc')`);
+  assert.deepEqual([...r.items.map(x => x.value)], ['l1', 'l3']);
+});
+
+/* ---------- Hồi quy FAIL-1 (QA): mục đang chọn ngoài cửa sổ 80 ---------- */
+test('FAIL-1 (logic cửa sổ): value ở vị trí 602/605 -> cửa sổ trượt chứa đúng nó, active = chính nó, hàng xóm là hàng xóm thật', () => {
+  const { run } = loadIndex();
+  const big = JSON.stringify(Array.from({ length: 605 }, (_, i) => ({ value: 'c' + i, label: 'Công ty số ' + i })));
+  const r = run(`comboFilterOptions(${big}, '', 80, 'c601')`);
+  assert.equal(r.items.length, 80, 'cửa sổ vẫn tối đa 80 mục');
+  assert.ok(r.windowStart > 0, 'cửa sổ phải trượt khỏi đầu danh sách');
+  assert.equal(r.items[r.activeIndex].value, 'c601', 'active khởi tạo đúng mục đang chọn ở vị trí 602');
+  assert.equal(r.items[r.activeIndex - 1].value, 'c600', '↑ từ mục đang chọn đi đúng hàng xóm trước trong danh sách đầy đủ');
+  assert.equal(r.items[r.activeIndex + 1].value, 'c602', '↓ từ mục đang chọn đi đúng hàng xóm sau trong danh sách đầy đủ');
+  assert.ok(!r.items.some(x => x.value === 'c0'), 'mục đầu danh sách không còn ép vào cửa sổ này');
+  /* Đang chọn ở cuối danh sách: cửa sổ là 80 mục cuối, active là mục cuối */
+  const rEnd = run(`comboFilterOptions(${big}, '', 80, 'c604')`);
+  assert.equal(rEnd.items[rEnd.activeIndex].value, 'c604');
+  assert.equal(rEnd.items[rEnd.activeIndex - 1].value, 'c603');
+  assert.equal(rEnd.items.length, 80);
+  /* Đang chọn ở đầu: cửa sổ giữ nguyên từ đầu, active đúng vị trí */
+  const rHead = run(`comboFilterOptions(${big}, '', 80, 'c5')`);
+  assert.equal(rHead.windowStart, 0);
+  assert.equal(rHead.activeIndex, 5);
+  assert.equal(rHead.items[0].value, 'c0');
+  /* Đang GÕ: không ép mục đang chọn vào cửa sổ — cửa sổ là kết quả khớp đầu tiên, active là kết quả đầu */
+  const many = JSON.stringify(Array.from({ length: 200 }, (_, i) => ({ value: 'x' + i, label: 'Công ty X ' + i })));
+  const rQ = run(`comboFilterOptions(${many}, 'cong ty', 80, 'x150')`);
+  assert.equal(rQ.windowStart, 0, 'khi đang gõ, cửa sổ không trượt theo mục đang chọn');
+  assert.equal(rQ.activeIndex, 0);
+  assert.ok(!rQ.items.some(x => x.value === 'x150'));
+});
+
+test('FAIL-1 (render thật qua comboRenderList): mở ô với value ở vị trí 602 -> có is-selected + is-active đúng mục đó, đủ hàng xóm, Enter-chưa-tương-tác bị chặn ở handler', () => {
+  const h = loadIndex();
+  /* DOM giả tối thiểu cho comboRenderList (harness chung không parse DOM):
+     select giả 605 option, value đang chọn = c601 (vị trí 602). */
+  const options = Array.from({ length: 605 }, (_, i) => ({ value: 'c' + i, textContent: 'Công ty số ' + i, disabled: false }));
+  const fakeList = { innerHTML: '', hidden: true, querySelector: () => null };
+  const fakeWrap = { dataset: {}, querySelector: s => (s === '.combo-list' ? fakeList : null) };
+  const fakeInput = { dataset: { comboInput: 'big' }, closest: () => fakeWrap, value: '' };
+  const fakeSel = { id: 'big', value: 'c601', options };
+  const orig = h.ctx.document.getElementById;
+  h.ctx.document.getElementById = id => (id === 'big' ? fakeSel : orig(id));
+  try { h.ctx.comboRenderList(fakeInput, ''); } finally { h.ctx.document.getElementById = orig; }
+  const htmlList = fakeList.innerHTML;
+  assert.equal((htmlList.match(/combo-item/g) || []).length, 80, 'chỉ render 80 mục');
+  assert.ok(htmlList.includes('class="combo-item is-selected is-active" data-combo-value="c601"'), 'mục đang chọn hiện cả is-selected lẫn is-active');
+  assert.ok(htmlList.includes('data-combo-value="c600"') && htmlList.includes('data-combo-value="c602"'), 'hàng xóm thật của mục đang chọn có trong cửa sổ');
+  assert.ok(!htmlList.includes('data-combo-value="c0"'), 'mục đầu danh sách không nằm trong cửa sổ đã trượt');
+  assert.equal(fakeSel.value, 'c601', 'chỉ mở/render không đổi value');
+  assert.equal(fakeWrap.dataset.comboInteracted, '', 'mở ô = chưa tương tác (cờ cho chốt chặn Enter)');
+  /* Chốt chặn Enter nằm ở handler keydown + cờ được set khi gõ/di chuyển */
+  const idx = read('index.html');
+  assert.ok(idx.includes('wrap.dataset.comboInteracted !== "1"'), 'handler Enter phải kiểm cờ chưa-tương-tác');
+  const enterSeg = idx.slice(idx.indexOf('wrap.dataset.comboInteracted !== "1"'), idx.indexOf('wrap.dataset.comboInteracted !== "1"') + 120);
+  assert.ok(enterSeg.includes('comboCloseList(t, true); return;'), 'Enter chưa tương tác -> chỉ đóng danh sách và return, không chọn mục nào');
+  assert.ok(idx.includes('wIn.dataset.comboInteracted = "1"'), 'gõ chữ set cờ đã-tương-tác');
+  assert.ok(idx.includes('wrap.dataset.comboInteracted = "1";\n        const next = comboMoveActive'), 'phím ↑/↓ set cờ đã-tương-tác trước khi di chuyển');
+});
+
 test('CSS combobox có trong workspace-design.css (ẩn select gốc, dropdown nổi, màn hẹp)', () => {
   const css = read('workspace-design.css');
   assert.ok(css.includes('.combo-source') && css.includes('display:none'), 'select gốc bị ẩn hiển thị');

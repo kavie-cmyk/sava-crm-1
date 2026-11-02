@@ -3378,15 +3378,38 @@ function comboFoldText(s) {
   return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim().replace(/\s+/g, " ");
 }
 /* Lọc thuần (không DOM) để test được: options = [{value,label,searchLabel?}]
-   hoặc cặp [value,label]. Trả {items (đã cắt tới limit), total, truncated}. */
-function comboFilterOptions(options, query, limit) {
+   hoặc cặp [value,label]. Lọc theo TOKEN: query đã fold được tách thành
+   các token theo khoảng trắng và MỌI token phải xuất hiện trong nhãn đã
+   fold (thứ tự không quan trọng) — "nguyen duc" khớp "Nguyễn Văn Đức".
+   Trả {items, total, truncated, windowStart, activeIndex}.
+   FAIL-1 (QA): khi MỞ ô (query rỗng) và selectedValue nằm ngoài cửa sổ
+   `limit` mục đầu, cửa sổ được TRƯỢT để luôn chứa mục đang chọn (đặt nó
+   ở giữa cửa sổ khi có thể) — mục đang chọn luôn hiện is-selected, là
+   active khởi tạo, và ↑/↓ từ nó đi đúng hàng xóm trong danh sách đầy đủ.
+   Khi đang GÕ (query khác rỗng) thì cửa sổ là các kết quả khớp đầu tiên
+   và active là kết quả đầu tiên, như combobox thường. */
+function comboFilterOptions(options, query, limit, selectedValue) {
   const lim = Number(limit) > 0 ? Number(limit) : COMBO_LIMIT;
   const all = (Array.isArray(options) ? options : []).map(o => Array.isArray(o)
     ? { value: String(o[0] ?? ""), label: String(o[1] ?? o[0] ?? "") }
     : { value: String((o && o.value) ?? ""), label: String((o && (o.label ?? o.value)) ?? ""), searchLabel: o && o.searchLabel ? String(o.searchLabel) : "" });
   const q = comboFoldText(query);
-  const matched = q ? all.filter(o => comboFoldText(o.searchLabel || o.label).includes(q)) : all;
-  return { items: matched.slice(0, lim), total: matched.length, truncated: matched.length > lim };
+  const tokens = q ? q.split(" ").filter(Boolean) : [];
+  const matched = tokens.length
+    ? all.filter(o => { const hay = comboFoldText(o.searchLabel || o.label); return tokens.every(tok => hay.includes(tok)); })
+    : all;
+  let windowStart = 0;
+  if (!tokens.length && selectedValue !== undefined && selectedValue !== null && matched.length > lim) {
+    const idx = matched.findIndex(o => o.value === String(selectedValue));
+    if (idx >= lim) windowStart = Math.max(0, Math.min(idx - Math.floor(lim / 2), matched.length - lim));
+  }
+  const items = matched.slice(windowStart, windowStart + lim);
+  let activeIndex = items.length ? 0 : -1;
+  if (!tokens.length && selectedValue !== undefined && selectedValue !== null) {
+    const ai = items.findIndex(o => o.value === String(selectedValue));
+    if (ai >= 0) activeIndex = ai;
+  }
+  return { items, total: matched.length, truncated: matched.length > items.length, windowStart, activeIndex };
 }
 /* Di chuyển mục đang active bằng phím ↑/↓: vòng tròn trong [0, count). */
 function comboMoveActive(cur, delta, count) {
@@ -3496,14 +3519,20 @@ function comboRenderList(input, query) {
     const wrap = input.closest(".combo"); if (!wrap) return;
     const list = wrap.querySelector(".combo-list"); if (!list) return;
     const opts = comboOptionsOfSelect(sel).filter(o => !o.disabled);
-    const res = comboFilterOptions(opts, query || "");
     const cur = String(sel.value ?? "");
-    let active = res.items.findIndex(o => o.value === cur); if (active < 0 && res.items.length) active = 0;
+    /* FAIL-1: truyền cur để cửa sổ kết quả luôn chứa mục đang chọn +
+       active khởi tạo đúng vào nó (xem comboFilterOptions). Render theo
+       query rỗng = một lần MỞ mới: reset cờ đã-tương-tác, để Enter ngay
+       sau khi mở không ghi đè value (chốt chặn ở handler keydown). */
+    if (!(query || "")) wrap.dataset.comboInteracted = "";
+    const res = comboFilterOptions(opts, query || "", COMBO_LIMIT, cur);
+    const active = res.activeIndex;
     wrap.dataset.comboActive = String(active);
     list.innerHTML = res.items.map((o, i) => `<button type="button" class="combo-item${o.value === cur ? " is-selected" : ""}${i === active ? " is-active" : ""}" data-combo-value="${esc(o.value)}" role="option">${esc(o.label)}</button>`).join("") +
-      (res.truncated ? `<div class="combo-more">Còn ${res.total - res.items.length} kết quả nữa — gõ thêm để thu hẹp…</div>` : "") +
+      (res.truncated ? `<div class="combo-more">Đang hiện ${res.items.length} trong ${res.total} kết quả — gõ thêm để thu hẹp…</div>` : "") +
       (!res.items.length ? `<div class="combo-empty">Không tìm thấy — gõ từ khác, hoặc bỏ trống để xem tất cả.</div>` : "");
     list.hidden = false;
+    try { const act = list.querySelector(".combo-item.is-active"); if (act && typeof act.scrollIntoView === "function") act.scrollIntoView({ block: "nearest" }); } catch (e) {}
   } catch (e) {}
 }
 function comboChoose(input, value) {
@@ -3538,6 +3567,7 @@ function initCombos() {
       const t = e.target;
       if (!t || !t.classList || !t.classList.contains("combo-input")) return;
       t.dataset.comboEditing = "1";
+      const wIn = t.closest ? t.closest(".combo") : null; if (wIn) wIn.dataset.comboInteracted = "1";
       comboRenderList(t, t.value);
     });
     document.addEventListener("mousedown", e => {
@@ -3556,6 +3586,7 @@ function initCombos() {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         if (!list || list.hidden) { comboRenderList(t, ""); return; }
+        wrap.dataset.comboInteracted = "1";
         const next = comboMoveActive(Number(wrap.dataset.comboActive), e.key === "ArrowDown" ? 1 : -1, items.length);
         wrap.dataset.comboActive = String(next);
         items.forEach((it, i) => it.classList.toggle("is-active", i === next));
@@ -3563,6 +3594,11 @@ function initCombos() {
       } else if (e.key === "Enter") {
         if (list && !list.hidden && items.length) {
           e.preventDefault();
+          /* FAIL-1 (chốt chặn thứ hai): Enter khi người dùng CHƯA gõ và
+             CHƯA di chuyển phím kể từ lúc mở = thao tác "xác nhận" —
+             chỉ đóng danh sách, TUYỆT ĐỐI không ghi value mới, dù mục
+             đang chọn có nằm ở vị trí nào trong danh sách đầy đủ. */
+          if (wrap.dataset.comboInteracted !== "1") { comboCloseList(t, true); return; }
           const idx = Math.max(0, Math.min(Number(wrap.dataset.comboActive) || 0, items.length - 1));
           if (items[idx]) comboChoose(t, items[idx].dataset.comboValue);
         }
