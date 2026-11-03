@@ -309,28 +309,46 @@ td.list-stt {color:#64748b;font-weight:600}
       thống nhất để tiêu đề và nội dung thẳng cột; td về break-word
       (xuống hàng theo từ, không ngắt giữa từ như anywhere).
    3. Độ rộng theo vai trò: cột STT (cột đầu của mọi bảng .table-wrap —
-      cả 4 bảng đều bắt đầu bằng STT) hẹp cố định 52px; cột TÊN nhận
-      phần dư (width:100% trên ô tên trong layout auto khiến cột đó hút
-      phần thừa, các cột còn lại giữ bề rộng theo nội dung/tiêu đề của
-      chúng); cột số (.numeric) canh phải như cũ; pill/chip/badge trong
-      ô không tự vỡ dòng; nút trong ô không vỡ chữ.
+      cả 4 bảng đều bắt đầu bằng STT) hẹp cố định 52px (th/td trong khối
+      này có box-sizing:border-box nên 52px là bề rộng THẬT gồm padding,
+      không cộng thêm 12px×2 như vòng 1); cột số (.numeric) canh phải
+      như cũ; pill/chip/badge trong ô không tự vỡ dòng; nút trong ô
+      không vỡ chữ.
    4. min-width sàn cho từng họ bảng = tổng bề rộng tối thiểu của các
-      tiêu đề nowrap — dưới sàn đó wrapper cuộn ngang (mục 1). */
+      tiêu đề nowrap — dưới sàn đó wrapper cuộn ngang (mục 1).
+   VÒNG 2 (QA render thật 3/11, sửa cùng ngày): vòng 1 cho cột tên
+   `width:100%` (.table-wrap th:nth-child(2) và .table-scroll
+   th:first-child) — trong layout auto, width:100% khiến cột đó HÚT
+   TOÀN BỘ phần dư: bảng Công ty cột "Deal" bị bóp còn 50px (nội dung
+   vỡ từng từ, hàng cao 176px), phía Publishing cột đầu phình tới
+   83–89% (Market Score v2: cột raw còn 127px, chuỗi raw vỡ vụn;
+   cohort: cột 30D/90D còn 53px). NAY BỎ hẳn width:100%: không cột nào
+   được ưu tiên phần dư bằng width — table-layout:auto tự chia phần dư
+   cho MỌI cột theo bề rộng nội dung của chúng (cột nội dung dài nhận
+   nhiều hơn, cột ngắn vẫn đủ chỗ cho tiêu đề nowrap của mình). Cột
+   tên/nhãn chỉ được bảo hiểm bằng một min-width VỪA PHẢI (180px phía
+   .table-wrap, 150px phía .table-scroll) — sàn này chỉ chống bóp hẹp
+   bất thường, không hút dư: bảng Market Score v2 / cohort / kvTable
+   mà cột đầu là nhãn ngắn vẫn để phần dư chảy sang cột dữ liệu/raw. */
 /* 1 — wrapper cuộn ngang */
 .table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll {overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
 /* 2 — nền bảng + tiêu đề không vỡ + padding thống nhất */
 :is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table {width:100%;border-collapse:collapse}
-:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table th {white-space:nowrap;overflow-wrap:normal;word-break:normal;text-align:left;vertical-align:middle;padding:10px 12px}
-:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td {padding:11px 12px;vertical-align:top;overflow-wrap:break-word}
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table th {box-sizing:border-box;white-space:nowrap;overflow-wrap:normal;word-break:normal;text-align:left;vertical-align:middle;padding:10px 12px}
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td {box-sizing:border-box;padding:11px 12px;vertical-align:top;overflow-wrap:break-word}
 :is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table th.numeric,:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td.numeric {text-align:right}
 /* 2b — gỡ các min-width cứng ở cột đầu / ô raw phía Publishing (170px /
    180px bất kể nội dung) vốn đẩy lệch mọi bảng .table-scroll */
 :is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td:first-child {min-width:0}
 :is(.table-scroll)>table.mk-v2-table td.mk-raw {min-width:0}
-/* 3 — độ rộng theo vai trò cột */
+/* 3 — độ rộng theo vai trò cột: STT cố định 52px thật (đã có
+   box-sizing:border-box ở mục 2); cột tên/nhãn chỉ có sàn min-width
+   vừa phải, TUYỆT ĐỐI không width:100% — phần dư để layout auto chia
+   theo nội dung cho mọi cột (vòng 2, xem ghi chú trong khối trên) */
 .table-wrap>table th:first-child {width:52px;min-width:52px}
 :is(.table-wrap,.table-scroll)>table td.list-stt {width:52px;white-space:nowrap}
-.table-wrap>table th:nth-child(2),.table-scroll>table th:first-child {width:100%}
+.table-wrap>table th:nth-child(2) {min-width:180px}
+.table-scroll>table th:first-child {min-width:150px}
 :is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td :is(.pill,.chip,.badge,.type-badge) {white-space:nowrap}
 .table-wrap>table td .btn {white-space:nowrap}
 /* 4 — sàn bề rộng theo họ bảng (dưới sàn: cuộn ngang, không bóp cột) */
