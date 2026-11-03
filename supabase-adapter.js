@@ -289,8 +289,17 @@
         legacy_extra: taskExtra,
       });
     });
+    /* Việc 7: activities.deal_id là NOT NULL + FK -> deals — hoạt động
+       không gắn deal hợp lệ (deal rỗng / deal đã xoá ở local) KHÔNG được
+       thành row đẩy lên server: một row như vậy làm vỡ FK/NOT NULL và,
+       vì snapshot đồng bộ chỉ tiến khi sync chạy trọn, sẽ kẹt MỌI lần
+       đồng bộ sau đó. Bỏ qua ở cả hai chiều state->rows (bản mới lẫn
+       snapshot) nên không sinh plan xoá/upsert nào cho chúng; bản ghi
+       vẫn giữ nguyên ở local để người dùng gắn lại vào deal còn tồn tại. */
+    const dealIdSet = new Set(rows.deals.map(r => String(r.id)));
     (Array.isArray(s.activities) ? s.activities : []).forEach(a => {
       if (!isObj(a) || !a.id) return;
+      if (!a.deal || !dealIdSet.has(String(a.deal))) return;
       const when = datePair(a.when);
       rows.activities.push({
         id: a.id, deal_id: a.deal, type: a.type || 'Note', actor_id: nullIfEmpty(a.who),

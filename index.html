@@ -943,7 +943,8 @@ function vDash() {
     const d = S.deals.find(x=>x.id===a.deal);
     return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(d?d.title:a.type)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
-  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>` + dashAnalyticsHTML();
+  const dashActDeals = S.deals.filter(d => curLine === 'all' || d.line === curLine);
+  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + dashAnalyticsHTML();
 }
 /* ===== Khu PHÂN TÍCH (Dashboard) trong Tổng quan =====
    UI-state THUẦN (không nằm trong S, không qua save(), cùng họ
@@ -1708,6 +1709,9 @@ function openEvent(id) {
     ${eventLinkBlockHTML(ev, "company")}
     ${eventLinkBlockHTML(ev, "lead")}
     ${eventLinkBlockHTML(ev, "deal")}
+    <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>
+    ${(Array.isArray(ev.deals) && ev.deals.length) ? (S.activities.filter(a => ev.deals.includes(a.deal)).map(a => activityRowHTML(a, { showDeal: true })).join("") || '<div class="mut">Chưa có hoạt động nào.</div>') : '<div class="mut">Chưa có hoạt động nào.</div>'}
+    ${activityAddBlockHTML("event", S.deals.filter(d => Array.isArray(ev.deals) && ev.deals.includes(d.id)))}
     <div class="mut" style="margin-top:14px">Liên kết công ty / lead / deal nằm ngay trên sự kiện này — xoá sự kiện chỉ gỡ các liên kết đó, các đối tượng vẫn giữ nguyên trong CRM.</div>${auditSectionHTML("event", ev.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "event", id);
 }
@@ -2596,11 +2600,14 @@ function openMember(id) {
   const memLeadsSlice = listPageSlice("memberleads:" + id, memberLeads);
   const memActsSlice = listPageSlice("memberacts:" + id, memberActs);
   const memReqsSlice = listPageSlice("memberreqs:" + id, memberReqs);
-  const memberActsHTML = memberActs.length ? memActsSlice.pageItems.map(a => {
-    const ad = S.deals.find(x => x.id === a.deal);
-    return `<div class="dcard" ${ad ? `onclick="openDeal('${ad.id}')"` : ""}><div class="t">${esc(a.type || "Hoạt động")}${ad ? " · " + esc(ad.title) : ""}</div><div class="c">${esc(a.text || "")}</div><div class="c" style="margin-top:3px">${esc(fmtWhen(a.when))}${ad ? " · Bấm để mở deal liên quan" : ""}</div></div>`;
-  }).join("") + listPagerHTML("memberacts:" + id, memActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào do thành viên này ghi.</div>';
+  const memberActsHTML = memberActs.length ? memActsSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("memberacts:" + id, memActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào do thành viên này ghi.</div>';
   const memberReqsHTML = memberReqs.length ? memReqsSlice.pageItems.map(r => {
+  /* Khối thêm hoạt động của drawer thành viên: deal ứng viên = deal thành
+     viên này phụ trách; chưa phụ trách deal nào thì chọn trong mọi deal
+     (hoạt động vẫn bắt buộc gắn 1 deal). Người thực hiện điền sẵn = chính
+     thành viên đang xem. */
+  const memberActDeals = deals.length ? deals : S.deals;
+
     const isGameReq = r.kind === "game";
     const ent = isGameReq ? game(r.entityId) : comp(r.entityId);
     const entName = ent && (ent.title || ent.name) ? (ent.title || ent.name) : (r.entityId || "—");
@@ -2630,6 +2637,7 @@ function openMember(id) {
     ${memberLeads.length ? memLeadsSlice.pageItems.map(leadMini).join("") + listPagerHTML("memberleads:" + m.id, memLeadsSlice.info, "lead") + `<div class="mut" style="margin-top:6px"><button class="btn ghost small" onclick="viewLeadsOfMember('${m.id}')">Xem tất cả ở view Lead →</button></div>` : '<div class="mut">Chưa phụ trách lead nào.</div>'}
     <h3 style="margin:18px 0 8px">🕘 Hoạt động đã ghi (${memberActs.length})</h3>
     ${memberActsHTML}
+    ${activityAddBlockHTML("member", memberActDeals, { who: m.id })}
     <h3 style="margin:18px 0 8px">📊 Đánh giá liên quan (${memberReqs.length})</h3>
     ${memberReqsHTML}
     <div class="mut" style="margin-top:14px">Đây là tóm tắt phục vụ gán việc / gán người phụ trách trong CRM — không phải phân quyền tài khoản.</div>${auditSectionHTML("member", m.id)}`);
@@ -2701,10 +2709,12 @@ function openDeal(id) {
   const L = lineDefOrFallback(d.line, d.stage), c = comp(d.company), g = dealVisibleGame(d);
   const st = stagePairSafe(d.line, d.stage);
   const fields = (L.fields || []).map(([k, lb]) => `<div class="k">${lb}</div><div>${esc(cfDisplay(d, k))}</div>`).join("");
-  /* Việc 8: timeline hoạt động của deal phân trang 10 mục/trang trong drawer. */
+  /* Việc 8: timeline hoạt động của deal phân trang 10 mục/trang trong drawer.
+     Việc 7: hàng hoạt động qua activityRowHTML dùng chung (link ghim là
+     href thật khi URL hợp lệ, sửa/xoá ngay tại hàng). */
   const dealActsAll = S.activities.filter(a => a.deal === id);
   const dealActsSlice = listPageSlice("dealacts:" + id, dealActsAll);
-  const acts = dealActsSlice.pageItems.map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
+  const acts = dealActsSlice.pageItems.map(a => activityRowHTML(a)).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
   const dealActsPager = listPagerHTML("dealacts:" + id, dealActsSlice.info, "hoạt động");
 
   /* Đánh giá của deal: tóm tắt Publishing canonical của game (v2 / legacy có nhãn /
@@ -2833,7 +2843,8 @@ function openDeal(id) {
       </div>
       <textarea id="na_text" placeholder="Nội dung: đã trao đổi gì, kết quả ra sao, bước tiếp theo là gì..." style="margin-top:8px"></textarea>
       <input id="na_url" placeholder="🔗 Dán link đúng cuộc hội thoại đó (URL thread Gmail, link chat Messenger, link file Drive...)" style="width:100%;margin-top:8px">
-      <div class="mut" style="margin-top:5px">Cách lấy link: <b>Gmail</b> — mở đúng email đó, copy địa chỉ trên thanh trình duyệt; <b>Messenger</b> — mở đúng cuộc chat trên messenger.com, copy địa chỉ. Mỗi hoạt động chỉ ghim đúng 1 cuộc hội thoại vào đúng deal này, không kéo cả hộp thư.</div>
+      <div class="mut" style="margin-top:5px">Mỗi hoạt động chỉ ghim đúng 1 cuộc hội thoại vào đúng deal này, không kéo cả hộp thư.</div>
+      ${activityLinkHintHTML()}
       <button class="btn" style="margin-top:9px" onclick="addActivity('${d.id}')">+ Thêm vào timeline</button>
     </div>
     <div class="mut" style="margin-top:14px">Mọi thông tin của deal đều sửa/xóa được ngay trong bản này: nút ✏️ Sửa ở đầu trang, term + hợp đồng bấm nút ✏️ Sửa ở khối trên để sửa, đổi stage bằng ô chọn hoặc kéo thẻ ngoài Pipeline. Bản thật sẽ thêm: nối tài khoản Gmail để chọn đúng thread ngay trong CRM (khỏi copy link bằng tay), lịch sử người sửa.</div>${auditSectionHTML("deal", d.id)}`;
@@ -2844,7 +2855,7 @@ function openDeal(id) {
 }
 /* FIX-C1 B5: form thêm hoạt động trong drawer deal thu gọn sau nút bấm;
    addActivity lưu xong gọi openDeal() dựng lại drawer nên form tự thu lại. */
-function toggleDealActivityForm() { const el = document.getElementById("dealActForm"); if (el) el.style.display = el.style.display === "none" ? "" : "none"; }
+function toggleDealActivityForm() { toggleActivityFormEl(document.getElementById("dealActForm")); }
 function moveStage(id, stage) { const d = S.deals.find(x=>x.id===id); d.stage = stage; d.idle = 0; save(); openDeal(id); render(); toast("Đã chuyển stage: " + stagePairSafe(d.line, stage)[1]); }
 /* F5: confirm đổi stage DÙNG CHUNG duy nhất — cả select trong drawer
    (confirmMoveStage) lẫn kéo-thả pipeline (drop) đều hỏi qua đây, cùng
@@ -3239,9 +3250,11 @@ function openCompany(id) {
     <h3 style="margin:16px 0 4px">✅ Việc đang treo (${tasks.length})</h3>
     ${tasks.length ? coTasksSlice.pageItems.map(taskRow).join("") + listPagerHTML("companyopentasks:" + c.id, coTasksSlice.info, "việc") : '<div class="mut">Không có việc đang treo nào.</div>'}
     <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất (${acts.length})</h3>
-    ${acts.length ? coActsSlice.pageItems.map(a => { const ad = S.deals.find(x => x.id === a.deal); return `<div class="tl"><div class="ev" ${ad ? `onclick="openDeal('${ad.id}')" style="cursor:pointer" title="Mở deal liên quan"` : ""}><b>${esc(a.type)}</b>${ad ? ` · ${esc(ad.title)}` : ""}<div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`; }).join("") + listPagerHTML("companyacts:" + c.id, coActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào.</div>'}
+    ${acts.length ? coActsSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("companyacts:" + c.id, coActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào.</div>'}
 
-    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Bản thật sẽ thêm: ghi hoạt động mới, đính link Drive.</div>${auditSectionHTML("company", c.id)}`);
+    ${activityAddBlockHTML("company", deals)}
+    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Ghi hoạt động mới bằng nút "➕ Thêm hoạt động" ngay trên đây (hoạt động gắn vào một deal của công ty).</div>${auditSectionHTML("company", c.id)}`);
+
   loadDrawerAudit(document.getElementById("drawer"), "company", id);
 }
 /* C7: link build/trailer của game — chỉ thành <a> thật khi là URL http/https
@@ -3342,6 +3355,8 @@ function openGame(id) {
   const g = game(id); if (!g) return;
   drawerCtx = { type: "game", id };
   const deals = S.deals.filter(d => { const vg = dealVisibleGame(d); return !!vg && vg.id === id; });
+  const gameActsAll = S.activities.filter(a => deals.some(d => d.id === a.deal));
+  const gameActsSlice = listPageSlice("gameacts:" + id, gameActsAll);
   const attachableDeals = gameAttachableDeals(g);
   /* Thẻ deal trong drawer game: dealMini sẵn có (tên + mảng + stage, bấm
      mở drawer deal) + dòng công ty/publisher của deal ngay dưới thẻ. */
@@ -3407,6 +3422,9 @@ function openGame(id) {
     ${attachedBox || '<div class="mut">Chưa có deal nào gắn game này.</div>'}
     <div style="font-weight:600;margin:12px 0 6px">Deal có thể gắn</div>
     ${attachableBox || `<div class="mut">${g.own === "partner" ? "Không có deal Publishing nào của công ty này chưa gắn game này." : "Không có deal Game Studio nào chưa gắn game này."}</div>`}
+    <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>
+    ${gameActsSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") || '<div class="mut">Chưa có hoạt động nào.</div>'}${listPagerHTML("gameacts:" + id, gameActsSlice.info, "hoạt động")}
+    ${activityAddBlockHTML("game", deals)}
     ${relatedTasksHTML("game", g.id)}
     <div class="mut" style="margin-top:14px">Đánh giá theo workbook và lịch sử phiên bản nằm trong Game & Publishing. Đánh giá cũ thang /10 giữ riêng, không tự quy đổi sang /5.</div>${auditSectionHTML("game", g.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "game", id);
@@ -3421,6 +3439,8 @@ function openLead(id) {
   const relDeals = dealsForLead(l.id);
   /* Việc 8: deal đã gắn với lead phân trang 10/trang trong drawer. */
   const leadDealsSlice = listPageSlice("leaddeals:" + l.id, relDeals);
+  const leadActsAll = S.activities.filter(a => relDeals.some(d => d.id === a.deal));
+  const leadActsSlice = listPageSlice("leadacts:" + l.id, leadActsAll);
   /* P1: chỉ gắn được lead vào deal CÙNG CÔNG TY với lead — dropdown chỉ
      liệt kê các deal đó; lead chưa có công ty thì không gắn vào deal nào. */
   const attachDeals = l.company ? S.deals.filter(d => d.company === l.company && !(Array.isArray(d.leads) && d.leads.includes(l.id))) : [];
@@ -3443,6 +3463,10 @@ function openLead(id) {
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn" onclick="editLead('${l.id}')">✏️ Sửa lead</button><button class="btn danger" onclick="deleteLead('${l.id}')">🗑 Xóa lead</button></div>
     <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (${relDeals.length}) (bấm để mở deal)</h3>
     ${leadDealsSlice.pageItems.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}${listPagerHTML("leaddeals:" + l.id, leadDealsSlice.info, "deal")}
+    <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>
+    ${leadActsSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") || '<div class="mut">Chưa có hoạt động nào.</div>'}${listPagerHTML("leadacts:" + l.id, leadActsSlice.info, "hoạt động")}
+    ${activityAddBlockHTML("lead", relDeals)}
+
     ${relatedTasksHTML("lead", l.id)}
     ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${comboSelectHTML("lead_attach_deal", attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)} · ${esc(comp(d.company).name)}</option>`).join(""), { wrapStyle: "flex:1;min-width:220px", label: (attachDeals[0].title || "—") + " — " + (LINES[attachDeals[0].line] ? LINES[attachDeals[0].line].name : attachDeals[0].line) + " · " + comp(attachDeals[0].company).name, placeholder: "Gõ tên deal để tìm…" })}<button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : (l.company ? '<div class="mut" style="margin-top:8px">Không còn deal nào cùng công ty chưa gắn để chọn.</div>' : '<div class="mut" style="margin-top:8px">Lead chưa gắn công ty — hãy gắn công ty cho lead trước, rồi mới gắn vào deal của công ty đó được.</div>')}
     <div style="margin-top:16px">${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${esc(lineName(l.line))}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${esc(lineName(l.line))}.</div>`}</div>
@@ -5052,7 +5076,20 @@ function deleteTask(id) {
 }
 
 
-/* --- Hoạt động (timeline): thêm / sửa / xóa + gắn đúng link cuộc hội thoại vào deal --- */
+/* --- Hoạt động (timeline): thêm / sửa / xóa + gắn đúng link cuộc hội thoại vào deal ---
+   Việc 7: MỘT cơ chế dùng chung cho MỌI khối hoạt động (drawer Deal "Timeline
+   hoạt động", các khối "Hoạt động gần nhất" ở drawer Công ty / Lead / Game /
+   Sự kiện, khối "Hoạt động đã ghi" ở drawer Thành viên và panel "Hoạt động
+   gần nhất" ở Tổng quan): activityRowHTML (hàng hiển thị) +
+   activityAddBlockHTML (nút + form thu gọn) + createActivity (lõi tạo) +
+   addActivityScoped (đường thêm theo scope). Trước đây CHỈ drawer Deal có
+   form thêm; các khối "Hoạt động gần nhất" còn lại chỉ hiện danh sách nên
+   không thêm được (drawer Công ty còn ghi "Bản thật sẽ thêm: ghi hoạt động
+   mới"). Hoạt động BẮT BUỘC gắn đúng 1 deal còn tồn tại (cột
+   activities.deal_id NOT NULL + FK ở supabase/schema.sql) nên khối nào
+   chưa có deal để gắn thì hiện hướng dẫn thay cho form, và mọi đường lưu
+   đều chặn deal rỗng/không tồn tại TRƯỚC khi ghi — tránh đẩy deal_id rỗng
+   lên server làm vỡ FK và kẹt đồng bộ ở mọi lần thử lại. */
 function openActLinkById(actId) {
   const a = S.activities.find(x => x.id === actId); if (!a) return;
   openActLink(a.url || "");
@@ -5062,10 +5099,82 @@ function openActLink(url) {
   if (url.includes("mẫu") || !/^https?:\/\//i.test(url)) { toast("Bản mẫu: ở bản thật, link này mở đúng cuộc hội thoại / tài liệu đã ghim vào deal"); return; }
   window.open(url, "_blank", "noopener");
 }
+/* Hàng hoạt động dùng chung: loại + (tuỳ chọn) deal liên quan bấm mở được +
+   nội dung + thời gian/người thực hiện + nút mở đúng link đã ghim (href
+   THẬT khi link là http/https hợp lệ; link mẫu/không phải http thì đi qua
+   openActLinkById như trước) + Sửa/Xóa. */
+function activityRowHTML(a, opts) {
+  const showDeal = !!(opts && opts.showDeal);
+  const ad = showDeal ? S.deals.find(x => x.id === a.deal) : null;
+  const url = String(a.url || "").trim();
+  const safeUrl = /^https?:\/\//i.test(url) && !url.includes("mẫu") ? url : "";
+  const link = !url ? "" : safeUrl
+    ? `<div style="margin-top:3px"><a href="${esc(safeUrl)}" target="_blank" rel="noopener">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>`
+    : `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>`;
+  return `<div class="tl"><div class="ev"><b>${esc(a.type || "Hoạt động")}</b>${ad ? ` · <a href="#" onclick="openDeal('${ad.id}'); return false" title="Mở deal liên quan">${esc(ad.title)}</a>` : ""}<div>${esc(a.text || "")}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div>${link}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`;
+}
+/* Hướng dẫn lấy URL ghim hội thoại — hiện ngay tại ô dán link của MỌI form
+   thêm/sửa hoạt động, dạng <details> mở gọn (không che form, kể cả viewport
+   hẹp). Bước theo đúng giao diện thật: Gmail/Messenger lấy địa chỉ thread/
+   đoạn chat trên thanh địa chỉ trình duyệt; Drive lấy qua menu Chia sẻ. */
+function activityLinkHintHTML() {
+  return `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12.5px;color:var(--mut)">❓ Cách lấy link cuộc hội thoại / tài liệu</summary><div class="mut" style="margin-top:4px;line-height:1.6"><b>Gmail:</b> mở đúng cuộc hội thoại (thread) đó trong Gmail, rồi sao chép địa chỉ trên thanh địa chỉ của trình duyệt (dạng mail.google.com/mail/u/0/#inbox/…).<br><b>Messenger:</b> mở đúng đoạn chat đó, rồi sao chép địa chỉ trên thanh địa chỉ của trình duyệt (dạng messenger.com/t/… hoặc facebook.com/messages/t/…).<br><b>Google Drive:</b> chuột phải vào file → <b>Chia sẻ</b> → <b>Sao chép đường liên kết</b>, rồi dán vào ô link ở trên.</div></details>`;
+}
+function toggleActivityFormEl(el) { if (el) el.style.display = el.style.display === "none" ? "" : "none"; }
+function toggleActivityForm(scope) { toggleActivityFormEl(document.getElementById("actForm_" + scope)); }
+/* Khối thêm hoạt động dùng chung. scope = khóa duy nhất của khối (tiền tố
+   id các ô nhập: na_<scope>_*); dealChoices = các deal khối này được gắn
+   hoạt động vào: 1 deal -> ghim sẵn (hiện tên deal, không cần chọn);
+   nhiều deal -> ô chọn deal; 0 deal -> hướng dẫn (không dựng form lưu mù
+   vì hoạt động bắt buộc gắn deal). opts.who: người thực hiện điền sẵn. */
+function activityAddBlockHTML(scope, dealChoices, opts) {
+  const deals = (Array.isArray(dealChoices) ? dealChoices : []).filter(d => d && d.id);
+  if (!deals.length) return `<div class="mut" style="margin-top:8px">Chưa thêm được hoạt động ở đây: hoạt động phải gắn với một deal, mà đối tượng này chưa có deal nào liên kết. Hãy tạo hoặc gắn deal trước, rồi quay lại ghi hoạt động vào deal đó.</div>`;
+  const p = "na_" + scope + "_";
+  const who = (opts && opts.who) || defaultOwnerId() || deals[0].owner || "";
+  const dealField = deals.length === 1
+    ? `<input type="hidden" id="${p}deal" value="${esc(deals[0].id)}"><div class="mut" style="margin-top:8px">Gắn vào deal: <b>${esc(deals[0].title || "—")}</b></div>`
+    : `<label style="display:block;margin-top:8px">Deal gắn với hoạt động</label><select id="${p}deal" style="width:100%">${deals.map(d => `<option value="${esc(d.id)}">${esc(d.title || "—")} · ${esc(comp(d.company).name)}</option>`).join("")}</select>`;
+  return `<div style="margin-top:12px"><button class="btn ghost" onclick="toggleActivityForm('${scope}')">➕ Thêm hoạt động</button></div>
+    <div id="actForm_${scope}" style="display:none;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px">
+      <b style="font-size:13.5px">➕ Thêm hoạt động / ghi chú</b>
+      ${dealField}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px">
+        <select id="${p}type">${["Note", "Call", "Email", "Meeting", "Demo", "Zalo", "Messenger"].map(t => `<option>${t}</option>`).join("")}</select>
+        ${ownerSel(p + "who", who)}
+      </div>
+      <textarea id="${p}text" placeholder="Nội dung: đã trao đổi gì, kết quả ra sao, bước tiếp theo là gì..." style="margin-top:8px"></textarea>
+      <input id="${p}url" placeholder="🔗 Dán link đúng cuộc hội thoại đó (URL thread Gmail, link chat Messenger, link file Drive...)" style="width:100%;margin-top:8px">
+      ${activityLinkHintHTML()}
+      <button class="btn" style="margin-top:9px" onclick="addActivityScoped('${scope}')">+ Thêm hoạt động</button>
+    </div>`;
+}
+/* Lõi tạo hoạt động dùng chung cho mọi đường thêm: validate TRƯỚC khi ghi —
+   nội dung không rỗng và deal phải còn tồn tại (xem ghi chú Việc 7 ở đầu
+   mục). Trả activity mới (chưa save — caller save qua đường save() chung
+   để được đóng dấu + audit của Việc 4) hoặc null khi bị chặn. */
+function createActivity(dealId, data) {
+  const text = String((data && data.text) || "").trim();
+  if (!text) { toast("Nhập nội dung hoạt động trước đã"); return null; }
+  const d = S.deals.find(x => x.id === dealId);
+  if (!d) { toast("Hoạt động phải gắn với một deal — hãy chọn deal còn tồn tại để gắn hoạt động vào"); return null; }
+  let nid = "a" + Date.now();
+  while (S.activities.some(x => x.id === nid)) nid += "x";
+  const a = { id: nid, deal: dealId, type: (data && data.type) || "Note", who: (data && data.who) || "", when: todayStr(), text, url: String((data && data.url) || "").trim() };
+  S.activities.unshift(a);
+  return a;
+}
+function addActivityScoped(scope) {
+  const p = "na_" + scope + "_";
+  const el = i => document.getElementById(p + i);
+  const dealEl = el("deal");
+  const a = createActivity(dealEl ? dealEl.value : "", { type: el("type") ? el("type").value : "Note", who: el("who") ? el("who").value : "", text: el("text") ? el("text").value : "", url: el("url") ? el("url").value : "" });
+  if (!a) return;
+  save(); render(); refreshDrawer(); toast("Đã thêm hoạt động vào timeline");
+}
 function addActivity(dealId) {
-  const text = document.getElementById("na_text").value.trim();
-  if (!text) { toast("Nhập nội dung hoạt động trước đã"); return; }
-  S.activities.unshift({ id: "a" + Date.now(), deal: dealId, type: document.getElementById("na_type").value, who: document.getElementById("na_who").value, when: todayStr(), text, url: document.getElementById("na_url").value.trim() });
+  const a = createActivity(dealId, { type: document.getElementById("na_type").value, who: document.getElementById("na_who").value, text: document.getElementById("na_text").value, url: document.getElementById("na_url").value });
+  if (!a) return;
   save(); openDeal(dealId); render(); toast("Đã thêm hoạt động vào timeline");
 }
 function editActivity(id) {
@@ -5078,6 +5187,7 @@ function editActivity(id) {
     ${field("Thời gian", `<input id="ea_when" type="date" value="${esc(isValidDateStr(a.when) ? a.when : "")}">` + (a.when && !isValidDateStr(a.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(a.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Nội dung", `<textarea id="ea_text">${esc(a.text || "")}</textarea>`)}
     ${field("Link đúng cuộc hội thoại / tài liệu đó", txt("ea_url", a.url || "", "Dán link thread Gmail / chat Messenger / file Drive"))}
+    ${activityLinkHintHTML()}
     ${sysMetaHTML(a)}${auditSectionHTML("activity", a.id)}
     ${formFoot("saveActivity", `'${a.id}'`)}`);
   loadDrawerAudit(document.getElementById("editBox"), "activity", id);
@@ -5088,22 +5198,45 @@ function saveActivity(id) {
   /* C9 (đợt 3): sửa activity cũng chặn nội dung rỗng như addActivity — kiểm
      TRƯỚC khi mutate bất kỳ field nào. */
   if (!v("ea_text")) { toast("Nội dung hoạt động không được để trống"); return; }
+  /* Việc 7: hoạt động BẮT BUỘC gắn 1 deal còn tồn tại (activities.deal_id
+     NOT NULL + FK) — deal rỗng / deal đã xoá bị chặn TRƯỚC khi mutate bất
+     kỳ field nào, nếu không adapter sẽ đẩy deal_id rỗng lên server, vỡ FK
+     và kẹt đồng bộ ở mọi lần thử lại. */
+  const dealEl = document.getElementById("ea_deal");
+  const newDeal = dealEl ? dealEl.value : a.deal;
+  if (!newDeal || !S.deals.some(d => d.id === newDeal)) { toast("Hoạt động phải gắn với một deal — hãy chọn deal cho hoạt động này"); return; }
   a.type = document.getElementById("ea_type").value;
   /* FIX-C1 A8: deal gắn với hoạt động sửa được ngay trong form — giữ nguyên
      a.deal hiện tại khi ô chọn không đổi, ghi giá trị mới khi user đổi. */
-  const dealEl = document.getElementById("ea_deal");
-  if (dealEl) a.deal = dealEl.value;
+  a.deal = newDeal;
   a.who = document.getElementById("ea_who").value;
   a.when = v("ea_when") || a.when;
   a.text = v("ea_text");
   a.url = v("ea_url");
-  save(); closeEdit(); render(); if (a.deal) openDeal(a.deal); else closeDrawer(); toast("Đã lưu hoạt động");
+  const ctxType = drawerCtx ? drawerCtx.type : "";
+  save(); closeEdit(); render();
+  /* Đang sửa từ drawer KHÔNG phải deal (công ty/lead/game/member/sự kiện)
+     thì dựng lại đúng drawer đó cho hoạt động hiện đúng chỗ; còn lại mở
+     drawer deal của hoạt động như trước. */
+  if (ctxType && ctxType !== "deal") refreshDrawer();
+  else if (S.deals.some(d => d.id === a.deal)) openDeal(a.deal);
+  else if (drawerCtx) refreshDrawer(); else closeDrawer();
+  toast("Đã lưu hoạt động");
 }
 function deleteActivity(id) {
   const a = S.activities.find(x => x.id === id); if (!a) return;
   if (!confirm("Xóa hoạt động này khỏi timeline?")) return;
+  const dealId = a.deal;
   S.activities = S.activities.filter(x => x.id !== id);
-  save(); render(); openDeal(a.deal); toast("Đã xóa hoạt động");
+  save(); render();
+  /* Việc 7: dựng lại ĐÚNG drawer đang mở (công ty/lead/game/member/sự kiện/
+     deal) — trước đây luôn gọi openDeal(a.deal): từ drawer khác sẽ nhảy
+     sang deal, còn deal đã xoá thì openDeal trả về im lặng, drawer giữ
+     nguyên hoạt động vừa xoá trên màn hình. */
+  if (drawerCtx) refreshDrawer();
+  else if (S.deals.some(d => d.id === dealId)) openDeal(dealId);
+  else closeDrawer();
+  toast("Đã xóa hoạt động");
 }
 
 render();
