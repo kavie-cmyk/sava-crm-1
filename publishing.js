@@ -21,6 +21,13 @@
   const pct = v => typeof v === 'number' && Number.isFinite(v) ? num(v*100,1)+'%' : '—';
   const usd = v => typeof v === 'number' && Number.isFinite(v) ? '$'+num(v,2) : '—';
   const stamp = v => v ? new Date(v).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'}) : '';
+  /* Chỉ dấu "cập nhật lần cuối" cho danh sách/thẻ Publishing (Việc 4 bổ
+     sung 3/11/2026): CÙNG nguồn updatedAt (dấu hệ thống do write() đóng
+     qua stampPubAndAudit, round-trip legacy_extra) và CÙNG định dạng
+     dd/mm/yyyy như sysShortDate của CRM — không đọc field nghiệp vụ nào
+     khác (submittedAt/evaluatedAt là mốc nghiệp vụ riêng, vẫn hiện riêng
+     như hiện hành). Thiếu dấu/invalid -> "" (thẻ không hiện chỉ dấu). */
+  const pubShortDate = v => { if (!v) return ''; const d = new Date(v); return isNaN(d) ? '' : d.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }); };
   const uuid = () => crypto.randomUUID();
   const REVIEW_STATUSES = ['Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'];
   /* === Loại bằng chứng dữ liệu thị trường HỢP NHẤT (đợt hợp nhất taxonomy) ===
@@ -175,8 +182,32 @@
      riêng, KHÔNG nhân đôi vào audit). Request thật sự đổi mới đóng dấu
      updatedAt/updatedBy (+createdAt khi tạo mới) và sinh đúng 1 mục audit;
      mục audit ghi qua window.SavaAudit (bảng audit_log) SAU khi
-     localStorage đã ghi, bọc try/catch — lỗi ghi audit không phá lưu chính. */
+     localStorage đã ghi, bọc try/catch — lỗi ghi audit không phá lưu chính.
+     Việc 4 (3/11/2026): nộp thêm một revision (submitReview / requeue)
+     CŨNG là một lần cập nhật hồ sơ thật — trước đây nếu lần nộp đó không
+     đổi trường cấp hồ sơ nào (vd MKT giữ nguyên status, BD chỉ bổ sung
+     bdComment ở chế độ xem) thì diff cấp hồ sơ rỗng nên request KHÔNG
+     được đóng dấu và KHÔNG có mục lịch sử nào, updatedAt/updatedBy đứng
+     yên ở người cũ. Nay stampPubAndAudit đối chiếu thêm SỐ revision
+     trước/sau (pubPrevRevCount, dựng cùng mọi lần chụp mốc
+     pubSnapshotOf): request có revision MỚI mà chưa được stampCollection
+     đóng dấu trong lần write này thì được đóng dấu updatedAt/updatedBy
+     của người vừa nộp + đúng 1 mục audit update với change duy nhất
+     "revision: <số cũ> -> <số mới>" — chỉ ghi MỐC số phiên bản, tuyệt
+     đối không chép nội dung/điểm của revision vào audit (giữ nguyên
+     chốt không nhân đôi ở trên). Request đã có mục audit trong lần
+     write này (tạo mới / đổi cấp hồ sơ / xoá) thì không thêm mục thứ
+     hai. Đóng dấu này chỉ đổi đúng 3 khoá hệ thống trong legacy_extra
+     nên guard server phía MKT (fix-publishing-guard-sys-stamp.sql, loại
+     trừ đúng 3 khoá đó khi so) không bị chạm — không hồi quy C1. */
   let pubPrevSnap = null;
+  /* Số revision của từng request tại mốc chụp gần nhất — bản đồng hành
+     của pubPrevSnap, được dựng lại trong pubSnapshotOf (điểm DUY NHẤT
+     mọi đường reset mốc đều đi qua: nạp module, pubReloadLatest,
+     listener storage, __savaOnDataRefreshed, __savaOnReady, và cuối mỗi
+     stampPubAndAudit) nên hai mốc không bao giờ lệch nhau. */
+  let pubPrevRevCount = new Map();
+  function pubRevCountOf(r) { return (r && Array.isArray(r.revisions)) ? r.revisions.length : 0; }
   /* C4 (FIX-3): cờ STALE phía Publishing, tương đương crmStale phía CRM
      (index.html): tab khác ghi kho Publishing mới hơn -> tab này bị chặn
      write() cho tới khi nạp lại dữ liệu mới nhất (pubReloadLatest /
@@ -188,7 +219,9 @@
       if (typeof window === 'undefined' || !window.SavaSys) return new Map();
       const strip = r => { if (!r || typeof r !== 'object') return r; const c = { ...r }; delete c.current; delete c.revisions; delete c.revision; return c; };
       const m = new Map();
-      ((store && store.requests) || []).forEach(r => { if (r && r.id) m.set(String(r.id), SavaSys.cloneForDiff(strip(r))); });
+      const rc = new Map();
+      ((store && store.requests) || []).forEach(r => { if (r && r.id) { m.set(String(r.id), SavaSys.cloneForDiff(strip(r))); rc.set(String(r.id), pubRevCountOf(r)); } });
+      pubPrevRevCount = rc;
       return m;
     } catch { return new Map(); }
   }
@@ -210,6 +243,23 @@
          diff vẫn đúng); chép 3 trường hệ thống trở lại request thật. */
       const byId = new Map(stripped.filter(r => r && r.id).map(r => [String(r.id), r]));
       s.requests.forEach(r => { if (!r || !r.id) return; const st = byId.get(String(r.id)); if (!st) return; for (const f of ['createdAt', 'updatedAt', 'updatedBy']) { if (st[f] !== undefined) r[f] = st[f]; else delete r[f]; } });
+      /* Việc 4: revision MỚI nộp mà diff cấp hồ sơ không sinh mục nào
+         (request chưa được đóng dấu ở bước trên) -> đóng dấu tại đây.
+         prevRevCount phải chụp TRƯỚC khi pubSnapshotOf(s) ở cuối hàm
+         dựng lại mốc; request không có trong mốc cũ = request mới, đã
+         có mục create ở bước trên nên tự nó bị điều kiện has() loại. */
+      const prevRevCount = pubPrevRevCount;
+      const stampedIds = new Set(entries.map(e => String(e.entityId)));
+      s.requests.forEach(r => {
+        if (!r || !r.id) return;
+        const id = String(r.id);
+        if (stampedIds.has(id) || !prevRevCount.has(id)) return;
+        const before = prevRevCount.get(id), after = pubRevCountOf(r);
+        if (!(after > before)) return;
+        r.updatedAt = nowIso; r.updatedBy = by || '';
+        if (!r.createdAt) r.createdAt = nowIso;
+        entries.push({ entityType: 'request', entityId: id, at: nowIso, byMemberId: by || '', action: 'update', changes: [{ field: 'revision', label: 'Phiên bản đánh giá', from: String(before), to: String(after) }] });
+      });
       pubPrevSnap = pubSnapshotOf(s);
     } catch { entries = []; }
     if (entries.length) {
@@ -857,7 +907,7 @@
     $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Snapshot Puzzle · 15/08/2026</span><span class="badge">Snapshot Simulation · 25/08/2026</span><span class="badge">US · Google Play + iOS</span></div><button class="btn primary" data-action="market-new">+ Thêm quan sát thị trường</button></div>
     <div class="metrics"><div class="metric"><small>Mechanic / nhóm đang xem</small><strong>${rows.length}</strong><span>${category==='all'?'Hai snapshot khác phạm vi':esc(category)}</span></div><div class="metric"><small>Nhóm có benchmark CPI</small><strong>${rows.filter(r=>r.cpi?.median!=null).length}</strong><span>Android · paid installs · May–Jul 2026</span></div><div class="metric"><small>Quyền cập nhật nghiệp vụ</small><strong>BD + MKT</strong><span>Cùng thêm và bổ sung dữ liệu nguồn</span></div></div>
     ${visuals}<section class="panel"><div class="row"><h3>Quy mô, cạnh tranh & tín hiệu tăng trưởng</h3><span class="mut">Chọn mechanic để xem nguồn và benchmark</span></div><div class="tools"><input id="marketSearch" type="search" aria-label="Tìm mechanic" placeholder="Tìm mechanic…" value="${esc(query)}"><select id="category" aria-label="Nhóm thị trường">${options([['Puzzle','Puzzle'],['Simulation','Simulation'],['all','Tất cả nhóm']],category)}</select></div>
-    <div class="table-scroll"><table><thead><tr><th>Mechanic / nhóm</th><th>Ngày / phạm vi</th><th class="numeric">DL / ngày</th><th class="numeric">Revenue / ngày</th><th class="numeric">Top 3 rev.</th><th class="numeric">Rev. growth 3M</th><th class="numeric">CPI median</th></tr></thead><tbody>${rows.map(r=>`<tr><td><button class="link-button" data-market="${esc(r.id)}">${esc(r.name)}</button><div class="mut">${esc(r.category)}</div></td><td>${esc(r.date)}<div class="mut">${esc(r.geo)}</div></td><td class="numeric">${num(r.downloads)}</td><td class="numeric">${usd(r.revenue)}</td><td class="numeric">${pct(r.top3)}</td><td class="numeric">${pct(r.history?.revGrowth3)}</td><td class="numeric">${usd(r.cpi?.median)}</td></tr>`).join('')||'<tr><td colspan="7">Không có mechanic khớp bộ lọc.</td></tr>'}</tbody></table></div>
+    <div class="table-scroll"><table><thead><tr><th>Mechanic / nhóm</th><th>Ngày / phạm vi</th><th class="numeric">DL / ngày</th><th class="numeric">Revenue / ngày</th><th class="numeric">Top 3 rev.</th><th class="numeric">Rev. growth 3M</th><th class="numeric">CPI median</th></tr></thead><tbody>${rows.map(r=>`<tr><td><button class="link-button" data-market="${esc(r.id)}">${esc(r.name)}</button><div class="mut">${esc(r.category)}</div></td><td>${esc(r.date)}<div class="mut">${esc(r.geo)}</div>${r.at&&pubShortDate(r.at)?`<div class="mut" title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.at))}</div>`:''}</td><td class="numeric">${num(r.downloads)}</td><td class="numeric">${usd(r.revenue)}</td><td class="numeric">${pct(r.top3)}</td><td class="numeric">${pct(r.history?.revGrowth3)}</td><td class="numeric">${usd(r.cpi?.median)}</td></tr>`).join('')||'<tr><td colspan="7">Không có mechanic khớp bộ lọc.</td></tr>'}</tbody></table></div>
     <p class="source-text">Nguồn: ${esc(DATA.source)} · 4 sheet thị trường được chọn. Puzzle: Top100 snapshot; lịch sử chỉ cohort có dữ liệu. Simulation: nhóm tag còn cần gameplay QA. Growth 3M = May–Jul so với Feb–Apr 2026, không phải biến động của daily snapshot. Dấu “—” là thiếu dữ liệu, không phải 0. Không tính LTV từ revenue/download.</p></section>`;
   }
   function marketDetail(id) {
@@ -921,7 +971,7 @@
       const rec=isCo?res.recommendation:eff.recommendation;
       const value=isCo?res.total:eff.final;
       const valueLabel=isCo?'Partner Fit (company)':eff.label;
-      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / ĐÁNH GIÁ PARTNER':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${fmtFinalScore(value)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
+      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / ĐÁNH GIÁ PARTNER':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${fmtFinalScore(value)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${pubShortDate(r.updatedAt)?` · <span title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.updatedAt))}</span>`:''}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
     }).join('')||`<div class="panel empty full"><h3>${data.requests.length?'Không có hồ sơ khớp bộ lọc':'Chưa có yêu cầu đánh giá'}</h3><p class="mut">${role==='bd'?'Chọn company hoặc game đã có trong CRM để giao MKT đánh giá.':'BD gửi yêu cầu company hoặc game từ CRM; hàng chờ sẽ xuất hiện tại đây.'}</p></div>`}</div>`;
   }
   /* A14 (FIX-3): option hồ sơ trong picker yêu cầu đánh giá — game đối tác

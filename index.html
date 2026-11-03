@@ -468,6 +468,18 @@ function sysMetaHTML(ent) { try { return window.SavaAuditUI ? SavaAuditUI.metaLi
 function auditSectionHTML(type, id) { try { return window.SavaAuditUI ? SavaAuditUI.sectionHTML(type, id) : ""; } catch (e) { return ""; } }
 function loadDrawerAudit(rootEl, type, id) { try { if (window.SavaAuditUI) SavaAuditUI.loadInto(rootEl, S, type, id); } catch (e) {} }
 function sysShortDate(v) { if (!v) return ""; const dt = new Date(v); return Number.isNaN(dt.getTime()) ? "" : dt.toLocaleDateString("vi-VN"); }
+/* Chỉ dấu "cập nhật lần cuối" DÙNG CHUNG cho mọi danh sách/thẻ (Việc 4 bổ
+   sung, 3/11/2026): MỘT nguồn duy nhất là ent.updatedAt (dấu hệ thống do
+   save() đóng, đi qua legacy_extra) + MỘT định dạng duy nhất là
+   sysShortDate (dd/mm/yyyy) kèm biểu tượng 🕘 — cùng mẫu thẻ pipeline
+   deal đã có từ trước. Hai biến thể theo ngữ cảnh bảng/thẻ:
+   - sysUpdatedSpan(ent): chèn vào dòng meta của thẻ — entity chưa có dấu
+     thì KHÔNG hiện gì (như thẻ deal hiện hành, tránh nhiễu "—" trên thẻ).
+   - sysUpdatedCell(ent): ô của bảng danh sách — cột luôn hiện diện nên
+     entity chưa có dấu hiện "—" (trung thực như dòng thời gian ở drawer,
+     tuyệt đối không lấy field khác lấp vào). */
+function sysUpdatedSpan(ent) { const s = sysShortDate(ent && ent.updatedAt); return s ? `<span title="Cập nhật lần cuối">🕘 ${esc(s)}</span>` : ""; }
+function sysUpdatedCell(ent) { const s = sysShortDate(ent && ent.updatedAt); return s ? `🕘 ${esc(s)}` : "—"; }
 function save() {
   if (crmStale) { toast("⚠️ Đang bị chặn lưu vì tab khác đã cập nhật dữ liệu mới hơn — hãy bấm “Tải lại dữ liệu mới nhất” ở banner đỏ phía trên."); return; }
   try {
@@ -531,7 +543,7 @@ function leadLabel(l) { const nm = leadDisplayName(l); const cn = leadCompanyNam
 function leadStatusText(status) { const def = (typeof leadStatusDef === "function") ? leadStatusDef(status) : null; return def ? def.label : (status ? String(status) : ""); }
 function leadMini(l) {
   return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
-    <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person && l.person !== l.name ? " · 👤 " + esc(l.person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(leadStatusText(l.status))}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${l.person && l.person !== l.name ? " · 👤 " + esc(l.person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(leadStatusText(l.status))}${sysShortDate(l.updatedAt) ? " · " + sysUpdatedSpan(l) : ""}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 /* === Khối đầu mối trong DRAWER DEAL ===
@@ -571,7 +583,7 @@ function dealLeadMiniHTML(l, dealCompanyId) {
      công ty của lead để biết nó là liên kết cũ, không gắn thêm được nữa. */
   const crossNote = dealCompanyId && l.company !== dealCompanyId ? " (khác công ty)" : "";
   return `<div class="dcard" onclick="openLead('${l.id}')"><div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
-    <div class="c">🏢 ${esc(leadCompanyName(l))}${crossNote}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(leadStatusText(l.status))}</div>
+    <div class="c">🏢 ${esc(leadCompanyName(l))}${crossNote}${person ? " · 👤 " + esc(person) : ""}${l.phone ? " · 📞 " + esc(l.phone) : ""} · <span class="chip" style="background:${LINES[l.line] ? LINES[l.line].color : '#64748b'}">${LINES[l.line] ? LINES[l.line].name : esc(l.line || "")}</span> ${esc(leadStatusText(l.status))}${sysShortDate(l.updatedAt) ? " · " + sysUpdatedSpan(l) : ""}</div>
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 /* Nút "＋ Gắn vào deal" ngay tại khối đầu mối của drawer deal: đi qua ĐÚNG
@@ -828,7 +840,7 @@ function vDash() {
   const activityIcons = {Meeting:'meeting',Note:'note',Call:'call',Email:'mail',Demo:'cube'};
   const activities = S.activities.filter(a=>(curLine==='all'||(S.deals.find(x=>x.id===a.deal)||{}).line===curLine)&&(!query||(a.text+' '+(S.deals.find(x=>x.id===a.deal)||{}).title).toLowerCase().includes(query))).slice(0,4).map(a=>{
     const d = S.deals.find(x=>x.id===a.deal);
-    return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(d?d.title:a.type)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}</div></div></div>`;
+    return `<div class="activity-item" ${d?`onclick="openDeal('${d.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(d?d.title:a.type)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
   document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}</section></div></div>` + dashAnalyticsHTML();
 }
@@ -1036,7 +1048,7 @@ function tasksForLink(type, id) { return S.tasks.filter(t => t && t[type] === id
 function relatedTaskRow(t) {
   const od = isOverdue(t);
   const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
-  return `<div class="task ${t.done ? "done" : ""}"><input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" onclick="editTask('${t.id}')" title="Bấm để sửa việc">${esc(t.title)}</div><div class="mut">${memberLinkHTML(t.assignee)} · Hạn: <span class="${od ? "overdue" : ""}">${esc(dueLabel)}</span> · ${t.done ? "Đã xong" : "Chưa xong"}${od ? ' · <span class="overdue">Quá hạn</span>' : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+  return `<div class="task ${t.done ? "done" : ""}"><input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" onclick="editTask('${t.id}')" title="Bấm để sửa việc">${esc(t.title)}</div><div class="mut">${memberLinkHTML(t.assignee)} · Hạn: <span class="${od ? "overdue" : ""}">${esc(dueLabel)}</span> · ${t.done ? "Đã xong" : "Chưa xong"}${od ? ' · <span class="overdue">Quá hạn</span>' : ""}${sysShortDate(t.updatedAt) ? " · " + sysUpdatedSpan(t) : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 /* Mục "Việc liên quan" dùng chung cho drawer Company / Lead / Deal / Game:
    nút "+ Thêm việc" mở ĐÚNG form tạo việc sẵn có (editTask) với liên kết
@@ -1053,7 +1065,7 @@ function taskRow(t) {
   const od = isOverdue(t);
   const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
   const chip = taskLinkChipHTML(t);
-  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span></div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span>${sysShortDate(t.updatedAt) ? " · " + sysUpdatedSpan(t) : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
 
@@ -1068,7 +1080,7 @@ function vBoard() {
     const cards = ds.map(d => { const gt = dealVisibleGame(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t">${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
-      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysShortDate(d.updatedAt) ? `<span title="Cập nhật lần cuối">🕘 ${esc(sysShortDate(d.updatedAt))}</span>` : ""}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
+      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysUpdatedSpan(d)}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
     /* Khung cuộn pipeline (workspace-design.css .board.pipeline-board):
        h4 + .sum nằm NGOÀI vùng cuộn .col-cards nên header cột luôn cố định
        ở đầu cột; chỉ danh sách thẻ cuộn dọc trong .col-cards. Handler
@@ -1098,14 +1110,14 @@ function vCompanies() {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     /* D3: roles có key lạ (không có trong LINES) -> nhãn thô + màu trung tính, không crash */
     const roleChips = Object.entries(c.roles || {}).map(([k,r]) => `<span class="chip" style="background:${lineColor(k)}">${esc(lineName(k))}: ${esc(r)}</span>`).join("");
-    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td></tr>`;
+    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td><td>${sysUpdatedCell(c)}</td></tr>`;
   }).join("");
   /* F4: phân biệt trống-thật với đang-lọc-mà-không-khớp như vLeads/vTasks:
      đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước nhận biết "đang lọc" của vLeads. */
   const filteringCompanies = !!query || curLine !== "all";
   const emptyCompaniesMsg = filteringCompanies ? "Không có công ty nào khớp tìm kiếm hiện tại." : "Chưa có công ty nào.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th></tr>${rows || `<tr><td colspan="5" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th><th>Cập nhật cuối</th></tr>${rows || `<tr><td colspan="6" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 
@@ -1121,7 +1133,7 @@ function vGames() {
       <div class="mut">${esc(g.genre || "")} · ${esc(g.platform || "")}</div>
       <div style="margin:6px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${esc(g.stage || "")}</span> ${window.PublishingBridge ? PublishingBridge.gameBadge(g.id) : ""}${v2chip ? ` <span class="pill" style="background:#0ea5e9">${esc(v2chip)}</span>` : ""}</div>
       <div class="gdesc" style="font-size:13px">${esc(g.desc || "")}</div>${scores}
-      <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>`<a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)}</a>`).join("; ") || "—"}</div></div>`;
+      <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>`<a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)}</a>`).join("; ") || "—"}</div>${sysShortDate(g.updatedAt) ? `<div class="mut" style="margin-top:4px">${sysUpdatedSpan(g)}</div>` : ""}</div>`;
   }).join("");
   const emptyNote = !show.length ? ((curLine === "ai" || curLine === "metaverse") ? `<div class="panel mut" style="font-size:13.5px">Mảng này không dùng game — game chỉ thuộc mảng Game Studio (game của Sava) và Publishing (game đối tác).</div>` : `<div class="panel mut" style="font-size:13.5px">${query ? "Không có game nào khớp tìm kiếm hiện tại." : "Chưa có game nào ở mảng này."}</div>`) : "";
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">Game Studio: game của Sava. Publishing: game của đối tác.</div>`;
@@ -1175,15 +1187,24 @@ const LEAD_STATUS_UNKNOWN = { key: "__unknown__", label: "Khác / Chưa rõ tr�
 function leadStatusDef(status) { return LEAD_STATUSES.find(s => s.key === status) || null; }
 /* Một hàng lead trong bảng của một block trạng thái — giữ nguyên mọi
    thông tin/thao tác của hàng lead trước đây: bấm hàng mở drawer lead,
-   chip ★ Đầu mối chính, link công ty, chip mảng, nguồn, thời gian, pill
-   trạng thái, deal liên quan (bấm mở deal), nút Chuyển thành deal. */
+   chip ★ Đầu mối chính, link công ty, chip mảng, nguồn, pill trạng thái,
+   deal liên quan (bấm mở deal), nút Chuyển thành deal.
+   Cột "Cập nhật cuối" (Việc 4 bổ sung, Zac chốt 3/11/2026 qua ảnh chụp
+   danh sách Lead): cột này trước đây mang tên "Thời gian" và đọc
+   l.when — field NGHIỆP VỤ "thời điểm tiếp cận" do người dùng/file
+   import cung cấp; lead import từ file Raw data không có cột đó được
+   ghép nên when rỗng và cột trống trơn, dù lead vẫn có dấu hệ thống.
+   Nay cột đọc ĐÚNG updatedAt (dấu hệ thống do save() đóng — cùng nguồn
+   + định dạng với mọi danh sách khác qua sysUpdatedCell) và đổi tên
+   cột thành "Cập nhật cuối" cho đúng nghĩa; l.when vẫn giữ nguyên ở
+   form lead + drawer lead (ô "Thời gian") như field nghiệp vụ riêng. */
 function leadRowHTML(l) {
   const def = leadStatusDef(l.status);
   const st = def ? [def.label, def.color] : [(l.status ? String(l.status) : "—"), "#64748b"];
   const lc = leadCompany(l);
   const relDeals = dealsForLead(l.id);
   const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
-  return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}${l.ownerId ? `<div style="margin-top:3px">${leadOwnerChipHTML(l)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${esc(fmtWhen(l.when || ""))}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
+  return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}${l.ownerId ? `<div style="margin-top:3px">${leadOwnerChipHTML(l)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${sysUpdatedCell(l)}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
 }
 /* Bộ lọc NGƯỜI PHỤ TRÁCH của view Lead — UI-state thuần tuý trong phiên
@@ -1306,7 +1327,7 @@ function vLeads() {
     const collapsed = !!leadBlockCollapsed[g.key];
     const info = leadBlockPageInfo(g);
     const body = collapsed ? "" : (g.leads.length
-      ? `<div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Thời gian</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${info.pageLeads.map(leadRowHTML).join("")}</table></div>${leadBlockPagerHTML(g, info)}`
+      ? `<div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Cập nhật cuối</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${info.pageLeads.map(leadRowHTML).join("")}</table></div>${leadBlockPagerHTML(g, info)}`
       : `<div class="mut">Chưa có lead nào ở trạng thái này.</div>`);
     return `<section class="panel lead-status-block${collapsed ? " lead-status-block--collapsed" : ""}" data-lead-status="${g.key}"><div class="panel-title lead-block-head" onclick="toggleLeadBlock('${g.key}')" style="cursor:pointer" title="Bấm để ${collapsed ? "mở" : "thu gọn"} block này"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.leads.length} lead</span></h3><button class="btn ghost small" onclick="event.stopPropagation(); toggleLeadBlock('${g.key}')" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mở block" : "Thu gọn block"}">${collapsed ? "▸ Mở" : "▾ Thu gọn"}</button></div>${body}</section>`;
   }).join("");
@@ -1366,6 +1387,7 @@ function leadCardHTML(l) {
     ${person ? `<div class="c">👤 ${esc(person)}</div>` : ""}
     ${l.phone ? `<div class="c">📞 ${esc(l.phone)}</div>` : ""}
     <div class="c" style="margin-top:4px"><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span>${l.ownerId ? " " + leadOwnerChipHTML(l) : ""}</div>
+    ${sysShortDate(l.updatedAt) ? `<div class="c" style="margin-top:3px">${sysUpdatedSpan(l)}</div>` : ""}
     <div class="c" style="margin-top:3px">${esc(l.note || "")}</div></div>`;
 }
 function vLeadsPipeline() {
@@ -1428,10 +1450,10 @@ function vEvents() {
     const nl = Array.isArray(ev.leads) ? ev.leads.length : 0;
     const nd = Array.isArray(ev.deals) ? ev.deals.length : 0;
     const counts = `<span class="chip" style="background:#0f766e">${nc} công ty</span> <span class="chip" style="background:#b45309">${nl} lead</span> <span class="chip" style="background:#2563eb">${nd} deal</span>`;
-    return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td><b>🎪 ${esc(ev.name || "—")}</b><div class="mut">${esc(ev.note || "")}</div></td><td>${esc(ev.date || "—")}<div class="mut">${esc(ev.location || "")}</div></td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${counts}</td></tr>`;
+    return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td><b>🎪 ${esc(ev.name || "—")}</b><div class="mut">${esc(ev.note || "")}</div></td><td>${esc(ev.date || "—")}<div class="mut">${esc(ev.location || "")}</div></td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${counts}</td><td>${sysUpdatedCell(ev)}</td></tr>`;
   }).join("");
   const emptyMsg = !all.length ? "Chưa có sự kiện nào." : "Không có sự kiện nào khớp tìm kiếm hiện tại.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Sự kiện</th><th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th></tr>${rows || `<tr><td colspan="4" class="mut">${emptyMsg}</td></tr>`}</table></div>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Sự kiện</th><th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th><th>Cập nhật cuối</th></tr>${rows || `<tr><td colspan="5" class="mut">${emptyMsg}</td></tr>`}</table></div>
   <div class="mut" style="margin-top:10px">Sự kiện là nơi team gặp gỡ đối tác: công ty, lead và deal phát sinh từ sự kiện được gắn ngay trong chi tiết sự kiện.</div></div>`;
 }
 /* --- 3 loại liên kết của sự kiện: cấu hình dùng chung cho drawer event --- */
@@ -1979,7 +2001,25 @@ function impRemoveBatch(idx) {
   S.leads = S.leads.filter(l => !delLeads.has(String(l.id)));
   S.companies = S.companies.filter(c => !delComps.has(String(c.id)));
   S.deals.forEach(d => { if (Array.isArray(d.leads)) d.leads = d.leads.filter(id => !delLeads.has(String(id))); });
-  if (Array.isArray(S.events)) S.events.forEach(ev => { if (Array.isArray(ev.leads)) ev.leads = ev.leads.filter(id => !delLeads.has(String(id))); });
+  /* Việc 4 (3/11/2026): dọn liên kết của lead/công ty bị xoá ĐẦY ĐỦ như
+     đường xoá tay (deleteLead/deleteCompany), TRƯỚC save() duy nhất ở
+     dưới để mọi entity bị dọn đều được đóng dấu + ghi lịch sử trong
+     cùng lần lưu. Trước đây chỉ dọn ev.leads + deal.leads: sự kiện còn
+     giữ id công ty đã xoá trong ev.companies (liên kết mồ côi, sự kiện
+     không được ghi lịch sử phần companies) và việc còn giữ task.lead /
+     task.company trỏ tới bản ghi đã xoá. Planner giữ lại công ty còn
+     lead/deal ngoài lô tham chiếu nên các dòng gỡ-company ở deal/game/
+     lead dưới đây là chốt an toàn cùng mẫu deleteCompany (no-op với
+     công ty được giữ), không đổi ngữ nghĩa gỡ lô đã chốt. */
+  delLeads.forEach(id => unlinkEntityFromAllEvents("leads", id));
+  delComps.forEach(id => unlinkEntityFromAllEvents("companies", id));
+  S.deals.forEach(d => { if (d.company && delComps.has(String(d.company))) delete d.company; });
+  S.games.forEach(g => { if (g.company && delComps.has(String(g.company))) delete g.company; });
+  S.leads.forEach(l => { if (l.company && delComps.has(String(l.company))) l.company = ""; });
+  S.tasks.forEach(t => {
+    if (t.lead && delLeads.has(String(t.lead))) delete t.lead;
+    if (t.company && delComps.has(String(t.company))) delete t.company;
+  });
   save();
   impResult = null;
   render();
@@ -2130,13 +2170,13 @@ function vMembers() {
          lại ở tầng hàm). */
       if (!(me && me.memberId === m.id)) actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); deleteMember('${m.id}')">🗑 Xoá thành viên</button>`;
     }
-    return `<tr onclick="openMember('${m.id}')" style="cursor:pointer" title="Bấm để xem chi tiết thành viên: việc được giao + deal phụ trách"><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td>${acctCell}<td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td><button class="btn ghost small" onclick="event.stopPropagation(); editMember('${m.id}')">✏️ Sửa</button>${actions}</td></tr>`;
+    return `<tr onclick="openMember('${m.id}')" style="cursor:pointer" title="Bấm để xem chi tiết thành viên: việc được giao + deal phụ trách"><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td>${acctCell}<td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td>${sysUpdatedCell(m)}</td><td><button class="btn ghost small" onclick="event.stopPropagation(); editMember('${m.id}')">✏️ Sửa</button>${actions}</td></tr>`;
   }).join("");
   const fnNote = !admin ? "" : memberFnUnavailable
     ? `<div class="mut" style="margin-top:10px">ℹ️ Chưa kết nối được chức năng quản lý tài khoản trên máy chủ (Edge Function <b>invite-member</b> có thể chưa được triển khai) — cột <b>Tài khoản</b> đang hiển thị trạng thái suy từ hồ sơ đã gắn trong hệ thống. Các thao tác khác vẫn dùng bình thường.</div>`
     : `<div class="mut" style="margin-top:10px"><b>Tài khoản:</b> “Đã mời – chờ đặt mật khẩu” = đã gửi email mời, người nhận chưa bấm liên kết đặt mật khẩu; “Thu hồi quyền” = ngừng hoạt động trong CRM + khoá đăng nhập (kích hoạt lại được); đổi vai trò qua nút ✏️ Sửa.</div>`;
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button>${admin ? ` <button class="btn" onclick="openInviteMember()">✉️ Mời thành viên</button>` : ""}</div>
-  <div class="panel"><div class="table-wrap"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th><th></th></tr>${rows || `<tr><td colspan="${admin ? 7 : 6}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
+  <div class="panel"><div class="table-wrap"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th><th>Cập nhật cuối</th><th></th></tr>${rows || `<tr><td colspan="${admin ? 8 : 7}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
   <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Muốn loại một người khỏi các ô chọn gán việc mà vẫn giữ dữ liệu cũ gắn với họ, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa).${admin ? ` Admin có thể <b>Xoá thành viên</b> hẳn — nhưng chỉ khi thành viên không còn dữ liệu nào gắn với họ (deal phụ trách, lead phụ trách, việc được giao, hoạt động, đánh giá…); còn tham chiếu thì hệ thống chặn xoá và báo rõ đang vướng ở đâu.` : ""}</div>${fnNote}</div>`;
 }
 /* ----- Mời thành viên (chỉ Admin): form theo đúng mẫu openEdit của app ----- */
@@ -2481,7 +2521,7 @@ function openDeal(id) {
   const L = lineDefOrFallback(d.line, d.stage), c = comp(d.company), g = dealVisibleGame(d);
   const st = stagePairSafe(d.line, d.stage);
   const fields = (L.fields || []).map(([k, lb]) => `<div class="k">${lb}</div><div>${esc(cfDisplay(d, k))}</div>`).join("");
-  const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
+  const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
   /* Đánh giá của deal: tóm tắt Publishing canonical của game (v2 / legacy có nhãn /
      chưa gửi yêu cầu) + đúng 1 dòng điểm BD /10 (lưu trữ) nếu game có scores.
      FIX-C1 A15: deal Game Studio có game cũng hiện tóm tắt đánh giá game đó;
@@ -2683,7 +2723,7 @@ function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${esc(d.title)}</div>
     <div class="c"><span class="chip" style="background:${lineColor(d.line)}">${esc(lineName(d.line))}</span> Stage: ${esc(stagePairSafe(d.line, d.stage)[1])}</div>${d.line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
     <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") : money(d.amount, d.cur)}</div>
-    <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span></div></div>`;
+    <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysUpdatedSpan(d)}</div></div>`;
 }
 /* === PARTNER EVAL LOGIC START === */
 /* Khung điểm PARTNER (file 2 — Publishing Partner Selection).
@@ -3003,7 +3043,7 @@ function openCompany(id) {
     <h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>
     ${tasks.length ? tasks.map(taskRow).join("") : '<div class="mut">Không có việc đang treo nào.</div>'}
     <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>
-    ${acts.length ? acts.map(a => { const ad = S.deals.find(x => x.id === a.deal); return `<div class="tl"><div class="ev" ${ad ? `onclick="openDeal('${ad.id}')" style="cursor:pointer" title="Mở deal liên quan"` : ""}><b>${esc(a.type)}</b>${ad ? ` · ${esc(ad.title)}` : ""}<div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}</div></div></div>`; }).join("") : '<div class="mut">Chưa có hoạt động nào.</div>'}
+    ${acts.length ? acts.map(a => { const ad = S.deals.find(x => x.id === a.deal); return `<div class="tl"><div class="ev" ${ad ? `onclick="openDeal('${ad.id}')" style="cursor:pointer" title="Mở deal liên quan"` : ""}><b>${esc(a.type)}</b>${ad ? ` · ${esc(ad.title)}` : ""}<div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`; }).join("") : '<div class="mut">Chưa có hoạt động nào.</div>'}
     <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Bản thật sẽ thêm: ghi hoạt động mới, đính link Drive.</div>${auditSectionHTML("company", c.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "company", id);
 }
