@@ -282,3 +282,59 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 th.sort-th.on {color:var(--workspace-accent,#2563eb)}
 .list-stt {white-space:nowrap;font-variant-numeric:tabular-nums}
 td.list-stt {color:#64748b;font-weight:600}
+
+/* ===== HỆ BẢNG DÙNG CHUNG — MỘT hệ quy tắc duy nhất cho MỌI bảng có tiêu đề
+   cột trên cả 3 trang (BD index.html, mkt.html, Publishing nội bộ), áp qua
+   đúng 4 wrapper cuộn ngang sẵn có của app — không vá riêng từng bảng:
+   .table-wrap (Công ty / Lead Block / Sự kiện / Thành viên phía BD),
+   .dash-table-wrap (bảng Tổng quan), .imp-table-wrap (ghép cột / lô /
+   mẫu xem trước của Import), .table-scroll (thị trường, Market Score v2,
+   matrix, bảng chi tiết trong dialog Publishing/MKT).
+   NGUYÊN NHÂN GỐC của lỗi Zac báo 3/11 (hàng tiêu đề bảng Công ty vỡ chữ
+   "STT" -> "ST/T", "Tương tác cuối" xuống 2 dòng, cột giãn lệch):
+   (a) apple-design.css đặt `overflow-wrap:anywhere` cho MỌI th/td — th
+       được phép ngắt ở BẤT KỲ ký tự nào và min-content của mọi cột sụp
+       xuống ~1 ký tự, nên thuật toán chia cột tự động (table-layout:auto
+       mặc định) tha hồ bóp cột hẹp (STT) và phình cột khác vô lý;
+   (b) trừ th.sort-th (có nowrap inline) và phía Publishing, tiêu đề cột
+       phía BD KHÔNG có white-space:nowrap nên bị xuống hàng tự do;
+   (c) không bảng nào có quy tắc độ rộng theo vai trò cột (STT / tên /
+       ngày / trạng thái / số) hay min-width đồng bộ, và padding th/td
+       mỗi hệ bảng một khác (8/13/7/9px) nên tiêu đề và nội dung lệch cột.
+   QUY TẮC (theo thứ tự cascade — khối này nằm CUỐI workspace-design.css,
+   file được nạp cuối trên cả 3 trang, nên thắng apple-design.css và
+   publishing.css ở mọi điểm nó chạm tới):
+   1. Wrapper luôn cuộn ngang khi hết chỗ — màn hẹp cuộn thay vì bóp cột.
+   2. th KHÔNG xuống hàng, KHÔNG vỡ từ (gỡ anywhere ở th); padding th/td
+      thống nhất để tiêu đề và nội dung thẳng cột; td về break-word
+      (xuống hàng theo từ, không ngắt giữa từ như anywhere).
+   3. Độ rộng theo vai trò: cột STT (cột đầu của mọi bảng .table-wrap —
+      cả 4 bảng đều bắt đầu bằng STT) hẹp cố định 52px; cột TÊN nhận
+      phần dư (width:100% trên ô tên trong layout auto khiến cột đó hút
+      phần thừa, các cột còn lại giữ bề rộng theo nội dung/tiêu đề của
+      chúng); cột số (.numeric) canh phải như cũ; pill/chip/badge trong
+      ô không tự vỡ dòng; nút trong ô không vỡ chữ.
+   4. min-width sàn cho từng họ bảng = tổng bề rộng tối thiểu của các
+      tiêu đề nowrap — dưới sàn đó wrapper cuộn ngang (mục 1). */
+/* 1 — wrapper cuộn ngang */
+.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll {overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+/* 2 — nền bảng + tiêu đề không vỡ + padding thống nhất */
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table {width:100%;border-collapse:collapse}
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table th {white-space:nowrap;overflow-wrap:normal;word-break:normal;text-align:left;vertical-align:middle;padding:10px 12px}
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td {padding:11px 12px;vertical-align:top;overflow-wrap:break-word}
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table th.numeric,:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td.numeric {text-align:right}
+/* 2b — gỡ các min-width cứng ở cột đầu / ô raw phía Publishing (170px /
+   180px bất kể nội dung) vốn đẩy lệch mọi bảng .table-scroll */
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td:first-child {min-width:0}
+:is(.table-scroll)>table.mk-v2-table td.mk-raw {min-width:0}
+/* 3 — độ rộng theo vai trò cột */
+.table-wrap>table th:first-child {width:52px;min-width:52px}
+:is(.table-wrap,.table-scroll)>table td.list-stt {width:52px;white-space:nowrap}
+.table-wrap>table th:nth-child(2),.table-scroll>table th:first-child {width:100%}
+:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td :is(.pill,.chip,.badge,.type-badge) {white-space:nowrap}
+.table-wrap>table td .btn {white-space:nowrap}
+/* 4 — sàn bề rộng theo họ bảng (dưới sàn: cuộn ngang, không bóp cột) */
+.table-wrap>table {min-width:760px}
+.dash-table-wrap>table,.table-scroll>table {min-width:640px}
+.imp-table-wrap>table {min-width:560px}
+@media(max-width:700px){:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table th,:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td {padding:9px 10px}.table-wrap>table {min-width:720px}}
