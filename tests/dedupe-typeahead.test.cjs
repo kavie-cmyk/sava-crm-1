@@ -156,7 +156,7 @@ test('form công ty: render gợi ý ở ô Website đủ tên + domain + mảng
   assert.ok(box.includes('Publishing: Game studio'), 'dòng gợi ý phải có mảng/vai trò của công ty');
   assert.ok(box.includes('2 lead') && box.includes('2 deal'), 'dòng gợi ý phải có số lead + số deal đang gắn');
   assert.ok(box.includes('trùng domain alpha.vn'), 'mục tuyệt đối phải kèm nhãn lý do');
-  assert.ok(box.includes(`typeaheadOpenCompany('c1')`), 'bấm dòng phải mở qua đường giữ-form typeaheadOpenCompany');
+  assert.ok(box.includes(`typeaheadOpenCompany('c1','company-website')`), 'bấm dòng ở ô Website phải mở qua typeaheadOpenCompany kèm ĐÚNG surface website (để trả focus về ô Website)');
   /* debounce: lên lịch xong chưa hiện ngay, sau ~300ms mới hiện */
   h.getEl('e_cname').value = 'Alpha Game';
   h.run(`scheduleTypeahead('company-name')`);
@@ -254,6 +254,79 @@ test('game: tên gần giống xếp đúng hạng; ca token/prefix điểm th�
   assert.equal(items[0].game.id, 'g1');
   const box = h.getEl('ta_game_title').innerHTML;
   assert.ok(box.includes('Puzzle Cats') && box.includes('Alpha Games') && box.includes('Puzzle'), 'dòng gợi ý game: tên + studio + genre');
+});
+
+/* ---------- QA Phần 2B: 2 lệch đã sửa ---------- */
+test('QA-A: đổi công ty trong form lead -> hộp gợi ý lead của công ty cũ đóng/xoá sạch (sang B, sang "__new__", cả khi sửa lead + debounce đang chờ)', async () => {
+  const h = loadIndex();
+  h.run('editLead(null)');
+  h.getEl('e_lcompany').value = 'c1';
+  h.getEl('e_lname').value = 'Nguyễn Văn Đứ';
+  h.run(`refreshTypeahead('lead-name')`);
+  assert.ok(h.getEl('ta_lead_name').innerHTML.includes('Nguyễn Văn Đức'), 'tiền điều kiện: gợi ý lead của công ty A (c1) đang hiện');
+  /* Đổi A -> B qua ĐÚNG handler onchange của select: hộp phải rỗng ngay, không còn lead của A */
+  h.getEl('e_lcompany').value = 'c2';
+  h.run('toggleLeadNewCompany()');
+  assert.equal(h.getEl('ta_lead_name').innerHTML, '', 'đổi sang công ty B: hộp gợi ý phải đóng/rỗng, không liệt kê lead của A nữa');
+  assert.equal(h.run(`Object.prototype.hasOwnProperty.call(typeaheadCtx.last, 'lead-name')`), false, 'mục gợi ý cũ phải bị xoá khỏi typeaheadCtx.last');
+  /* Hiện lại gợi ý của A rồi đổi sang "__new__" (tạo công ty mới): cũng phải im lặng */
+  h.getEl('e_lcompany').value = 'c1';
+  h.run(`refreshTypeahead('lead-name')`);
+  assert.ok(h.getEl('ta_lead_name').innerHTML.includes('Nguyễn Văn Đức'));
+  h.getEl('e_lcompany').value = '__new__';
+  h.run('toggleLeadNewCompany()');
+  assert.equal(h.getEl('ta_lead_name').innerHTML, '', 'đổi sang "__new__": hộp gợi ý cũng phải đóng/rỗng');
+  assert.equal(h.getEl('e_lnewCompanyWrap').style.display, '', 'đổi sang "__new__" vẫn hiện ô nhập tên công ty mới như cũ');
+  /* Đang SỬA lead cũng vậy (chung một handler/form) */
+  const h2 = loadIndex();
+  h2.run(`editLead('l1')`);
+  h2.getEl('e_lcompany').value = 'c1';
+  h2.getEl('e_lname').value = 'Nguyễn Văn D';
+  h2.run(`refreshTypeahead('lead-name')`);
+  assert.ok(h2.getEl('ta_lead_name').innerHTML.includes('Nguyễn Văn Dũng'), 'tiền điều kiện (sửa l1): gợi ý l2 của c1 đang hiện');
+  h2.getEl('e_lcompany').value = 'c2';
+  h2.run('toggleLeadNewCompany()');
+  assert.equal(h2.getEl('ta_lead_name').innerHTML, '', 'sửa lead: đổi công ty cũng phải đóng hộp gợi ý của công ty cũ');
+  /* Debounce lead đang chờ mà đổi công ty: timer bị huỷ, hộp KHÔNG tự dựng lại sau nhịp chờ */
+  const h3 = loadIndex();
+  h3.run('editLead(null)');
+  h3.getEl('e_lcompany').value = 'c1';
+  h3.getEl('e_lname').value = 'Nguyễn Văn Đứ';
+  h3.run(`scheduleTypeahead('lead-name')`);
+  h3.getEl('e_lcompany').value = 'c2';
+  h3.run('toggleLeadNewCompany()');
+  await new Promise(res => setTimeout(res, 420));
+  assert.equal(h3.getEl('ta_lead_name').innerHTML, '', 'sau nhịp debounce hộp vẫn đóng — timer cũ không được dựng lại gợi ý');
+});
+
+test('QA-B: bấm gợi ý công ty từ ô Website / LinkedIn -> đóng drawer trả focus về ĐÚNG ô vừa gõ, không phải ô Tên công ty', () => {
+  for (const [surface, inputId, boxId, value] of [
+    ['company-website', 'e_cp_website', 'ta_company_website', 'https://alpha.vn/lien-he'],
+    ['company-linkedin', 'e_cp_linkedinUrl', 'ta_company_linkedin', 'linkedin.com/company/alpha-games'],
+  ]) {
+    const h = loadIndex();
+    h.run('editCompany(null)');
+    h.getEl(inputId).value = value;
+    const items = h.run(`refreshTypeahead('${surface}')`);
+    assert.equal(items.length, 1, surface + ': phải có đúng 1 gợi ý (c1)');
+    assert.ok(h.getEl(boxId).innerHTML.includes(`typeaheadOpenCompany('c1','${surface}')`), surface + ': dòng gợi ý phải truyền đúng surface thật của ô đang gõ');
+    let focusedId = '';
+    for (const id of ['e_cname', 'e_cp_website', 'e_cp_linkedinUrl']) h.getEl(id).focus = () => { focusedId = id; };
+    h.run(`typeaheadOpenCompany('c1','${surface}')`);
+    assert.equal(h.run('drawerCtx.id'), 'c1', surface + ': drawer công ty gợi ý vẫn mở đúng');
+    assert.equal(h.run('typeaheadState.preview.inputId'), inputId, surface + ': snapshot xem-trước phải ghi inputId của ô vừa gõ');
+    h.run('closeDrawer()');
+    assert.equal(focusedId, inputId, surface + ': đóng drawer phải trả focus về ' + inputId);
+  }
+  /* Lời gọi cũ không truyền surface (ô Tên) vẫn mặc định về ô Tên công ty */
+  const h = loadIndex();
+  h.run('editCompany(null)');
+  h.getEl('e_cname').value = 'Alpha Gam';
+  let focusedId = '';
+  for (const id of ['e_cname', 'e_cp_website', 'e_cp_linkedinUrl']) h.getEl(id).focus = () => { focusedId = id; };
+  h.run(`typeaheadOpenCompany('c1')`);
+  h.run('closeDrawer()');
+  assert.equal(focusedId, 'e_cname', 'không truyền surface: giữ hành vi cũ, focus về ô Tên công ty');
 });
 
 test('bấm gợi ý game: drawer game mở, form game giữ nguyên; sửa game loại chính nó', () => {

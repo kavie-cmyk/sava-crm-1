@@ -5046,8 +5046,8 @@ function refreshTypeahead(surface) {
   const box = document.getElementById(boxId); if (!box) return [];
   let items = [], html = "";
   if (surface === "company-name") { items = typeaheadCompanyMatches("name", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
-  else if (surface === "company-website") { items = typeaheadCompanyMatches("website", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
-  else if (surface === "company-linkedin") { items = typeaheadCompanyMatches("linkedin", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
+  else if (surface === "company-website") { items = typeaheadCompanyMatches("website", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}','company-website')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
+  else if (surface === "company-linkedin") { items = typeaheadCompanyMatches("linkedin", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}','company-linkedin')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
   else if (surface === "lead-name") { const cid = document.getElementById("e_lcompany") ? document.getElementById("e_lcompany").value : ""; items = typeaheadLeadMatches(typeaheadInputValue(surface), cid); html = items.map(m => typeaheadItemHTML(`typeaheadOpenLead('${m.lead.id}')`, leadDisplayName(m.lead), typeaheadLeadMeta(m.lead), m.reasons)).join(""); }
   else if (surface === "game-title") { items = typeaheadGameMatches(typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenGame('${m.game.id}')`, m.game.title || "", typeaheadGameMeta(m.game), m.reasons)).join(""); }
   typeaheadCtx.last[surface] = items;
@@ -5093,7 +5093,11 @@ function typeaheadOpenDrawer(surface, openFn, id) {
   openFn(id);
   typeaheadElevateDrawer();
 }
-function typeaheadOpenCompany(id) { typeaheadOpenDrawer("company-name", openCompany, id); }
+/* surface: bề mặt ĐANG GÕ thật (mặc định "company-name" cho các lời gọi
+   cũ không truyền) — typeaheadBeginPreview ghi inputId theo surface này
+   nên đóng drawer mới trả focus về ĐÚNG ô vừa gõ (Website -> e_cp_website,
+   LinkedIn -> e_cp_linkedinUrl), không lệch về ô Tên công ty. */
+function typeaheadOpenCompany(id, surface) { typeaheadOpenDrawer(surface === "company-website" || surface === "company-linkedin" ? surface : "company-name", openCompany, id); }
 function typeaheadOpenLead(id) { typeaheadOpenDrawer("lead-name", openLead, id); }
 function typeaheadOpenGame(id) { typeaheadOpenDrawer("game-title", openGame, id); }
 /* Phím / bấm-ra-ngoài cho gợi ý: Esc đóng (không xoá chữ đã gõ); Enter
@@ -5337,6 +5341,15 @@ function toggleLeadNewCompany() {
   const sel = document.getElementById("e_lcompany");
   const w = document.getElementById("e_lnewCompanyWrap");
   if (w) w.style.display = sel && sel.value === "__new__" ? "" : "none";
+  /* Phần 2B (QA): đổi công ty -> hộp gợi ý lead đang hiện thuộc về công ty
+     CŨ, phải đóng + xoá sạch ngay (kèm huỷ debounce lead đang chờ, kẻo
+     timer dựng lại hộp cũ ngay sau) — đúng hành vi "chưa chọn công ty /
+     tạo công ty mới thì im lặng"; người dùng gõ tiếp ở ô tên sẽ ra gợi ý
+     của công ty MỚI. Áp cho cả tạo mới lẫn sửa lead (chung một handler). */
+  try {
+    if (typeaheadCtx.timers["lead-name"]) { clearTimeout(typeaheadCtx.timers["lead-name"]); typeaheadCtx.timers["lead-name"] = null; }
+    closeTypeahead("lead-name");
+  } catch (e) {}
   comboSyncSelect(sel);
 }
 function editLead(id, presetCompanyId) {
