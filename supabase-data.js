@@ -269,20 +269,15 @@
     const conflicts = [];
     /* Thứ tự ghi tôn trọng FK: cha trước (members->companies->games->leads
        ->deals->term/contract/leads->tasks->activities->events); xoá thì
-       ngược lại. event_links (bảng nối của events) được xử lý riêng sau
-       vòng upsert bên dưới, như deal_leads. */
+       ngược lại. Hai bảng nối deal_leads + event_links được xử lý riêng
+       SAU vòng upsert bên dưới (xem FIX Việc 1 ở khối deal_leads). */
     const order = [
       ['members', 'id'], ['companies', 'id'], ['company_partner_eval_archive', 'company_id'],
       ['games', 'id'], ['leads', 'id'], ['deals', 'id'], ['deal_terms', 'deal_id'],
       ['deal_contracts', 'deal_id'], ['tasks', 'id'], ['activities', 'id'], ['events', 'id'],
     ];
     const plans = {};
-    for (const [table, key] of order) {
-      plans[table] = planFor(newRows[table], snapRows[table], key);
-      if (CONFLICT_TABLES.includes(table) && plans[table].upserts.length) {
-        conflicts.push(...await checkConflicts(table, plans[table].upserts.filter(r => (updMap[table] || {})[r.id])));
-      }
-    }
+    for (const [table, key] of order) plans[table] = planFor(newRows[table], snapRows[table], key);
     /* deal_leads: so theo từng deal; khác -> xoá hết của deal đó rồi nạp lại. */
     const groupLeads = rows => { const m = {}; (rows || []).forEach(r => { (m[r.deal_id] = m[r.deal_id] || []).push(r.lead_id); }); Object.values(m).forEach(v => v.sort()); return m; };
     const nl = groupLeads(newRows.deal_leads), sl = groupLeads(snapRows.deal_leads);
@@ -294,10 +289,66 @@
     const nev = groupEventLinks(newRows.event_links), sev = groupEventLinks(snapRows.event_links);
     const linkChangedEvents = new Set([...Object.keys(nev), ...Object.keys(sev)].filter(id => !A.deepEqual(nev[id] || [], sev[id] || [])));
 
+    /* FIX Việc 1 (3/11/2026) — ĐẢM BẢO CHA CÓ MẶT TRONG VÒNG NÀY: nếu một
+       dòng CON có upsert (hoặc một bảng nối có thay đổi) mà dòng CHA không
+       đổi ở local nên không nằm trong plan, cha vẫn phải được upsert kèm
+       trong vòng này — TRƯỚC con theo đúng thứ tự `order`. Nếu không, khi
+       cha vắng mặt trên server (vd bị phiên khác xoá sau lần nạp) con sẽ
+       insert vào khoảng trống và chết FK, dù local không hề sai. Cha còn
+       sống ở local mới được bổ sung (cha đã xoá ở local thì con của nó
+       hoặc đã bị xoá theo, hoặc FK cascade/SET NULL của DB xử lý). Chạy
+       2 lượt để chuỗi cha lồng nhau (term -> deal -> game/company) khép
+       kín; hàm có tính idempotent nhờ tập `planned`. */
+    function ensureParentRows(childRows, fkCol, parentTable) {
+      const byId = indexBy(newRows[parentTable], 'id');
+      const planned = new Set(plans[parentTable].upserts.map(r => String(r.id)));
+      (childRows || []).forEach(r => {
+        const pid = r && r[fkCol];
+        if (pid === null || pid === undefined || pid === '' || planned.has(String(pid))) return;
+        const prow = byId.get(String(pid));
+        if (prow) { plans[parentTable].upserts.push(prow); planned.add(String(pid)); }
+      });
+    }
+    function ensureAllParents() {
+      ensureParentRows(plans.company_partner_eval_archive.upserts, 'company_id', 'companies');
+      ensureParentRows(plans.games.upserts, 'company_id', 'companies');
+      ensureParentRows(plans.leads.upserts, 'company_id', 'companies');
+      ensureParentRows(plans.deals.upserts, 'company_id', 'companies');
+      ensureParentRows(plans.deals.upserts, 'game_id', 'games');
+      ensureParentRows(plans.deal_terms.upserts, 'deal_id', 'deals');
+      ensureParentRows(plans.deal_contracts.upserts, 'deal_id', 'deals');
+      ensureParentRows(plans.tasks.upserts, 'deal_id', 'deals');
+      ensureParentRows(plans.activities.upserts, 'deal_id', 'deals');
+      ensureParentRows([...leadChangedDeals].map(id => ({ deal_id: id })), 'deal_id', 'deals');
+      ensureParentRows([...linkChangedEvents].map(id => ({ event_id: id })), 'event_id', 'events');
+    }
+    ensureAllParents(); ensureAllParents();
+    for (const [table] of order) {
+      if (CONFLICT_TABLES.includes(table) && plans[table].upserts.length) {
+        conflicts.push(...await checkConflicts(table, plans[table].upserts.filter(r => (updMap[table] || {})[r.id])));
+      }
+    }
+
     for (const [table] of [...order].reverse()) {
       const key = order.find(([t]) => t === table)[1];
       await deleteIds(table, plans[table].deletes, key);
     }
+    for (const [table] of order) {
+      const saved = await upsert(table, plans[table].upserts, undefined);
+      if (CONFLICT_TABLES.includes(table)) noteUpdated(table, saved);
+    }
+    /* deal_leads: deal nào đổi -> xoá hết leads của deal đó rồi nạp lại;
+       chỉ với deal còn sống — deal đã xoá thì FK cascade của DB tự dọn.
+       FIX Việc 1 (3/11/2026): khối này TRƯỚC ĐÂY đặt TRƯỚC vòng upsert ở
+       trên — tạo deal MỚI kèm lead trong cùng một lần lưu (vd tạo deal /
+       gắn lead từ drawer Game) là insert deal_leads khi dòng deals cha
+       CHƯA tồn tại trên server -> vỡ FK "deal_leads_deal_id_fkey" ngay
+       lần đồng bộ đầu tiên, và vì snapshot không được cập nhật khi lỗi,
+       mọi lần retry đều vỡ y hệt. Nay đặt SAU vòng upsert như event_links
+       bên dưới: cha (deals + leads) đã có mặt thì con mới insert; cha lỗi
+       ở vòng upsert thì exception ném ra trước, con KHÔNG được đẩy và cả
+       cụm nằm lại chờ retry đúng thứ tự (snapshot chỉ tiến khi syncCrm
+       chạy trọn). */
     if (leadChangedDeals.size) {
       const aliveDeals = new Set(newRows.deals.map(d => d.id));
       const targets = [...leadChangedDeals].filter(id => aliveDeals.has(id));
@@ -308,16 +359,11 @@
         if (ins.length) await insertRows('deal_leads', ins);
       }
     }
-    for (const [table] of order) {
-      const saved = await upsert(table, plans[table].upserts, undefined);
-      if (CONFLICT_TABLES.includes(table)) noteUpdated(table, saved);
-    }
     /* event_links: đúng mẫu deal_leads ở trên (event nào đổi -> xoá hết
        links của event đó rồi nạp lại; chỉ với event còn sống — event đã
-       xoá thì FK cascade của DB tự dọn links). Khác deal_leads ở THỜI
-       ĐIỂM chạy: khối này đặt SAU vòng upsert để dòng events cha đã tồn
-       tại khi nạp links của event MỚI, không vi phạm FK
-       event_links.event_id -> events(id). */
+       xoá thì FK cascade của DB tự dọn links). Khối này vốn đã đặt SAU
+       vòng upsert để dòng events cha đã tồn tại khi nạp links của event
+       MỚI, không vi phạm FK event_links.event_id -> events(id). */
     if (linkChangedEvents.size) {
       const aliveEvents = new Set(newRows.events.map(e => e.id));
       const targets = [...linkChangedEvents].filter(id => aliveEvents.has(id));
@@ -353,6 +399,30 @@
     const snapReqById = indexBy(snapRows.publishing_requests, 'id');
     let reqUpserts = reqPlan.upserts;
     if (isMkt) reqUpserts = reqUpserts.filter(r => snapReqById.has(String(r.id)));
+    /* FIX Việc 1: intake_private tính plan SỚM (thực thi vẫn ở dưới, sau
+       revisions) để dùng cho chốt chặn đảm-bảo-cha ngay dưới đây. */
+    const intPlan = !isMkt && ctx.role !== 'other'
+      ? planFor(newRows.publishing_request_intake_private, snapRows.publishing_request_intake_private, 'request_id')
+      : { upserts: [], deletes: [] };
+    /* FIX Việc 1 — ĐẢM BẢO CHA CÓ MẶT TRONG VÒNG NÀY (như syncCrm): con
+       là intake_private / revision MỚI có thể phát sinh trong khi dòng
+       publishing_requests cha không đổi ở local (không nằm trong plan);
+       nếu cha vắng mặt trên server thì con chết FK. Bổ sung cha vào
+       reqUpserts TRƯỚC pass 1 (vẫn tôn trọng chốt MKT như plan gốc). */
+    {
+      const snapRevCount0 = {};
+      snapRows.publishing_revisions.forEach(r => { snapRevCount0[r.request_id] = Math.max(snapRevCount0[r.request_id] || 0, r.revision_no); });
+      const reqRowById = indexBy(newRows.publishing_requests, 'id');
+      const reqPlanned = new Set(reqUpserts.map(r => String(r.id)));
+      const ensureReqParent = id => {
+        if (id === null || id === undefined || reqPlanned.has(String(id))) return;
+        if (isMkt && !snapReqById.has(String(id))) return;
+        const row = reqRowById.get(String(id));
+        if (row) { reqUpserts.push(row); reqPlanned.add(String(id)); }
+      };
+      intPlan.upserts.forEach(r => ensureReqParent(r.request_id));
+      newRows.publishing_revisions.forEach(r => { if (r.revision_no > (snapRevCount0[r.request_id] || 0)) ensureReqParent(r.request_id); });
+    }
     if (CONFLICT_TABLES.includes('publishing_requests') && reqUpserts.length) {
       conflicts.push(...await checkConflicts('publishing_requests', reqUpserts.filter(r => (updMap.publishing_requests || {})[r.id])));
     }
@@ -393,9 +463,8 @@
       /* MKT không có quyền ghi private; revision của MKT vốn không mang field private. */
     }
 
-    /* intake private: chỉ BD/Admin */
+    /* intake private: chỉ BD/Admin (plan đã tính sớm ở đầu syncPub) */
     if (!isMkt && ctx.role !== 'other') {
-      const intPlan = planFor(newRows.publishing_request_intake_private, snapRows.publishing_request_intake_private, 'request_id');
       await upsert('publishing_request_intake_private', intPlan.upserts, 'request_id');
       await deleteIds('publishing_request_intake_private', intPlan.deletes, 'request_id');
     }
@@ -415,14 +484,27 @@
     const obsPlan = planFor(newRows.market_observations, snapRows.market_observations, 'id');
     if (obsPlan.upserts.length) conflicts.push(...await checkConflicts('market_observations', obsPlan.upserts.filter(r => (updMap.market_observations || {})[r.id])));
     const snapObsById = indexBy(snapRows.market_observations, 'id');
+    /* FIX Việc 1: audit MỚI có thể phát sinh khi dòng market_observations
+       cha không đổi ở local — tính newAudit SỚM và bổ sung cha vào plan
+       upsert của vòng này (trước khi audit được upsert ở dưới), tránh FK
+       market_observation_audit.observation_id khi cha vắng trên server. */
+    const snapAuditCount = {};
+    snapRows.market_observation_audit.forEach(a => { snapAuditCount[a.observation_id] = Math.max(snapAuditCount[a.observation_id] || 0, a.seq + 1); });
+    const newAudit = newRows.market_observation_audit.filter(a => a.seq >= (snapAuditCount[a.observation_id] || 0));
+    {
+      const obsRowById = indexBy(newRows.market_observations, 'id');
+      const obsPlanned = new Set(obsPlan.upserts.map(r => String(r.id)));
+      newAudit.forEach(a => {
+        if (obsPlanned.has(String(a.observation_id))) return;
+        const row = obsRowById.get(String(a.observation_id));
+        if (row) { obsPlan.upserts.push(row); obsPlanned.add(String(row.id)); }
+      });
+    }
     const obsIns = obsPlan.upserts.filter(r => !snapObsById.has(String(r.id)));
     const obsUpd = obsPlan.upserts.filter(r => snapObsById.has(String(r.id))).map(r => { const c = { ...r }; delete c.updated_at; return c; });
     const savedObs = [...await upsert('market_observations', obsIns, undefined), ...await upsert('market_observations', obsUpd, undefined)];
     /* updated_at ở server do trigger đặt khi UPDATE — ghi nhận để vòng sau không báo xung đột giả. */
     noteUpdated('market_observations', savedObs);
-    const snapAuditCount = {};
-    snapRows.market_observation_audit.forEach(a => { snapAuditCount[a.observation_id] = Math.max(snapAuditCount[a.observation_id] || 0, a.seq + 1); });
-    const newAudit = newRows.market_observation_audit.filter(a => a.seq >= (snapAuditCount[a.observation_id] || 0));
     if (newAudit.length) await ctx.client.from('market_observation_audit').upsert(newAudit.map(({ legacy_extra, ...rest }) => rest), { onConflict: 'observation_id,seq' }).then(({ error }) => { if (error) throw new Error('market_observation_audit: ' + (error.message || error.code)); });
     await deleteIds('market_observations', obsPlan.deletes, 'id');
     return conflicts;
