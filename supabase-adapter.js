@@ -176,6 +176,12 @@
      bảng events không có cột cho chúng, chúng đi qua legacy_extra của
      events khi ghi (extrasOf) và được mergeExtras khôi phục khi đọc —
      đúng mẫu lead.phone/mainContact, deal.vertical, không cần cột riêng.
+     Cùng đường đó (đợt vòng đời sự kiện 3/11, KHÔNG migration SQL):
+     status (planned/attended/cancelled), endDate, eventUrl, line và bộ
+     báo cáo sau sự kiện reportMet/reportOutcome/reportNext/reportLinks
+     cũng CỐ Ý không nằm trong EVENT_KNOWN — tất cả đi qua legacy_extra
+     của events như trên. Đừng thêm chúng vào EVENT_KNOWN khi chưa có
+     cột thật, extrasOf sẽ làm rơi field.
      Ba mảng liên kết companies/leads/deals thì KHÔNG đi qua legacy_extra:
      chúng là nguồn sự thật của quan hệ Event<->{Company,Lead,Deal} và
      được vật hoá thành dòng ở bảng nối event_links (xem hai chiều dưới). */

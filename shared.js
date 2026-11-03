@@ -150,7 +150,7 @@ const FIELD_LABELS = {
   task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
   member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
   activity: { deal: "Deal", lead: "Lead", game: "Game", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
-  event: { name: "Tên sự kiện", date: "Ngày diễn ra", location: "Địa điểm", attendees: "Người tham dự", note: "Ghi chú", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
+  event: { name: "Tên sự kiện", date: "Ngày diễn ra", endDate: "Ngày kết thúc", location: "Địa điểm", attendees: "Người tham dự", note: "Ghi chú", status: "Trạng thái sự kiện", eventUrl: "Link sự kiện", line: "Mảng liên quan", reportMet: "Báo cáo — Đã gặp ai", reportOutcome: "Báo cáo — Kết quả", reportNext: "Báo cáo — Việc tiếp theo", reportLinks: "Báo cáo — Link đính kèm", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
   request: { kind: "Loại hồ sơ", entityId: "Hồ sơ CRM", requestedBy: "BD phụ trách", assignee: "MKT được giao", due: "Hạn đánh giá", requestNote: "Thông tin đầu vào / yêu cầu BD", source: "Link build / bằng chứng", build: "Build / phiên bản", status: "Trạng thái", intake: "Hồ sơ đầu vào", entitySnapshot: "Dữ liệu chụp hồ sơ" },
 };
 const REF_FIELDS = {
@@ -861,6 +861,12 @@ function migrateState(s) {
       if (!Array.isArray(e[f])) e[f] = [];
       else e[f] = e[f].map(v => (typeof v === "number" && Number.isFinite(v)) ? String(v) : v);
     });
+    /* Vòng đời sự kiện (đợt 3/11): reportLinks (link đính kèm của báo cáo
+       sau sự kiện) luôn là mảng khi đã có; status/endDate/eventUrl/line/
+       report* còn lại là chuỗi tự do — giữ nguyên văn, trạng thái hiệu
+       lực được SUY ở tầng hiển thị (eventStatusKey phía index.html) nên
+       migration ở đây tuyệt đối KHÔNG tự ghi status cho sự kiện cũ. */
+    if (e.reportLinks !== undefined && !Array.isArray(e.reportLinks)) e.reportLinks = [];
   });
   s.games.forEach(g => { if (typeof g.company === "number" && Number.isFinite(g.company)) g.company = String(g.company); });
   s.deals.forEach(d => {
@@ -1684,6 +1690,15 @@ const SavaImport = (() => {
     const batch = String(o.batch || "").trim();
     const line = String(o.line || "");
     const ownerId = String(o.ownerId || "");
+    /* Gắn lô vào sự kiện (tuỳ chọn, đợt Sự kiện 3/11): eventId chỉ là
+       NGỮ CẢNH của lô — planner ghi nó vào plan + đặt source của lead
+       sắp tạo; việc GẮN liên kết thật (đẩy id vào ev.companies/ev.leads)
+       do tầng UI (impApply) làm qua đúng cơ chế event_links như gắn tay.
+       Sự kiện không tồn tại trong state -> coi như không gắn (UI cũng
+       chỉ liệt kê sự kiện hiện có). */
+    const eventId = String(o.eventId || "").trim();
+    const eventOk = !!eventId && (Array.isArray(s.events) ? s.events : []).some(e => e && String(e.id) === eventId);
+    const leadSource = eventOk ? "Sự kiện" : "";
     const companies = Array.isArray(s.companies) ? s.companies : [];
     const leads = Array.isArray(s.leads) ? s.leads : [];
     const compById = new Map(companies.filter(c => c && c.id).map(c => [String(c.id), c]));
@@ -1759,7 +1774,7 @@ const SavaImport = (() => {
           linkedinUrl: String(rec.linkedinUrl || "").trim(),
           status: st.key, statusRaw: st.raw, statusUnknown: !st.known,
           note: String(rec.note || "").trim(), when: normalizeWhen(rec.whenRaw),
-          line, ownerId, importBatch: batch,
+          line, ownerId, importBatch: batch, source: leadSource,
           mainContact: idx === 0 && !mainTaken,
         });
       });
@@ -1771,7 +1786,7 @@ const SavaImport = (() => {
       unknownStatus: unknownStatusTotal,
     };
     return {
-      batch, line, ownerId, companiesToCreate, companiesMatched, leadsToCreate, duplicates, errors,
+      batch, line, ownerId, eventId: eventOk ? eventId : "", companiesToCreate, companiesMatched, leadsToCreate, duplicates, errors,
       unknownStatuses: Array.from(unknownByRaw, ([raw, count]) => ({ raw, count })),
       stats,
       preview: leadsToCreate.slice(0, 10).map(l => ({ company: l.companyName, pic: l.name, email: l.email, phone: l.phone, linkedin: !!l.linkedinUrl, status: l.status })),
@@ -1783,11 +1798,32 @@ const SavaImport = (() => {
     const bump = (ent, kind) => {
       const b = ent && ent.importBatch ? String(ent.importBatch).trim() : "";
       if (!b) return;
-      if (!byBatch.has(b)) byBatch.set(b, { batch: b, leads: 0, companies: 0 });
+      if (!byBatch.has(b)) byBatch.set(b, { batch: b, leads: 0, companies: 0, events: [], eventIds: [] });
       byBatch.get(b)[kind]++;
     };
     (Array.isArray(s.leads) ? s.leads : []).forEach(l => bump(l, "leads"));
     (Array.isArray(s.companies) ? s.companies : []).forEach(c => bump(c, "companies"));
+    /* Sự kiện gắn với lô (đợt Sự kiện 3/11): SUY RA từ liên kết thật —
+       sự kiện nào đang gắn ≥1 lead/công ty MANG MARKER của lô này thì lô
+       đó "thuộc" sự kiện đó. Chỉ entity do lô TẠO (mang importBatch) mới
+       được tính: công ty khớp sẵn có được gắn tay vào sự kiện không làm
+       lô hiện tên sự kiện đó. Gỡ lô xoá các entity đó + unlink sẵn có
+       trong impRemoveBatch nên suy ra này tự hết sau khi gỡ. */
+    const idsOfBatch = b => {
+      const ids = new Set();
+      (Array.isArray(s.leads) ? s.leads : []).forEach(l => { if (l && String(l.importBatch || "").trim() === b) ids.add(String(l.id)); });
+      (Array.isArray(s.companies) ? s.companies : []).forEach(c => { if (c && String(c.importBatch || "").trim() === b) ids.add(String(c.id)); });
+      return ids;
+    };
+    (Array.isArray(s.events) ? s.events : []).forEach(ev => {
+      if (!ev || !ev.id) return;
+      const linked = new Set([...(Array.isArray(ev.companies) ? ev.companies : []), ...(Array.isArray(ev.leads) ? ev.leads : [])].map(String));
+      if (!linked.size) return;
+      byBatch.forEach(entry => {
+        const ids = idsOfBatch(entry.batch);
+        for (const id of ids) { if (linked.has(id)) { entry.events.push(String(ev.name || "—")); entry.eventIds.push(String(ev.id)); break; } }
+      });
+    });
     return Array.from(byBatch.values()).sort((a, b) => a.batch < b.batch ? -1 : a.batch > b.batch ? 1 : 0);
   }
   function planRemoveBatch(state, batch) {

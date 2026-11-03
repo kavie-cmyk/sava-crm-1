@@ -70,7 +70,7 @@ function fixtureState() {
   const tasks = [...Array.from({ length: 23 }, (_, i) => ({ id: 'task' + pad(i + 1), title: 'Viec ' + pad(i + 1), assignee: 'zac', done: false })),
     ...Array.from({ length: 12 }, (_, i) => ({ id: 'ctask' + pad(i + 1), title: 'ViecCT ' + pad(i + 1), assignee: 'zac', done: false, company: 'comp01' }))];
   const activities = Array.from({ length: 12 }, (_, i) => ({ id: 'act' + pad(i + 1), deal: 'deal01', type: 'Note', who: 'zac', when: '2026-10-01', text: 'Act ' + pad(i + 1) }));
-  const events = Array.from({ length: 12 }, (_, i) => ({ id: 'ev' + pad(i + 1), name: 'Event ' + pad(i + 1), date: '2026-11-01', location: '', note: '', attendees: [], companies: [], leads: [], deals: [] }));
+  const events = Array.from({ length: 12 }, (_, i) => ({ id: 'ev' + pad(i + 1), name: 'Event ' + pad(i + 1), date: '2026-11-01', status: 'attended', location: '', note: '', attendees: [], companies: [], leads: [], deals: [] }));
   return { members, companies, games, deals, leads, tasks, activities, events, verticals: [] };
 }
 function loadIndex() {
@@ -158,8 +158,11 @@ test('Game / Sự kiện / Thành viên / Việc (phẳng): trang 1 = 10 mục, 
   assert.deepEqual([...viewOf(h).matchAll(/list-stt">#(\d+)<\/div><h4>/g)].map(m => Number(m[1])), [11, 12, 13, 14, 15], 'game trang 2: STT 11–15');
   renderView(h, 'events');
   assert.equal((viewOf(h).match(/<td class="list-stt">\d+<\/td><td><b>🎪/g) || []).length, 10, 'sự kiện trang 1: 10 hàng');
-  h.run("setListPage('events', 2);");
-  assert.deepEqual([...viewOf(h).matchAll(/<td class="list-stt">(\d+)<\/td><td><b>🎪/g)].map(m => Number(m[1])), [11, 12], 'sự kiện trang 2: STT 11–12');
+  /* Đợt vòng đời Sự kiện 3/11: view Sự kiện chia nhóm theo trạng thái và
+     phân trang TRONG TỪNG NHÓM (key "events:<nhóm>", như Lead Block) —
+     12 sự kiện fixture đều mang status attended nên cùng nằm một nhóm. */
+  h.run("setListPage('events:attended', 2);");
+  assert.deepEqual([...viewOf(h).matchAll(/<td class="list-stt">(\d+)<\/td><td><b>🎪/g)].map(m => Number(m[1])), [11, 12], 'sự kiện trang 2 (trong nhóm Đã tham dự): STT 11–12');
   renderView(h, 'members');
   assert.equal((viewOf(h).match(/<td class="list-stt">\d+<\/td><td><b>/g) || []).length, 10, 'thành viên trang 1: 10 hàng (13 thành viên)');
   h.run("setListPage('members', 2);");
