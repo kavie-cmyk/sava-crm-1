@@ -2600,13 +2600,13 @@ function openMember(id) {
   const memLeadsSlice = listPageSlice("memberleads:" + id, memberLeads);
   const memActsSlice = listPageSlice("memberacts:" + id, memberActs);
   const memReqsSlice = listPageSlice("memberreqs:" + id, memberReqs);
-  const memberActsHTML = memberActs.length ? memActsSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("memberacts:" + id, memActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào do thành viên này ghi.</div>';
-  const memberReqsHTML = memberReqs.length ? memReqsSlice.pageItems.map(r => {
   /* Khối thêm hoạt động của drawer thành viên: deal ứng viên = deal thành
      viên này phụ trách; chưa phụ trách deal nào thì chọn trong mọi deal
      (hoạt động vẫn bắt buộc gắn 1 deal). Người thực hiện điền sẵn = chính
      thành viên đang xem. */
   const memberActDeals = deals.length ? deals : S.deals;
+  const memberActsHTML = memberActs.length ? memActsSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("memberacts:" + id, memActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào do thành viên này ghi.</div>';
+  const memberReqsHTML = memberReqs.length ? memReqsSlice.pageItems.map(r => {
 
     const isGameReq = r.kind === "game";
     const ent = isGameReq ? game(r.entityId) : comp(r.entityId);
