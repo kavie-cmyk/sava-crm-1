@@ -7,8 +7,8 @@
      "1st message" -> first_email "1st email" -> first_fu "1st FU" ->
      in_response "In-response" -> in_reply "In reply" ->
      discovery_meeting "Discovery meeting" -> contacted "Đã liên hệ" ->
-     qualified "Đạt chuẩn" -> converted "Đã chuyển đổi" ->
-     not_yet_have_demand "Not yet have demand".
+     converted "Đã chuyển đổi" -> not_yet_have_demand "Not yet have demand"
+     (stage qualified/Đạt chuẩn đã BỎ 2026-11-03 — còn 11 trạng thái).
    - Mỗi trạng thái = 1 block ngang (section.panel.lead-status-block,
      data-lead-status=<key>) xếp dọc theo đúng thứ tự vòng đời; đầu block
      có pill tên trạng thái + count-badge "<n> lead".
@@ -28,14 +28,16 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const html = read('index.html');
 
 /* ---------- Tĩnh: tập trạng thái + thứ tự ---------- */
-test('tĩnh: LEAD_STATUSES đúng 12 trạng thái (hợp đồng B), đúng thứ tự block, khớp ô chọn e_lstatus của editLead', () => {
+test('tĩnh: LEAD_STATUSES đúng 11 trạng thái (đã bỏ qualified), đúng thứ tự block, khớp ô chọn e_lstatus của editLead', () => {
   const seg = html.slice(html.indexOf('const LEAD_STATUSES'), html.indexOf('const LEAD_STATUS_UNKNOWN'));
   const keys = [...seg.matchAll(/key:\s*"([^"]+)"/g)].map(m => m[1]);
-  assert.deepEqual(keys, ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'qualified', 'converted', 'not_yet_have_demand']);
-  for (const label of ['"Mới"', '"Sent connect"', '"1st message"', '"1st email"', '"1st FU"', '"In-response"', '"In reply"', '"Discovery meeting"', '"Đã liên hệ"', '"Đạt chuẩn"', '"Đã chuyển đổi"', '"Not yet have demand"']) assert.ok(seg.includes('label: ' + label), 'thiếu nhãn ' + label);
+  assert.deepEqual(keys, ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted', 'not_yet_have_demand']);
+  assert.ok(!keys.includes('qualified'), 'qualified phải đã gỡ khỏi LEAD_STATUSES');
+  for (const label of ['"Mới"', '"Sent connect"', '"1st message"', '"1st email"', '"1st FU"', '"In-response"', '"In reply"', '"Discovery meeting"', '"Đã liên hệ"', '"Đã chuyển đổi"', '"Not yet have demand"']) assert.ok(seg.includes('label: ' + label), 'thiếu nhãn ' + label);
   /* Form sửa lead dựng ô chọn TỪ CHÍNH LEAD_STATUSES (cùng tập + thứ tự,
      không còn danh sách cứng riêng ở form) */
-  assert.ok(html.includes('sel("e_lstatus", LEAD_STATUSES.map(s => [s.key, s.label]), l.status)'), 'e_lstatus phải dựng từ LEAD_STATUSES');
+  assert.ok(html.includes('LEAD_STATUSES.filter(s => s.key !== "converted")'), 'e_lstatus phải dựng từ LEAD_STATUSES (loại converted — không chọn tay được)');
+  assert.ok(html.includes('tự động theo deal'), 'lead converted ở form phải hiện nhãn cố định + chú thích tự động theo deal');
   assert.ok(html.includes('Khác / Chưa rõ trạng thái'), 'thiếu block gom trạng thái lạ');
   assert.ok(html.includes('data-lead-status='), 'block phải mang data-lead-status để nhận diện theo trạng thái');
 });
@@ -61,11 +63,11 @@ function loadIndex() {
     leads: [
       { id: 'lnew', name: 'Lead New One', company: 'c10', person: 'Anh Minh', phone: '0901', line: 'publishing', source: 'Form savameta.com', status: 'new', note: 'tok-new ghi chu', when: '2026-10-01', mainContact: true },
       { id: 'lcontacted', name: 'Lead Contacted One', company: 'c10', person: 'Chi Hai', line: 'publishing', source: 'Gioi thieu', status: 'contacted', note: 'tok-contacted ghi chu', when: '2026-10-02' },
-      { id: 'lqualified', name: 'Lead Qualified One', company: 'c1', person: 'Anh Ba', line: 'game_studio', source: 'Su kien', status: 'qualified', note: 'tok-qualified ghi chu', when: '2026-10-03' },
+      { id: 'lqualified', name: 'Lead Qualified One', company: 'c1', person: 'Anh Ba', line: 'game_studio', source: 'Su kien', status: 'contacted', note: 'tok-qualified ghi chu', when: '2026-10-03' },
       { id: 'lconverted', name: 'Lead Converted One', company: 'c10', person: 'Chi Tu', line: 'publishing', source: 'Facebook', status: 'converted', note: 'tok-converted ghi chu', when: '2026-10-04' },
       { id: 'lunknown', name: 'Lead Unknown One', company: 'c10', person: 'Anh Nam', line: 'publishing', source: 'Khac', status: 'legacy_weird', note: 'tok-unknown ghi chu', when: '2026-10-05' },
       { id: 'lnostatus', name: 'Lead NoStatus One', company: 'c10', person: 'Chi Sau', line: 'publishing', source: 'Khac', note: 'tok-nostatus ghi chu', when: '2026-10-06' },
-      { id: 'laiqualified', name: 'Lead Ai Qualified', company: 'c1', person: 'Anh Bay', line: 'ai', source: 'Khac', status: 'qualified', note: 'tok-ai ghi chu', when: '2026-10-07' },
+      { id: 'laiqualified', name: 'Lead Ai Qualified', company: 'c1', person: 'Anh Bay', line: 'ai', source: 'Khac', status: 'contacted', note: 'tok-ai ghi chu', when: '2026-10-07' },
     ],
     tasks: [], activities: [],
   }));
@@ -103,17 +105,16 @@ test('vLeads: block theo đúng thứ tự vòng đời, block lạ ở cuối, 
   renderLeads(run);
   const view = getEl('view').innerHTML;
   const bs = blocks(view);
-  assert.deepEqual(bs.map(b => b.key), ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'qualified', 'converted', 'not_yet_have_demand', '__unknown__'], 'thứ tự block phải là thứ tự LEAD_STATUSES (hợp đồng B) + Khác ở cuối');
+  assert.deepEqual(bs.map(b => b.key), ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted', 'not_yet_have_demand', '__unknown__'], 'thứ tự block phải là thứ tự LEAD_STATUSES + Khác ở cuối');
   const byKey = Object.fromEntries(bs.map(b => [b.key, b.html]));
   assert.ok(byKey.new.includes('>Mới</span>') && byKey.new.includes('1 lead'), 'đầu block Mới: tên + số lượng');
-  assert.ok(byKey.contacted.includes('>Đã liên hệ</span>') && byKey.contacted.includes('1 lead'));
-  assert.ok(byKey.qualified.includes('>Đạt chuẩn</span>') && byKey.qualified.includes('2 lead'), 'qualified có 2 lead (publishing-fixture game_studio + ai)');
+  assert.ok(byKey.contacted.includes('>Đã liên hệ</span>') && byKey.contacted.includes('3 lead'), 'contacted gồm lead contacted gốc + 2 lead fixture');
   assert.ok(byKey.converted.includes('>Đã chuyển đổi</span>') && byKey.converted.includes('1 lead'));
   assert.ok(byKey.__unknown__.includes('Khác / Chưa rõ trạng thái') && byKey.__unknown__.includes('2 lead'), '2 lead lạ/thiếu status phải gom vào block Khác');
   /* Mỗi lead nằm đúng block của trạng thái mình, không lạc sang block khác */
   assert.ok(byKey.new.includes('Lead New One') && !byKey.contacted.includes('Lead New One'));
   assert.ok(byKey.contacted.includes('Lead Contacted One'));
-  assert.ok(byKey.qualified.includes('Lead Qualified One') && byKey.qualified.includes('Lead Ai Qualified'));
+  assert.ok(byKey.contacted.includes('Lead Qualified One') && byKey.contacted.includes('Lead Ai Qualified'), '2 lead fixture (game_studio + ai) nằm ở block Đã liên hệ');
   assert.ok(byKey.converted.includes('Lead Converted One'));
   assert.ok(byKey.__unknown__.includes('Lead Unknown One') && byKey.__unknown__.includes('Lead NoStatus One'));
   /* Không lead nào biến mất: tổng số hàng (openLead trong <tr>) = tổng số lead */
@@ -164,6 +165,6 @@ test('vLeads: tìm kiếm/lọc mảng — block không còn lead khớp thì �
   /* Lọc theo mảng (curLine): chỉ lead của mảng đó, vẫn chia block theo trạng thái */
   run('query = ""; curLine = "ai"; render();');
   bs = blocks(getEl('view').innerHTML);
-  assert.deepEqual(bs.map(b => b.key), ['qualified'], 'lọc mảng ai: chỉ block Đạt chuẩn (có lead ai) hiện');
+  assert.deepEqual(bs.map(b => b.key), ['contacted'], 'lọc mảng ai: chỉ block Đã liên hệ (có lead ai) hiện');
   assert.ok(bs[0].html.includes('Lead Ai Qualified') && !bs[0].html.includes('Lead Qualified One'));
 });

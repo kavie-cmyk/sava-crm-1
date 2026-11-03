@@ -116,7 +116,7 @@ test('parseEmailPhone: ô chỉ có SĐT -> email rỗng, emailRaw giữ nguyên
   assert.deepEqual({ ...I.parseEmailPhone('') }, { email: '', phone: '', emailRaw: '' });
 });
 test('mapStatus: đủ 8 nhãn gốc file Raw data + nhãn vòng đời + key thô', () => {
-  const cases = [['Sent connect', 'sent_connect'], ['1st message', 'first_message'], ['1st email', 'first_email'], ['1st FU', 'first_fu'], ['In-response', 'in_response'], ['In reply', 'in_reply'], ['Discovery meeting', 'discovery_meeting'], ['Not yet have demand', 'not_yet_have_demand'], ['', 'new'], ['Mới', 'new'], ['Đã liên hệ', 'contacted'], ['Đạt chuẩn', 'qualified'], ['sent_connect', 'sent_connect']];
+  const cases = [['Sent connect', 'sent_connect'], ['1st message', 'first_message'], ['1st email', 'first_email'], ['1st FU', 'first_fu'], ['In-response', 'in_response'], ['In reply', 'in_reply'], ['Discovery meeting', 'discovery_meeting'], ['Not yet have demand', 'not_yet_have_demand'], ['', 'new'], ['Mới', 'new'], ['Đã liên hệ', 'contacted'], ['Đạt chuẩn', 'contacted'], ['sent_connect', 'sent_connect']];
   for (const [raw, key] of cases) { const r = I.mapStatus(raw); assert.equal(r.key, key, raw); assert.equal(r.known, true, raw); }
 });
 test('mapStatus: trạng thái lạ -> new + known=false (để cảnh báo, không bịa key)', () => {

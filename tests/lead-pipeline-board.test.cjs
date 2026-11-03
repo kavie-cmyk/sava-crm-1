@@ -20,7 +20,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const html = read('index.html');
-const ALL_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'qualified', 'converted', 'not_yet_have_demand'];
+const ALL_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted', 'not_yet_have_demand'];
 
 function fixtureState() {
   const sent = Array.from({ length: 60 }, (_, i) => ({
@@ -44,7 +44,7 @@ function fixtureState() {
       { id: 'lconv', name: 'Lead Converted One', company: 'c1', person: 'Chi Tu', line: 'publishing', source: 'Facebook', status: 'converted', note: 'tok-converted', when: '2026-10-04' },
       { id: 'lclosed', name: 'Lead Closed One', company: 'c1', person: 'Anh Dong', line: 'metaverse', source: 'Khac', status: 'not_yet_have_demand', note: 'tok-closed', when: '2026-10-05' },
       { id: 'lweird', name: 'Lead Weird One', company: 'c1', person: 'Anh Nam', line: 'publishing', source: 'Khac', status: 'legacy_weird', note: 'tok-weird', when: '2026-10-06' },
-      { id: 'lai', name: 'Lead Ai One', company: 'c2', person: 'Anh Bay', line: 'ai', source: 'Khac', status: 'qualified', note: 'tok-ai', when: '2026-10-07' },
+      { id: 'lai', name: 'Lead Ai One', company: 'c2', person: 'Anh Bay', line: 'ai', source: 'Khac', status: 'contacted', note: 'tok-ai', when: '2026-10-07' },
       ...sent,
     ],
     tasks: [], activities: [], verticals: [],
@@ -93,17 +93,20 @@ test('tĩnh: toggle Block ⇄ Pipeline + vLeads rẽ nhánh sang vLeadsPipeline,
   assert.ok(html.includes('function filteredLeads('), 'bộ lọc lead phải là MỘT nguồn dùng chung cho cả 2 chế độ');
 });
 
-test('tĩnh: không tạo trạng thái/field mới — LEAD_STATUSES vẫn đúng 12 key, cap dựng thẻ = 50', () => {
+test('tĩnh: không tạo trạng thái/field mới — LEAD_STATUSES đúng 11 key (đã bỏ qualified), cap dựng thẻ = 50', () => {
   const seg = html.slice(html.indexOf('const LEAD_STATUSES'), html.indexOf('const LEAD_STATUS_UNKNOWN'));
   const keys = [...seg.matchAll(/key:\s*"([^"]+)"/g)].map(m => m[1]);
-  assert.deepEqual(keys, ALL_KEYS, 'LEAD_STATUSES phải giữ nguyên 12 key — board chỉ là cách trình bày thứ hai');
+  assert.deepEqual(keys, ALL_KEYS, 'LEAD_STATUSES phải đúng 11 key — board chỉ là cách trình bày thứ hai');
   assert.ok(html.includes('const LEAD_BOARD_PAGE_SIZE = 50;'), 'cap dựng thẻ mỗi cột phải là 50');
 });
 
 test('tĩnh: dropLead đi qua confirmStageChange DÙNG CHUNG + syncLeadDealStatus + save(); confirmStageChange xử cả deal lẫn lead', () => {
   const drop = html.slice(html.indexOf('function dropLead('), html.indexOf('function leadCardHTML('));
   assert.ok(drop.includes('confirmStageChange(l,'), 'dropLead phải hỏi qua helper confirm dùng chung như drop() của deal');
-  assert.ok(drop.includes('syncLeadDealStatus(l.id, { preserveManualConverted: true })'), 'đổi trạng thái ở board phải giữ bất biến converted như saveLead');
+  assert.ok(drop.includes('statusKey === "converted"'), 'thả VÀO cột converted phải bị chặn (converted chỉ sinh ra từ tạo deal)');
+  assert.ok(drop.includes('Chuyển thành deal'), 'toast chặn thả vào converted phải hướng dẫn dùng nút Chuyển thành deal');
+  assert.ok(drop.includes('dealsForLead(l.id)') && drop.includes('gỡ lead khỏi mọi deal trước'), 'lead đang gắn deal kéo ra cột khác phải bị chặn + toast hướng dẫn gỡ deal trước');
+  assert.ok(drop.includes('syncLeadDealStatus(l.id);'), 'đổi trạng thái ở board phải qua helper trung tâm (không opts preserve — converted mồ côi tự chữa theo thực tế deal)');
   assert.ok(drop.includes('save();'), 'đổi trạng thái ở board phải qua đường lưu save() chuẩn');
   const csc = html.slice(html.indexOf('function confirmStageChange('), html.indexOf('function confirmMoveStage'));
   assert.ok(csc.includes('ent.title') && csc.includes('Chuyển stage của deal'), 'nhánh deal của helper phải giữ nguyên câu chữ cũ');
@@ -120,7 +123,7 @@ test('board: cột đúng thứ tự LEAD_STATUSES, thẻ đủ tên/công ty/Po
   const h = loadIndex();
   const view = openBoard(h);
   const cs = cols(view);
-  assert.deepEqual(cs.map(c => c.key), ALL_KEYS, 'board phải có đúng 12 cột theo thứ tự LEAD_STATUSES');
+  assert.deepEqual(cs.map(c => c.key), ALL_KEYS, 'board phải có đúng 11 cột theo thứ tự LEAD_STATUSES');
   const byKey = Object.fromEntries(cs.map(c => [c.key, c.html]));
   assert.ok(byKey.new.includes('Lead New One') && byKey.new.includes('★ Đầu mối chính'), 'thẻ lead main phải có chip ★ Đầu mối chính');
   assert.ok(byKey.new.includes('Anh Minh'), 'thẻ phải hiện Position (field person)');
@@ -156,7 +159,7 @@ test('board: cột đông chỉ dựng 50 thẻ đầu + nút Hiển thị thêm
   assert.ok(byKey.sent_connect.includes('>60</span>'), 'số đếm đầu cột vẫn phải là 60 (toàn tập đã lọc)');
   assert.ok(byKey.sent_connect.includes("showMoreLeadBoard('sent_connect')") && byKey.sent_connect.includes('Hiển thị thêm (10 lead nữa)'), 'phải có nút Hiển thị thêm kèm số còn lại');
   assert.ok(byKey.sent_connect.includes('Đang hiện 50 / 60 lead của cột'));
-  assert.equal((view.match(/ondragstart="dragLead\(/g) || []).length, 55, 'toàn board: 50 (sent) + new/contacted/converted/closed/qualified mỗi cột 1');
+  assert.equal((view.match(/ondragstart="dragLead\(/g) || []).length, 55, 'toàn board: 50 (sent) + new 1 + contacted 2 (gồm lead ai) + converted 1 + closed 1');
   h.run("showMoreLeadBoard('sent_connect');");
   view = h.getEl('view').innerHTML;
   byKey = Object.fromEntries(cols(view).map(c => [c.key, c.html]));
@@ -185,7 +188,7 @@ test('dropLead: huỷ confirm -> trạng thái KHÔNG đổi + KHÔNG lưu; th�
   const before = h.ls.getItem('sava_crm_shared_v1');
   h.setConfirm(false);
   h.run("dragLead(null, 'lcontacted')");
-  h.run("dropLead({ preventDefault() {} }, 'qualified')");
+  h.run("dropLead({ preventDefault() {} }, 'first_email')");
   assert.equal(h.run("S.leads.find(l=>l.id==='lcontacted').status"), 'contacted', 'huỷ confirm -> trạng thái giữ nguyên');
   assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'huỷ confirm -> không được ghi xuống kho (không save)');
   const msgsBefore = h.confirmMsgs.length;
@@ -196,15 +199,16 @@ test('dropLead: huỷ confirm -> trạng thái KHÔNG đổi + KHÔNG lưu; th�
   assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'thả về đúng cột cũ -> không được ghi');
 });
 
-test('dropLead: lead đang gắn deal kéo sang cột khác -> bất biến P2 giữ status "converted" như form sửa lead', () => {
+test('dropLead: lead đang gắn deal kéo sang cột khác -> BỊ CHẶN (không confirm, không mutate, không save), status giữ "converted"', () => {
   const h = loadIndex();
   openBoard(h);
+  const before = h.ls.getItem('sava_crm_shared_v1');
   h.setConfirm(true);
   h.run("dragLead(null, 'lconv')");
   h.run("dropLead({ preventDefault() {} }, 'contacted')");
-  assert.equal(h.run("S.leads.find(l=>l.id==='lconv').status"), 'converted', 'lead còn gắn deal thì status cuối vẫn là converted (syncLeadDealStatus)');
-  const saved = JSON.parse(h.ls.getItem('sava_crm_shared_v1'));
-  assert.equal(saved.leads.find(l => l.id === 'lconv').status, 'converted', 'bản đã lưu cũng phải là converted');
+  assert.equal(h.run("S.leads.find(l=>l.id==='lconv').status"), 'converted', 'lead còn gắn deal thì status vẫn là converted');
+  assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'bị chặn -> KHÔNG được ghi xuống kho (không save)');
+  assert.equal(h.confirmMsgs.length, 0, 'bị chặn TRƯỚC confirm — không hỏi xác nhận cho thao tác không thể thực hiện');
 });
 
 /* ---------- Lọc / nhất quán ---------- */
@@ -219,9 +223,9 @@ test('board: tìm kiếm + lọc mảng áp y hệt view Block; số đầu cộ
   h.run('query = ""; curLine = "ai"; render();');
   const view = h.getEl('view').innerHTML;
   byKey = Object.fromEntries(cols(view).map(c => [c.key, c.html]));
-  assert.deepEqual(cols(view).map(c => c.key), ALL_KEYS, 'đang lọc mảng vẫn giữ đủ 12 cột làm đích kéo-thả');
+  assert.deepEqual(cols(view).map(c => c.key), ALL_KEYS, 'đang lọc mảng vẫn giữ đủ 11 cột làm đích kéo-thả');
   assert.equal((view.match(/ondragstart="dragLead\(/g) || []).length, 1, 'lọc mảng ai: chỉ 1 thẻ (lead ai) hiện trên toàn board');
-  assert.ok(byKey.qualified.includes('Lead Ai One'));
+  assert.ok(byKey.contacted.includes('Lead Ai One'));
 });
 
 test('nhất quán: đổi trạng thái ở board phản ánh ngay ở view Block; chế độ xem là state hiển thị thuần tuý (không lọt vào dữ liệu lưu)', () => {
@@ -229,12 +233,12 @@ test('nhất quán: đổi trạng thái ở board phản ánh ngay ở view Blo
   openBoard(h);
   h.setConfirm(true);
   h.run("dragLead(null, 'lnew')");
-  h.run("dropLead({ preventDefault() {} }, 'qualified')");
+  h.run("dropLead({ preventDefault() {} }, 'contacted')");
   h.run('setLeadViewMode("block");');
   const byKey = Object.fromEntries(cols(h.getEl('view').innerHTML).map(c => [c.key, c.html]));
-  assert.ok(byKey.qualified.includes('Lead New One') && !byKey.new.includes('Lead New One'), 'về Block: lead phải nằm ở block Đạt chuẩn');
+  assert.ok(byKey.contacted.includes('Lead New One') && !byKey.new.includes('Lead New One'), 'về Block: lead phải nằm ở block Đã liên hệ');
   h.run("openLead('lnew')");
-  assert.ok(h.getEl('drawer').innerHTML.includes('Đạt chuẩn'), 'drawer lead phải hiện trạng thái mới ngay');
+  assert.ok(h.getEl('drawer').innerHTML.includes('Đã liên hệ'), 'drawer lead phải hiện trạng thái mới ngay');
   assert.equal(h.run("Object.prototype.hasOwnProperty.call(S, 'leadViewMode')"), false, 'leadViewMode không được nằm trong state dữ liệu S');
   assert.ok(!h.ls.getItem('sava_crm_shared_v1').includes('leadViewMode'), 'bản ghi xuống kho không được chứa state hiển thị');
 });

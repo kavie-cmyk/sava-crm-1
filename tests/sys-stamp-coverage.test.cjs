@@ -95,9 +95,9 @@ test('Việc 4 / gỡ lô: việc gắn lead của lô được gỡ liên kết
 
 test('Việc 4 / khoá hành vi: kéo-thả lead + deal, gắn sự kiện, radio đầu mối chính — mọi phía đều đóng dấu qua save()', () => {
   const h1 = loadIndex();
-  h1.run(`leadDragId = 'l2'; dropLead({ preventDefault() {} }, 'qualified');`);
+  h1.run(`leadDragId = 'l2'; dropLead({ preventDefault() {} }, 'contacted');`);
   const l2 = h1.run(`S.leads.find(l => l.id === 'l2')`);
-  assert.ok(l2.updatedAt && l2.updatedBy === 'linh' && l2.status === 'qualified', 'kéo-thả lead phải đóng dấu lead');
+  assert.ok(l2.updatedAt && l2.updatedBy === 'linh' && l2.status === 'contacted', 'kéo-thả lead phải đóng dấu lead');
   assert.ok(h1.captured.some(e => e.entityType === 'lead' && e.entityId === 'l2' && e.action === 'update'));
 
   const h2 = loadIndex();
@@ -115,7 +115,7 @@ test('Việc 4 / khoá hành vi: kéo-thả lead + deal, gắn sự kiện, radi
   const h4 = loadIndex();
   h4.run(`detachLeadFromDeal('l1', 'd1');`);
   const dl = h4.run(`S.deals.find(d => d.id === 'd1')`), ll = h4.run(`S.leads.find(l => l.id === 'l1')`);
-  assert.ok(dl.updatedBy === 'linh' && ll.updatedBy === 'linh' && ll.status === 'qualified', 'gỡ lead khỏi deal phải đóng dấu CẢ deal lẫn lead (P2)');
+  assert.ok(dl.updatedBy === 'linh' && ll.updatedBy === 'linh' && ll.status === 'contacted', 'gỡ lead khỏi deal phải đóng dấu CẢ deal lẫn lead (P2)');
   assert.ok(h4.captured.some(e => e.entityType === 'deal' && e.entityId === 'd1') && h4.captured.some(e => e.entityType === 'lead' && e.entityId === 'l1'));
 });
 
@@ -137,7 +137,7 @@ test('Việc 4 bổ sung / lịch sử chỉ ghi đúng field đổi: sửa 1 fi
 
 test('Việc 4 bổ sung / lịch sử chỉ ghi đúng field đổi: kéo-thả chỉ ghi trạng thái; gắn lead<->deal mỗi phía chỉ ghi thay đổi của phía đó', () => {
   const h1 = loadIndex();
-  h1.run(`leadDragId = 'l2'; dropLead({ preventDefault() {} }, 'qualified');`);
+  h1.run(`leadDragId = 'l2'; dropLead({ preventDefault() {} }, 'contacted');`);
   const dragEntries = h1.captured.filter(e => e.entityType === 'lead' && e.entityId === 'l2' && e.action === 'update');
   assert.equal(dragEntries.length, 1, 'kéo-thả lead sinh đúng 1 mục');
   assert.deepEqual([...dragEntries[0].changes.map(c => c.field)], ["status"], 'kéo-thả lead chỉ ghi field status');

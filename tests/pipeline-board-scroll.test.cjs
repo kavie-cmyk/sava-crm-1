@@ -122,7 +122,7 @@ test('render: board Deal có đủ .col-cards theo stage, board Lead 12 cột + 
   h.run('curView = "leads"; curLine = "all"; query = ""; setLeadViewMode("pipeline");');
   const leadView = h.getEl('view').innerHTML;
   assert.ok(leadView.includes('<div class="board lead-board pipeline-board">'), 'render Lead: thiếu pipeline-board');
-  assert.equal((leadView.match(/class="col-cards"/g) || []).length, 12, 'Lead có 12 trạng thái -> 12 vùng cuộn .col-cards');
+  assert.equal((leadView.match(/class="col-cards"/g) || []).length, 11, 'Lead có 11 trạng thái (đã bỏ qualified 2026-11-03) -> 11 vùng cuộn .col-cards');
   const sentSeg = leadView.slice(leadView.indexOf('data-lead-status="sent_connect"'), leadView.indexOf('data-lead-status="first_message"'));
   assert.ok(sentSeg.indexOf('class="col-cards"') > -1 && sentSeg.indexOf('class="col-cards"') < sentSeg.indexOf('showMoreLeadBoard'), 'cột Sent connect: nút Hiển thị thêm phải nằm SAU (trong) .col-cards');
 

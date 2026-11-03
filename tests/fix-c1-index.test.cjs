@@ -265,15 +265,15 @@ test('B1/B13: ghi chú điểm thô không còn float dài; fmtPctVal + scoreTex
 });
 
 /* ---------- B3 ---------- */
-test('B3: gỡ liên kết có confirm — detachLeadFromDeal (nêu hồi qualified) + detachDealFromGame nhánh Game Studio', () => {
+test('B3: gỡ liên kết có confirm — detachLeadFromDeal (nêu hồi contacted) + detachDealFromGame nhánh Game Studio', () => {
   const { run, setConfirm, confirmMsgs } = loadIndex();
   setConfirm(false);
   run("detachLeadFromDeal('lMain','d1')");
   assert.deepEqual([...run("S.deals.find(d=>d.id==='d1').leads")], ['l1', 'lMain'], 'huỷ confirm -> không gỡ');
-  assert.ok(confirmMsgs.some(m => m.includes('hồi về "qualified"')), 'lead converted + deal cuối -> confirm phải nêu hồi qualified');
+  assert.ok(confirmMsgs.some(m => m.includes('hồi về "contacted"')), 'lead converted + deal cuối -> confirm phải nêu hồi contacted');
   setConfirm(true);
   run("detachLeadFromDeal('lMain','d1')");
-  assert.equal(run("S.leads.find(l=>l.id==='lMain').status"), 'qualified', 'gỡ deal cuối -> hồi qualified qua revertLeadIfOrphaned');
+  assert.equal(run("S.leads.find(l=>l.id==='lMain').status"), 'contacted', 'gỡ deal cuối -> hồi contacted qua revertLeadIfOrphaned');
   setConfirm(false);
   run("detachDealFromGame('dGS','gOurs')");
   assert.equal(run("S.deals.find(d=>d.id==='dGS').game"), 'gOurs', 'huỷ confirm -> giữ liên kết game');

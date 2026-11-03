@@ -3,7 +3,7 @@
      dashTrend (bucket ngày/tuần/tháng), dashLeadFunnel (BẢN CHỐT: phễu
      TÍCH LUỸ "đã tới bước này trở lên" — dãy đơn điệu không tăng, N = tổng
      lead đường chính, status lạ + not_yet_have_demand không tính vào N,
-     tóm tắt Đạt chuẩn trở lên / đã chuyển thành deal), dashWinRate,
+     tóm tắt Đã liên hệ trở lên / đã chuyển thành deal), dashWinRate,
      dashDealStages, dashScopeFilter (khoá: lead.ownerId / deal.owner /
      task.assignee; công ty của BD = hợp tập công ty phân biệt từ lead ∪
      deal của BD), dashConversions, dashCompare (tổng các hàng BD + Chưa
@@ -95,15 +95,15 @@ test('dashTrend kỳ 90: bucket theo tuần (thứ Hai); Tất cả: <=730 ngày
 
 /* ---------- 3) Phễu lead TÍCH LUỸ (bản chốt) ---------- */
 
-const MAIN_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'qualified', 'converted'];
+const MAIN_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted']; /* đường chính còn 10 trạng thái sau khi bỏ qualified (2026-11-03) */
 /* Fixture số lẻ N=7 (đường chính): new×2, sent_connect×1, first_email×1,
-   in_reply×1, qualified×1, converted×1 — cộng 1 not_yet_have_demand (lối
+   in_reply×1, contacted×1, converted×1 — cộng 1 not_yet_have_demand (lối
    ra) + 1 trạng thái lạ, cả hai KHÔNG tính vào N. Đối chiếu tay:
    tích luỹ = new 7, sent 5, 1st_msg 4, 1st_email 4, 1st_fu 3, in_resp 3,
-   in_reply 3, discovery 2, contacted 2, qualified 2, converted 1. */
+   in_reply 3, discovery 2, contacted 2, converted 1. */
 const FUNNEL_LEADS = [
   { status: 'new' }, { status: 'new' }, { status: 'sent_connect' }, { status: 'first_email' },
-  { status: 'in_reply' }, { status: 'qualified' }, { status: 'converted' },
+  { status: 'in_reply' }, { status: 'contacted' }, { status: 'converted' },
   { status: 'not_yet_have_demand' }, { status: 'trang-thai-la' },
 ];
 test('dashLeadFunnel bản chốt: dãy tích luỹ đơn điệu không tăng, % dòng = dòng/N, % đi tiếp = dòng dưới/dòng trên', () => {
@@ -112,7 +112,7 @@ test('dashLeadFunnel bản chốt: dãy tích luỹ đơn điệu không tăng, 
   const byKey = Object.fromEntries(f.steps.map(s => [s.key, s]));
   assert.equal(f.total, 7, 'N = tổng lead đường chính (không gồm lối ra + trạng thái lạ)');
   assert.equal(f.rawTotal, 9);
-  assert.deepEqual(f.steps.map(s => s.count), [7, 5, 4, 4, 3, 3, 3, 2, 2, 2, 1], 'tích luỹ đối chiếu tay');
+  assert.deepEqual(f.steps.map(s => s.count), [7, 5, 4, 4, 3, 3, 3, 2, 2, 1], 'tích luỹ đối chiếu tay (10 bước đường chính)');
   for (let i = 1; i < f.steps.length; i++) assert.ok(f.steps[i].count <= f.steps[i - 1].count, `dãy tích luỹ không tăng ở bước ${f.steps[i].key}`);
   for (const s of f.steps) {
     assert.ok(Math.abs(s.pct - s.count / 7 * 100) < 1e-9, `% dòng ${s.key} = count/N`);
@@ -137,14 +137,15 @@ test('dashLeadFunnel bản chốt: bất biến phụ — tích luỹ sent_conne
   assert.equal(f.dropped.count, 1);
   assert.ok(Math.abs(f.dropped.pct - 100 / 7) < 1e-9, 'lối ra: % trên tổng ban đầu N (không phải trên rawTotal)');
   assert.equal(f.unknown, 1, 'trạng thái lạ bị loại và đếm riêng để ghi chú');
-  assert.equal(f.summary.qualifiedPlus, 2, 'n = lead ở qualified ∪ converted');
-  assert.ok(Math.abs(f.summary.qualifiedPlusPct - 200 / 7) < 1e-9);
+  assert.equal(f.summary.reachedContactedPlus, 2, 'n = lead ở contacted ∪ converted');
+  assert.ok(Math.abs(f.summary.reachedContactedPlusPct - 200 / 7) < 1e-9);
+  assert.ok(!('qualifiedPlus' in f.summary), 'khái niệm qualifiedPlus đã đổi tên sạch sang reachedContactedPlus');
   assert.equal(f.summary.converted, 1);
   assert.ok(Math.abs(f.summary.convertedPct - 100 / 7) < 1e-9);
   const f0 = D.dashLeadFunnel([], MAIN_KEYS, 'not_yet_have_demand');
   assert.equal(f0.total, 0);
   assert.equal(f0.steps[0].count, 0); assert.equal(f0.steps[0].toNext, null, 'mẫu số 0 -> null, không NaN');
-  assert.equal(f0.steps[1].pct, null); assert.equal(f0.dropped.pct, null); assert.equal(f0.summary.qualifiedPlusPct, null);
+  assert.equal(f0.steps[1].pct, null); assert.equal(f0.dropped.pct, null); assert.equal(f0.summary.reachedContactedPlusPct, null);
 });
 
 /* ---------- 4) Win rate + deal theo mảng ---------- */
@@ -184,7 +185,7 @@ function fixtureState() {
     leads: [
       { id: 'l1', company: 'c1', line: 'ai', status: 'converted', ownerId: 'yen', createdAt: isoDaysAgo(1) },
       { id: 'l2', company: 'c2', line: 'ai', status: 'new', ownerId: 'yen', createdAt: isoDaysAgo(50) },
-      { id: 'l3', company: 'c2', line: 'metaverse', status: 'qualified', ownerId: 'hoang', createdAt: isoDaysAgo(2) },
+      { id: 'l3', company: 'c2', line: 'metaverse', status: 'contacted', ownerId: 'hoang', createdAt: isoDaysAgo(2) },
       { id: 'l4', company: 'c3', line: 'ai', status: 'new', createdAt: isoDaysAgo(3) },
     ],
     deals: [
@@ -270,7 +271,7 @@ test('tĩnh phễu bản chốt: đủ mẫu câu/mẫu dòng phụ % đi tiếp
   assert.ok(!html.includes('lead đi tiếp ('), 'mẫu chip cũ "↓ {m} trong {n} lead đi tiếp ({p}%)" đã bỏ hẳn');
   assert.ok(html.includes('tạm dừng — chưa có nhu cầu'), 'nhãn phụ cột lối ra');
   assert.ok(html.includes('trên tổng ban đầu'), 'cột lối ra hiện % trên tổng ban đầu');
-  assert.ok(html.includes('lead đã tới bước Đạt chuẩn trở lên') && html.includes('lead đã chuyển thành deal'), 'dòng tóm tắt dưới phễu');
+  assert.ok(html.includes('lead đã tới bước Đã liên hệ trở lên') && html.includes('lead đã chuyển thành deal'), 'dòng tóm tắt dưới phễu');
   assert.ok(html.includes('Chưa có lead nào trong phạm vi này.'), 'tóm tắt thay thế khi N=0, không chia cho 0');
   assert.ok(html.includes('function dashPctIntTxt'), '% khối phễu làm tròn 0 thập phân qua helper riêng');
   assert.ok(html.includes('dashOpenLeadStatus') && html.includes('id="leadStatusFilterSel"') && html.includes('l.status === leadStatusFilter'), 'dòng phễu bấm được -> view Lead lọc đúng trạng thái qua leadStatusFilter');
@@ -333,7 +334,7 @@ test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; ch
 test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng phụ % đi tiếp trong dòng đích (không pill, không lặp số lead), lối ra, tóm tắt; prev=0 hiện ↓ —, không NaN', () => {
   const { run, getEl } = loadIndex();
   const mk = (id, status) => ({ id, company: 'c1', line: 'ai', status, name: 'Lead ' + id, person: '', note: '', source: '', when: '2026-11-02', createdAt: isoDaysAgo(1) });
-  run(`S.leads = ${JSON.stringify([mk('f1', 'new'), mk('f2', 'new'), mk('f3', 'sent_connect'), mk('f4', 'first_email'), mk('f5', 'in_reply'), mk('f6', 'qualified'), mk('f7', 'converted'), mk('f8', 'not_yet_have_demand'), mk('f9', 'trang-thai-la')])}`);
+  run(`S.leads = ${JSON.stringify([mk('f1', 'new'), mk('f2', 'new'), mk('f3', 'sent_connect'), mk('f4', 'first_email'), mk('f5', 'in_reply'), mk('f6', 'contacted'), mk('f7', 'converted'), mk('f8', 'not_yet_have_demand'), mk('f9', 'trang-thai-la')])}`);
   run("curView = 'dash'; render()");
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 7 lead · 100%'), 'dòng mốc: N=7 (lối ra + trạng thái lạ không tính vào N)');
@@ -342,13 +343,13 @@ test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng
   assert.ok(!/trong \d+ lead đi tiếp/.test(html), 'phần % đi tiếp KHÔNG lặp số đếm lead kiểu chip cũ');
   assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 71% đi tiếp từ đầu vào</span>'), 'dòng Sent connect: % đi tiếp từ dòng mốc tổng (5/7 -> 71%) ghi "từ đầu vào", nằm trong khối % của chính dòng');
   assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 80% đi tiếp từ bước trước</span>'), 'dòng first_message: đi tiếp từ Sent connect 4/5 = 80%');
-  assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 50% đi tiếp từ bước trước</span>'), 'dòng converted: đi tiếp từ qualified 1/2 = 50%');
+  assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 50% đi tiếp từ bước trước</span>'), 'dòng converted: đi tiếp từ contacted 1/2 = 50%');
   assert.ok(html.includes('5 lead đã tới bước này') && html.includes('<b>71%</b>'), 'dòng Sent connect: số tích luỹ thật + % nguyên so với điểm bắt đầu');
   assert.ok(html.includes('<b>29%</b>'), 'dòng tích luỹ 2/7 hiện 29% (làm tròn nguyên)');
   assert.ok(html.includes('1 lead · 14% trên tổng ban đầu') && html.includes('tạm dừng — chưa có nhu cầu'), 'cột lối ra: 1 lead, 1/7 -> 14% trên tổng ban đầu, nhãn tạm dừng');
   const exitSlice = html.slice(html.indexOf('dash-funnel-exit'), html.indexOf('dash-funnel-summary'));
   assert.ok(!exitSlice.includes('dash-funnel-fromprev') && !exitSlice.includes('đi tiếp'), 'khối lối ra Not yet have demand KHÔNG có % đi tiếp');
-  assert.ok(html.includes('Trong 7 lead: 2 lead đã tới bước Đạt chuẩn trở lên (29%) · 1 lead đã chuyển thành deal (14%)'), 'dòng tóm tắt đúng mẫu câu + % nguyên');
+  assert.ok(html.includes('Trong 7 lead: 2 lead đã tới bước Đã liên hệ trở lên (29%) · 1 lead đã chuyển thành deal (14%)'), 'dòng tóm tắt đúng mẫu câu + % nguyên');
   assert.ok(html.includes('1 lead có trạng thái lạ') && html.includes('không tính vào tổng lead đưa vào'), 'ghi chú trạng thái lạ bị loại tại phễu');
   assert.ok(html.includes('Số % lớn trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % nhỏ có mũi tên ↓ ngay dưới % lớn: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.'), '2 câu chú thích nguyên văn trên phễu (trình bày mới)');
   /* Mọi lead kẹt ở Mới: các dòng tích luỹ = 0; dòng đầu (prev = N = 2) hiện 0%, các dòng sau (prev = 0) hiện ↓ —. */
@@ -359,7 +360,7 @@ test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng
   assert.ok(zero.includes('<span class="dash-funnel-fromprev">↓ —</span>'), 'bước ngay trên = 0 lead -> dòng phụ "↓ —", không NaN');
   assert.ok(!zero.includes('dash-funnel-arrow'), 'kể cả fixture 0 cũng không có pill mũi tên');
   assert.ok(!zero.includes('NaN'), 'không NaN khi mẫu số 0');
-  assert.ok(zero.includes('Trong 2 lead: 0 lead đã tới bước Đạt chuẩn trở lên (0%) · 0 lead đã chuyển thành deal (0%)'));
+  assert.ok(zero.includes('Trong 2 lead: 0 lead đã tới bước Đã liên hệ trở lên (0%) · 0 lead đã chuyển thành deal (0%)'));
   /* N=0: câu tóm tắt thay thế, không chia cho 0. */
   run('S.leads = []');
   run("render()");
@@ -368,12 +369,12 @@ test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng
 
 test('hành vi: bấm một dòng phễu (dashOpenLeadStatus) mở view Lead lọc đúng trạng thái đó', () => {
   const { run, getEl } = loadIndex();
-  run("dashOpenLeadStatus('qualified')");
+  run("dashOpenLeadStatus('contacted')");
   assert.equal(run('curView'), 'leads');
-  assert.equal(run('leadStatusFilter'), 'qualified');
-  assert.deepEqual(JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)'))), ['l3'], 'chỉ lead qualified của fixture lọt qua bộ lọc');
+  assert.equal(run('leadStatusFilter'), 'contacted');
+  assert.deepEqual(JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)'))), ['l3'], 'chỉ lead contacted của fixture lọt qua bộ lọc');
   const html = getEl('view').innerHTML;
-  assert.ok(html.includes('data-lead-status="qualified"'), 'view Lead hiện block trạng thái đích');
+  assert.ok(html.includes('data-lead-status="contacted"'), 'view Lead hiện block trạng thái đích');
   assert.ok(!html.includes('data-lead-status="new"'), 'đang lọc: block trạng thái khác bị ẩn');
   assert.ok(html.includes('id="leadStatusFilterSel"'), 'view Lead có select trạng thái để đổi/bỏ lọc');
   run("dashOpenLeadStatus('not_yet_have_demand')");

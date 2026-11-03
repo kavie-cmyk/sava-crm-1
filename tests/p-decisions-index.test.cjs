@@ -7,7 +7,7 @@
      gỡ tay được. Deal chưa có công ty -> không gắn được lead nào.
    - P2: bất biến status lead theo deal qua helper trung tâm
      syncLeadDealStatus: có ≥1 deal -> "converted"; mất deal cuối ->
-     "qualified"; áp ở gắn/gỡ/xoá deal/form tạo + sửa deal/convertLead.
+     "contacted"; áp ở gắn/gỡ/xoá deal/form tạo + sửa deal/convertLead.
      Migration 1 lần (marker state.leadDealStatusMigrated) chuẩn hoá lead
      đã gắn deal mà chưa "converted"; KHÔNG hồi lead "converted" không deal.
    - P3: defaultOwnerId resolve qua window.SavaAuth.currentUser().memberId
@@ -52,7 +52,7 @@ function loadIndex() {
     ],
     leads: [
       { id: 'lA', name: 'Người A', company: 'c1', person: 'Anh A — CEO', phone: '0901', line: 'publishing', source: 'Giới thiệu', status: 'new', note: '', when: '2026-10-01', mainContact: true },
-      { id: 'lB', name: 'Người B', company: 'c1', person: 'Chị B — CTO', phone: '0902', line: 'publishing', source: 'Giới thiệu', status: 'qualified', note: '', when: '2026-10-02', mainContact: false },
+      { id: 'lB', name: 'Người B', company: 'c1', person: 'Chị B — CTO', phone: '0902', line: 'publishing', source: 'Giới thiệu', status: 'contacted', note: '', when: '2026-10-02', mainContact: false },
       { id: 'lCross', name: 'Người Chéo', company: 'c2', person: '', phone: '', line: 'ai', source: '', status: 'new', note: '', when: '2026-10-03', mainContact: false },
       { id: 'lNoCo', name: 'Lead Không Công Ty', company: '', person: '', phone: '', line: 'ai', source: '', status: 'new', note: '', when: '2026-10-04', mainContact: false },
       { id: 'lMig', name: 'Người Mig', company: 'c1', person: '', phone: '', line: 'publishing', source: '', status: 'new', note: '', when: '2026-10-05', mainContact: false },
@@ -167,22 +167,22 @@ test('P1 tĩnh: form tạo deal chỉ nhận lead thuộc công ty đã resolve 
 });
 
 /* ================= P2 ================= */
-test('P2: gỡ khỏi deal CUỐI -> hồi qualified; gỡ khi còn deal khác -> vẫn converted', () => {
+test('P2: gỡ khỏi deal CUỐI -> hồi contacted; gỡ khi còn deal khác -> vẫn converted', () => {
   const { run } = loadIndex();
   run("attachLeadToDeal('lB','d1'); attachLeadToDeal('lB','dMig');");
   assert.equal(leadStatus(run, 'lB'), 'converted');
   run("detachLeadFromDeal('lB','d1')");
   assert.equal(leadStatus(run, 'lB'), 'converted', 'còn dMig -> vẫn converted');
   run("detachLeadFromDeal('lB','dMig')");
-  assert.equal(leadStatus(run, 'lB'), 'qualified', 'mất deal cuối -> hồi qualified');
+  assert.equal(leadStatus(run, 'lB'), 'contacted', 'mất deal cuối -> hồi contacted');
 });
 
-test('P2: xoá deal chứa lead duy nhất -> lead hồi qualified', () => {
+test('P2: xoá deal chứa lead duy nhất -> lead hồi contacted', () => {
   const { run } = loadIndex();
   run("attachLeadToDeal('lB','d1');");
   assert.equal(leadStatus(run, 'lB'), 'converted');
   run("performDeleteDeal('d1')");
-  assert.equal(leadStatus(run, 'lB'), 'qualified');
+  assert.equal(leadStatus(run, 'lB'), 'contacted');
 });
 
 test('P2: form TẠO deal — lead tick trong form (không phải prefill convertLead) cũng thành converted khi lưu', () => {
@@ -204,14 +204,14 @@ function fillEditDealForm(getEl, over) {
   const vals = Object.assign({ e_title: 'Deal Sửa', e_company: 'c1', e_line: 'publishing', e_stage: 'build_eval', e_owner: 'linh', e_due: '', e_game: 'g1' }, over || {});
   for (const [k, v] of Object.entries(vals)) getEl(k).value = v;
 }
-test('P2: form SỬA deal — diff cũ/mới: lead bị bỏ ra khỏi deal trong phiên sửa -> qualified; lead thêm vào -> converted', () => {
+test('P2: form SỬA deal — diff cũ/mới: lead bị bỏ ra khỏi deal trong phiên sửa -> contacted; lead thêm vào -> converted', () => {
   const a = loadIndex();
   assert.equal(leadStatus(a.run, 'lMig'), 'converted', 'lMig đã converted nhờ migration/gắn sẵn');
   a.run("editDeal('dMig')");
   a.run("S.deals.find(d=>d.id==='dMig').leads = []"); /* danh sách lead thay đổi trong phiên sửa */
   fillEditDealForm(a.getEl, { e_title: 'Deal Mig' });
   a.run("saveEditDeal('dMig')");
-  assert.equal(leadStatus(a.run, 'lMig'), 'qualified', 'lead bị bỏ ra và không còn deal nào -> hồi qualified qua diff của saveEditDeal');
+  assert.equal(leadStatus(a.run, 'lMig'), 'contacted', 'lead bị bỏ ra và không còn deal nào -> hồi contacted qua diff của saveEditDeal');
   const b = loadIndex();
   b.run("editDeal('d1')");
   b.run("S.deals.find(d=>d.id==='d1').leads = ['lB']");
@@ -240,9 +240,9 @@ test('P2 migration: lead đã gắn deal mà chưa converted -> chuẩn hoá 1 l
   assert.equal(saved.leadDealStatusMigrated, true, 'marker phải được ghi xuống kho');
   assert.equal(saved.leads.find(l => l.id === 'lMig').status, 'converted', 'trạng thái đã chuẩn hoá phải ghi xuống kho');
   /* Marker đã có: chạy lại hàm migration không đổi gì thêm (đúng 1 lần) */
-  run("S.leads.find(l=>l.id==='lMig').status = 'qualified'");
+  run("S.leads.find(l=>l.id==='lMig').status = 'contacted'");
   assert.equal(run('migrateLeadDealStatusesOnce(S)'), 0, 'marker còn -> migration không chạy lại');
-  assert.equal(leadStatus(run, 'lMig'), 'qualified', 'sau migration, thay đổi tay không bị migration ghi đè');
+  assert.equal(leadStatus(run, 'lMig'), 'contacted', 'sau migration, thay đổi tay không bị migration ghi đè');
 });
 
 /* ================= P3 ================= */

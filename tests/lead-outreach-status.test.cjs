@@ -4,11 +4,12 @@
      "1st email", first_fu "1st FU", in_response "In-response",
      in_reply "In reply", discovery_meeting "Discovery meeting",
      not_yet_have_demand "Not yet have demand" — cùng 4 trạng thái cũ
-     thành 12 key trong LEAD_STATUSES (nguồn sự thật duy nhất cho block
+     thành 11 key trong LEAD_STATUSES (nguồn sự thật duy nhất cho block
      view / form select / chip mọi bề mặt).
    - Thứ tự block: new -> 8 trạng thái tiếp cận chèn giữa -> contacted
-     -> qualified -> converted -> not_yet_have_demand -> "Khác" (chỉ
-     giá trị lạ thật sự ngoài 12 key).
+     -> converted -> not_yet_have_demand -> "Khác" (chỉ giá trị lạ thật
+     sự ngoài 11 key; stage qualified đã bỏ 2026-11-03 — CHECK phía
+     server vẫn giữ key qualified cũ, vô hại, không sửa SQL).
    - Bất biến P2/F1 giữ nguyên: lead KHÔNG deal giữ nguyên trạng thái
      form chọn (gồm cả trạng thái tiếp cận); lead CÓ deal -> converted.
    - migrateState + adapter round-trip giữ nguyên status mới (không ép
@@ -24,7 +25,7 @@ const NEW_STATUSES = [
   ['first_fu', '1st FU'], ['in_response', 'In-response'], ['in_reply', 'In reply'],
   ['discovery_meeting', 'Discovery meeting'], ['not_yet_have_demand', 'Not yet have demand'],
 ];
-const ALL_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'qualified', 'converted', 'not_yet_have_demand'];
+const ALL_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted', 'not_yet_have_demand'];
 
 /* ---------- Tĩnh: SQL nới CHECK ---------- */
 test('tĩnh: supabase/lead-status-expand.sql nới CHECK leads đủ 12 key, chạy-lại-an-toàn, có tiền điều kiện + SELECT tra tên constraint', () => {
@@ -71,7 +72,7 @@ test('adapter: round-trip giữ nguyên từng status mới (LEAD_KNOWN đã có
   const rows = A.crmStateToRows(state);
   ALL_KEYS.forEach((k, i) => assert.equal(rows.leads.find(r => r.id === 'la' + i).status, k, 'row phải giữ status ' + k));
   const back = A.crmRowsToState(JSON.parse(JSON.stringify(rows)));
-  assert.deepEqual(back.leads.map(l => l.status), ALL_KEYS, 'đọc lại phải nguyên vẹn cả 12 status');
+  assert.deepEqual(back.leads.map(l => l.status), ALL_KEYS, 'đọc lại phải nguyên vẹn cả 11 status');
 });
 
 /* ---------- Harness vm: nạp index.html thật ---------- */
@@ -144,12 +145,15 @@ test('chip trạng thái: leadMini + dealLeadMiniHTML + drawer lead hiện đún
   assert.ok(getEl('drawer').innerHTML.includes('Not yet have demand'), 'drawer lead phải hiện pill Not yet have demand');
 });
 
-test('form lead: select có đủ 12 trạng thái đúng thứ tự + chọn sẵn status hiện tại; lưu qua form giữ nguyên status tiếp cận khi lead chưa có deal', () => {
+test('form lead: select có đủ các trạng thái CHỌN TAY ĐƯỢC (11 key trừ converted) đúng thứ tự + chọn sẵn status hiện tại; lưu qua form giữ nguyên status tiếp cận khi lead chưa có deal', () => {
   const { run, getEl } = loadIndex();
   run("editLead('lx_first_email')");
   const box = getEl('editBox').innerHTML;
-  const optIdx = ALL_KEYS.map(k => box.indexOf('<option value="' + k + '"'));
-  optIdx.forEach((ix, i) => assert.ok(ix >= 0, 'select thiếu option ' + ALL_KEYS[i]));
+  const SELECTABLE = ALL_KEYS.filter(k => k !== 'converted');
+  const optIdx = SELECTABLE.map(k => box.indexOf('<option value="' + k + '"'));
+  optIdx.forEach((ix, i) => assert.ok(ix >= 0, 'select thiếu option ' + SELECTABLE[i]));
+  assert.ok(!box.includes('<option value="converted"'), 'option converted KHÔNG được chọn tay ở form');
+  assert.ok(!box.includes('<option value="qualified"'), 'option qualified đã bỏ — không còn ở form');
   assert.deepEqual(optIdx, [...optIdx].sort((a, b) => a - b), 'option phải theo đúng thứ tự LEAD_STATUSES');
   for (const [, label] of NEW_STATUSES) assert.ok(box.includes('>' + label + '</option>'), 'select thiếu nhãn ' + label);
   assert.ok(box.includes('<option value="first_email" selected>'), 'status hiện tại của lead phải được chọn sẵn');
@@ -166,7 +170,7 @@ test('form lead: select có đủ 12 trạng thái đúng thứ tự + chọn s�
   assert.equal(nl.status, 'sent_connect');
 });
 
-test('bất biến P2 với lead đang ở trạng thái tiếp cận: chưa gắn deal -> giữ nguyên; gắn deal -> converted; gỡ deal cuối -> qualified', () => {
+test('bất biến P2 với lead đang ở trạng thái tiếp cận: chưa gắn deal -> giữ nguyên; gắn deal -> converted; gỡ deal cuối -> contacted', () => {
   const { run, getEl } = loadIndex();
   /* Chưa gắn deal: sync hai chiều không đụng status tiếp cận */
   run("syncLeadDealStatus('lx_sent_connect')");
@@ -180,7 +184,7 @@ test('bất biến P2 với lead đang ở trạng thái tiếp cận: chưa g�
   fillLeadForm(getEl, { e_lname: 'Lead Tok sent_connect', e_lstatus: 'first_fu' });
   run("saveLead('lx_sent_connect')");
   assert.equal(run("S.leads.find(l=>l.id==='lx_sent_connect').status"), 'converted', 'lead CÓ deal: saveLead áp sync chỉ-chiều-lên như F1');
-  /* Gỡ khỏi deal cuối -> hồi qualified */
+  /* Gỡ khỏi deal cuối -> hồi contacted */
   run("detachLeadFromDeal('lx_sent_connect', 'dOut')");
-  assert.equal(run("S.leads.find(l=>l.id==='lx_sent_connect').status"), 'qualified', 'gỡ deal cuối: converted hồi về qualified như cũ');
+  assert.equal(run("S.leads.find(l=>l.id==='lx_sent_connect').status"), 'contacted', 'gỡ deal cuối: converted hồi về contacted');
 });

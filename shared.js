@@ -219,6 +219,9 @@ function resolveRefLabel(state, refKind, id, entityType, entity) {
    ở cả 3 trang (kể cả trang không có LEAD_STATUSES) nên giữ bảng nhãn
    riêng tại đây cho đường audit; đổi nhãn trạng thái lead thì sửa CẢ hai
    nơi theo đúng cặp key↔nhãn này. */
+/* "qualified": "Đạt chuẩn" CHỈ còn ở bảng audit này để đọc lại lịch sử
+   sửa đổi cũ (stage đã bỏ khỏi LEAD_STATUSES từ 2026-11-03, dữ liệu đã
+   di trú sang contacted) — không bề mặt lead nào dùng nó nữa. */
 const AUDIT_LEAD_STATUS_LABELS = { new: "Mới", sent_connect: "Sent connect", first_message: "1st message", first_email: "1st email", first_fu: "1st FU", in_response: "In-response", in_reply: "In reply", discovery_meeting: "Discovery meeting", contacted: "Đã liên hệ", qualified: "Đạt chuẩn", converted: "Đã chuyển đổi", not_yet_have_demand: "Not yet have demand" };
 const AUDIT_GAME_OWN_LABELS = { ours: "Game của Sava", partner: "Game đối tác" };
 /* Nhãn sub-key intake: đúng bộ nhãn Publishing đang dùng (GAME_INTAKE_LABELS
@@ -1216,8 +1219,10 @@ function dashTrend(sets, days, now) {
    Mỗi step: count = tích luỹ, exact = số lead đang đứng đúng ở bước đó,
    pct / fromStart = % so với điểm bắt đầu (count / N), toNext = % đi tiếp
    sang bước kề (count[i+1] / count[i]; null ở bước cuối / khi bước này = 0).
-   summary: qualifiedPlus = số lead ở qualified ∪ converted (= tích luỹ ở
-   qualified), converted = số lead converted; % đều trên N. Mọi % là số
+   summary: reachedContactedPlus = số lead ở contacted ∪ converted (=
+   tích luỹ ở contacted — "đã tới bước Đã liên hệ trở lên"; trước
+   2026-11-03 khái niệm này là qualifiedPlus trên stage "qualified" đã
+   bỏ), converted = số lead converted; % đều trên N. Mọi % là số
    thô (0–100) hoặc null khi mẫu số 0 — tầng hiển thị của phễu tự làm tròn
    0 thập phân, không dùng fmtPctVal 1 thập phân của các khối khác. */
 function dashLeadFunnel(leads, mainKeys, droppedKey) {
@@ -1240,14 +1245,14 @@ function dashLeadFunnel(leads, mainKeys, droppedKey) {
     fromStart: dashPct(cum[i], total), pct: dashPct(cum[i], total),
   }));
   const exactOf = k => Object.prototype.hasOwnProperty.call(idx, k) ? exact[idx[k]] : 0;
-  const qualifiedPlus = exactOf("qualified") + exactOf("converted");
+  const reachedContactedPlus = exactOf("contacted") + exactOf("converted");
   const converted = exactOf("converted");
   return {
     steps,
     dropped: { key: droppedKey, count: dropped, pct: dashPct(dropped, total) },
     unknown, total, rawTotal: list.length,
     summary: {
-      qualifiedPlus, qualifiedPlusPct: dashPct(qualifiedPlus, total),
+      reachedContactedPlus, reachedContactedPlusPct: dashPct(reachedContactedPlus, total),
       converted, convertedPct: dashPct(converted, total),
     },
   };
@@ -1499,7 +1504,7 @@ const SavaImport = (() => {
     "in response": "in_response", "in reply": "in_reply", "discovery meeting": "discovery_meeting",
     "not yet have demand": "not_yet_have_demand",
     "contacted": "contacted", "da lien he": "contacted",
-    "qualified": "qualified", "dat chuan": "qualified",
+    "qualified": "contacted", "dat chuan": "contacted", /* stage qualified đã bỏ 2026-11-03: file cũ ghi "Đạt chuẩn" -> Đã liên hệ */
     "converted": "converted", "da chuyen doi": "converted",
   };
   function mapStatus(raw) {

@@ -104,12 +104,12 @@ test('F1: lead KHÔNG có deal — đặt tay "converted" ở form là đường
   assert.equal(run("S.leads.find(l=>l.id==='lFree').status"), 'converted', 'converted đặt tay cho lead không deal phải được giữ nguyên');
 });
 
-test('F1 tĩnh: saveLead gọi helper trung tâm với preserveManualConverted; helper giữ nguyên chiều hồi qualified cho các đường khác', () => {
+test('F1 tĩnh: saveLead gọi helper trung tâm với preserveManualConverted; helper giữ nguyên chiều hồi contacted cho các đường khác', () => {
   const saveLead = html.slice(html.indexOf('function saveLead'), html.indexOf('function deleteLead'));
   assert.ok(saveLead.includes("syncLeadDealStatus(l.id, { preserveManualConverted: true })"), 'saveLead phải áp bất biến qua syncLeadDealStatus (không viết logic trạng thái thứ hai)');
   assert.ok(saveLead.indexOf('syncLeadDealStatus(l.id') < saveLead.indexOf('save();'), 'helper phải chạy TRƯỚC save() của lần lưu form');
   const sync = html.slice(html.indexOf('function syncLeadDealStatus'), html.indexOf('function syncLeadDealStatuses'));
-  assert.ok(sync.includes('preserveManualConverted') && sync.includes('l.status = "qualified"'), 'helper vẫn giữ chiều hồi qualified khi không có opts preserve');
+  assert.ok(sync.includes('preserveManualConverted') && sync.includes('l.status = "contacted"'), 'helper vẫn giữ chiều hồi contacted khi không có opts preserve');
 });
 
 /* ---------- F2 ---------- */

@@ -68,14 +68,14 @@ test('C1: sửa deal với công ty không còn hợp lệ — option rỗng đ�
   assert.ok(!eff.includes('if (val) return val;'), 'không còn fallback về d.company khi select rỗng');
 });
 
-test('C2: lead converted mồ côi tự hồi "qualified" ở cả 2 đường mất liên kết + form sửa lead có select status đầy đủ', () => {
+test('C2: lead converted mồ côi tự hồi "contacted" ở cả 2 đường mất liên kết + form sửa lead: converted không chọn tay được', () => {
   /* P2 (đợt 7 quyết định): revertLeadIfOrphaned nay UỶ QUYỀN helper trung
-     tâm syncLeadDealStatus — logic hồi "qualified" nằm ở helper đó, hành
+     tâm syncLeadDealStatus — logic hồi "contacted" nằm ở helper đó, hành
      vi gỡ/xoá deal hồi trạng thái giữ nguyên (kiểm chức năng ở dưới). */
   const helper = section(html, 'function revertLeadIfOrphaned', '/* =====');
   assert.ok(helper.includes('syncLeadDealStatus(leadId)'), 'revertLeadIfOrphaned phải uỷ quyền helper trung tâm P2');
   const sync = section(html, 'function syncLeadDealStatus', 'function syncLeadDealStatuses');
-  assert.ok(sync.includes('l.status = "qualified"') && sync.includes('dealsForLead(l.id).length > 0'), 'helper trung tâm phải giữ logic hồi qualified khi mất hết deal');
+  assert.ok(sync.includes('l.status = "contacted"') && sync.includes('dealsForLead(l.id).length > 0'), 'helper trung tâm phải giữ logic hồi contacted khi mất hết deal');
   const detach = section(html, 'function detachLeadFromDeal', 'function attachLeadFromLeadDrawer');
   assert.ok(detach.includes('revertLeadIfOrphaned(leadId)'), 'gỡ lead khỏi deal phải hồi trạng thái');
   const del = section(html, 'function performDeleteDeal', 'function deleteDeal');
@@ -84,7 +84,8 @@ test('C2: lead converted mồ côi tự hồi "qualified" ở cả 2 đường m
   /* Hợp đồng B (trạng thái tiếp cận): select status của form KHÔNG còn
      mảng cứng riêng — dựng từ LEAD_STATUSES (nguồn sự thật duy nhất), nên
      option "Đã chuyển đổi" kiểm ở chính danh sách trung tâm đó. */
-  assert.ok(form.includes('sel("e_lstatus", LEAD_STATUSES.map(s => [s.key, s.label]), l.status)'), 'form sửa lead phải dựng select status từ LEAD_STATUSES');
+  assert.ok(form.includes('LEAD_STATUSES.filter(s => s.key !== "converted")'), 'form sửa lead phải dựng select status từ LEAD_STATUSES nhưng LOẠI converted (không chọn tay được)');
+  assert.ok(form.includes('tự động theo deal'), 'lead đã converted: form phải hiện nhãn cố định "tự động theo deal" thay cho select');
   const leadStatuses = section(html, 'const LEAD_STATUSES', 'const LEAD_STATUS_UNKNOWN');
   assert.ok(leadStatuses.includes('{ key: "converted", label: "Đã chuyển đổi"'), 'LEAD_STATUSES phải có trạng thái converted (Đã chuyển đổi) cho select status');
   assert.ok(!form.includes('không sửa tay'), 'không còn khối khóa cứng trạng thái converted');
@@ -281,14 +282,14 @@ test('D3+D7 chức năng: line/stage lạ hoặc thiếu không làm crash view/
   assert.ok(mini.includes('line_la') && mini.includes('stage_la'), 'dealMini phải hiện nhãn thô cho line/stage lạ');
 });
 
-test('C2+C7+C17 chức năng: gỡ lead/xóa deal hồi "qualified"; drawer game có bdNote + link; drawer member mở được', () => {
+test('C2+C7+C17 chức năng: gỡ lead/xóa deal hồi "contacted"; drawer game có bdNote + link; drawer member mở được', () => {
   const { run, getEl } = loadIndex();
   run(`S.leads.push({id:'lc2', name:'Conv Co', company:'c3', person:'P2', line:'ai', source:'', status:'converted', note:'', when:''});
        S.deals.push({id:'dc2', line:'ai', title:'Conv Deal', company:'c3', stage:'prospect', owner:'zac', due:'', idle:0, custom:{}, leads:['lc2'], amount:100, cur:'VND'});`);
   run("detachLeadFromDeal('lc2','dc2')");
-  assert.equal(run("S.leads.find(l=>l.id==='lc2').status"), 'qualified', 'gỡ lead khỏi deal cuối cùng phải hồi qualified');
+  assert.equal(run("S.leads.find(l=>l.id==='lc2').status"), 'contacted', 'gỡ lead khỏi deal cuối cùng phải hồi contacted');
   run("S.leads.find(l=>l.id==='lc2').status='converted'; S.deals.find(d=>d.id==='dc2').leads=['lc2']; performDeleteDeal('dc2');");
-  assert.equal(run("S.leads.find(l=>l.id==='lc2').status"), 'qualified', 'xóa deal phải hồi qualified cho lead mồ côi');
+  assert.equal(run("S.leads.find(l=>l.id==='lc2').status"), 'contacted', 'xóa deal phải hồi contacted cho lead mồ côi');
   run("openGame('g3')");
   const drawer = getEl('drawer').innerHTML;
   assert.ok(drawer.includes('studio 6 người ở Đà Nẵng'), 'drawer game phải hiện bdNote');
