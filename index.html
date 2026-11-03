@@ -210,7 +210,7 @@
   <div class="nav-heading">Không gian làm việc</div>
   <nav class="nav" id="nav" aria-label="Điều hướng chính"><button data-view="dash" class="on"><i data-icon="overview"></i><span>Tổng quan</span></button>
 <button data-view="board" class=""><i data-icon="pipeline"></i><span>Pipeline</span></button>
-<button data-view="companies" class=""><i data-icon="company"></i><span>Khách hàng</span></button>
+<button data-view="companies" class=""><i data-icon="company"></i><span>Công ty</span></button>
 <button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="events" class=""><i data-icon="meeting"></i><span>Sự kiện</span></button>
@@ -242,7 +242,7 @@
 </main>
 <nav class="mobile-nav" aria-label="Điều hướng trên điện thoại"><button data-view="dash" class="on" aria-label="Tổng quan"><i data-icon="overview"></i><span>Tổng quan</span></button>
 <button data-view="board" class="" aria-label="Pipeline"><i data-icon="pipeline"></i><span>Pipeline</span></button>
-<button data-view="companies" class="" aria-label="Khách hàng"><i data-icon="company"></i><span>Khách hàng</span></button>
+<button data-view="companies" class="" aria-label="Công ty"><i data-icon="company"></i><span>Công ty</span></button>
 <button data-view="games" class="" aria-label="Games"><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class="" aria-label="Leads"><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="events" class="" aria-label="Sự kiện"><i data-icon="meeting"></i><span>Sự kiện</span></button>
@@ -796,7 +796,7 @@ function render() {
   document.querySelectorAll(".audit-admin-only").forEach(el => { el.style.display = isAdminViewer() ? "" : "none"; });
   /* Mục nav "Import" hiện cho Admin + BD (isImportViewer), ẩn với vai khác — cùng mẫu gate theo vai của Lịch sử tổng. */
   document.querySelectorAll(".import-bd-only").forEach(el => { el.style.display = isImportViewer() ? "" : "none"; });
-  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Khách hàng & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
+  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Công ty & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
   const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
