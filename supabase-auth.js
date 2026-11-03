@@ -108,7 +108,10 @@
      <head>, trước khi <body> kịp vẽ khung hình đầu tiên) và gắn class
      'sava-optimistic' để auth.css giấu các thẻ đăng nhập/chặn. App render
      từ cache như bình thường; kiểm tra quyền + loadAll() vẫn chạy NGẦM ở
-     proceed(): sai lệch thì cập nhật tại chỗ, bị thu hồi thì đăng xuất.
+     proceed(): sai lệch thì cập nhật tại chỗ; CHỈ đăng xuất khi server
+     xác nhận rõ member bị ngừng hoạt động (active=false) — lỗi mạng /
+     phản hồi rỗng thoáng qua khi kiểm chứng thì GIỮ NGUYÊN phiên, xem
+     verifyIdentity() (Việc 2).
      THIẾU bất kỳ điều kiện nào -> optimisticBoot = null, luồng cổng cũ
      chạy nguyên vẹn (gồm đường reload-1-lần của bản vá vòng lặp).
      An toàn: quyết định mở-nhanh chỉ dựa trên dữ liệu VỐN ĐÃ có trên máy
@@ -522,8 +525,11 @@
     proceed(client, session);
   }
 
-  /* Kiểm chứng ngầm (đường mở-nhanh) phát hiện tài khoản bị thu hồi /
-     ngừng hoạt động / mất profile: ĐĂNG XUẤT THẬT + xoá mọi dấu vết
+  /* Kiểm chứng ngầm (đường mở-nhanh) phát hiện tài khoản bị NGỪNG
+     HOẠT ĐỘNG — trường hợp DUY NHẤT ở tầng kiểm chứng này được phép
+     ĐĂNG XUẤT THẬT: server trả về dòng member tồn tại với active=false
+     (xác nhận rõ, không phải lỗi/rỗng thoáng qua — xem
+     verifyIdentity() bên dưới). Đăng xuất thật + xoá mọi dấu vết
      mở-nhanh trên máy + khoá về màn hình đăng nhập kèm lý do. booted
      được hạ TRƯỚC khi signOut để sự kiện SIGNED_OUT không ghi đè
      thông điệp này bằng thông điệp hết phiên chung chung. */
@@ -535,6 +541,65 @@
     try { await client.auth.signOut(); } catch (e) {}
     try { sessionStorage.removeItem('sava_boot_hash'); } catch (e) {}
     showLogin(msg);
+  }
+
+  /* ---------- Kiểm chứng danh tính (profile + member) ----------
+     BẤT BIẾN (Việc 2 — Hoàng BD bị bắt đăng nhập lại mỗi lần vào lại):
+     một lần fetch LỖI (mạng chập / error trả về / throw) hoặc trả RỖNG
+     thoáng qua lúc kiểm chứng KHÔNG BAO GIỜ là bằng chứng thu hồi
+     quyền, và KHÔNG BAO GIỜ được dẫn tới signOut. Trước đây đường
+     mở-nhanh diễn giải cả hai thành "bị thu hồi" rồi signOut() thật —
+     xoá luôn phiên Supabase trong localStorage — nên hễ lần vào lại
+     nào kiểm chứng ngầm chập là người dùng mất phiên vĩnh viễn và lần
+     sau phải đăng nhập lại từ đầu; đường cổng đầy đủ không signOut
+     trong các trường hợp này nên lỗi chỉ trúng người đã đủ điều kiện
+     mở-nhanh.
+     verifyIdentity() vì vậy:
+       - thử lại tối đa 3 lần (trễ 400ms rồi 1200ms) trước khi kết
+         luận, để lỗi/rỗng thoáng qua tự hồi ngay trong cùng lần mở;
+       - phân loại kết quả thành đúng 4 loại:
+           'ok'       — có profile + member, member.active = true;
+           'inactive' — server trả dòng member TỒN TẠI với
+                        active = false: xác nhận RÕ bị ngừng — đây là
+                        kết quả duy nhất được phép signOut (ở proceed);
+           'unlinked' — các lần thử đều THÀNH CÔNG về mặt truy vấn
+                        nhưng không có profile/member: khoá app bằng
+                        màn hình chặn như cổng đầy đủ, GIỮ NGUYÊN
+                        phiên (không signOut) — nếu là rỗng thoáng qua
+                        thì lần mở sau tự vào lại, không phải đăng
+                        nhập lại;
+           'error'    — lần thử cuối vẫn lỗi: KHÔNG kết luận gì về
+                        quyền; giữ nguyên phiên (xử lý ở proceed). */
+  const VERIFY_RETRY_DELAYS_MS = [400, 1200];
+  function verifyDelay(ms) { return new Promise(r => setTimeout(r, ms)); }
+  async function fetchIdentityOnce(client, userId) {
+    const pr = await client.from('profiles').select('id,member_id,email').eq('id', userId).maybeSingle();
+    if (pr.error) throw pr.error;
+    const profile = pr.data || null;
+    let member = null;
+    if (profile && profile.member_id) {
+      const mr = await client.from('members').select('id,name,role,active').eq('id', profile.member_id).maybeSingle();
+      if (mr.error) throw mr.error;
+      member = mr.data || null;
+    }
+    return { profile, member };
+  }
+  async function verifyIdentity(client, userId) {
+    let lastError = null, lastEmpty = null, lastWasError = false;
+    for (let attempt = 0; attempt <= VERIFY_RETRY_DELAYS_MS.length; attempt++) {
+      if (attempt > 0) await verifyDelay(VERIFY_RETRY_DELAYS_MS[attempt - 1]);
+      try {
+        const r = await fetchIdentityOnce(client, userId);
+        if (r.profile && r.member) {
+          return r.member.active
+            ? { status: 'ok', profile: r.profile, member: r.member }
+            : { status: 'inactive', profile: r.profile, member: r.member };
+        }
+        lastEmpty = r; lastWasError = false;
+      } catch (e) { lastError = e; lastWasError = true; }
+    }
+    if (lastWasError) return { status: 'error', error: lastError };
+    return { status: 'unlinked', profile: lastEmpty ? lastEmpty.profile : null, member: null };
   }
 
   async function proceed(client, session) {
@@ -559,27 +624,49 @@
       if (inf) inf.textContent = ci.name + ' · ' + (ROLE_LABEL[ci.role] || ci.memberRole || ci.role);
       if (ub) ub.classList.remove('sava-hidden');
     }
-    let profile = null, member = null;
-    try {
-      const pr = await client.from('profiles').select('id,member_id,email').eq('id', session.user.id).maybeSingle();
-      if (pr.error) throw pr.error;
-      profile = pr.data;
-      if (profile && profile.member_id) {
-        const mr = await client.from('members').select('id,name,role,active').eq('id', profile.member_id).maybeSingle();
-        if (mr.error) throw mr.error;
-        member = mr.data;
+    const verdict = await verifyIdentity(client, session.user.id);
+    const profile = verdict.profile, member = verdict.member;
+    if (verdict.status === 'error') {
+      /* Không đọc được thông tin phân quyền dù đã thử lại: KHÔNG suy
+         ra thu hồi, KHÔNG signOut ở cả hai đường (xem verifyIdentity).
+         - Cổng đầy đủ: màn hình chặn như cũ, phiên giữ nguyên.
+         - Mở-nhanh: app vốn đang hiện từ cache trên máy — giữ nguyên
+           như vậy (đúng triết lý đường mất mạng của loadAll bên dưới),
+           đồng bộ ghi TẮT vì chưa có kiểm chứng + snapshot máy chủ,
+           phiên giữ nguyên để lần mở sau kiểm chứng lại. */
+      if (!optimistic) {
+        showBlocked('Không đọc được thông tin phân quyền từ máy chủ (' + ((verdict.error && verdict.error.message) || verdict.error) + '). Thử tải lại trang; nếu vẫn lỗi, liên hệ quản trị.');
+        return;
       }
-    } catch (e) {
-      if (optimistic) { await forceSignOutToLogin(client, 'Không đọc được thông tin phân quyền từ máy chủ (' + (e.message || e) + '). Đã đăng xuất để an toàn — đăng nhập lại để tiếp tục.'); return; }
-      showBlocked('Không đọc được thông tin phân quyền từ máy chủ (' + (e.message || e) + '). Thử tải lại trang; nếu vẫn lỗi, liên hệ quản trị.');
+      if (window.SavaData && typeof window.SavaData.attach === 'function') {
+        try {
+          window.SavaData.attach(client, optimisticBoot.identity.role);
+          window.SavaData.installHook();
+          window.SavaData.setEnabled(false);
+        } catch (e) {}
+      }
+      unlock();
+      showCard('none');
+      try { document.documentElement.classList.remove('sava-optimistic'); } catch (e) {}
+      const ubErr = $('savaUserBar'); if (ubErr) ubErr.classList.remove('sava-hidden');
+      showNotice('Chưa kiểm chứng được quyền truy cập với máy chủ (có thể do mạng chập chờn). Bạn vẫn đang đăng nhập và đang xem dữ liệu đã lưu trên máy này; thay đổi lúc này CHƯA được đồng bộ. Tải lại trang khi mạng ổn định để kiểm chứng lại.');
       return;
     }
-    if (!profile || !member) {
-      if (optimistic) { await forceSignOutToLogin(client, 'Tài khoản này không còn được gắn với thành viên nào trong CRM nên đã bị đăng xuất. Liên hệ quản trị (Zac) để được gắn lại rồi đăng nhập.'); return; }
+    if (verdict.status === 'unlinked') {
+      /* Truy vấn thành công nhưng không thấy profile/member sau các
+         lần thử lại: khoá app bằng màn hình chặn NHƯ CỔNG ĐẦY ĐỦ và
+         GIỮ NGUYÊN phiên — không signOut (rỗng vẫn có thể là thoáng
+         qua ở tầng dữ liệu; tài khoản thật sự chưa gắn thì lần nào
+         vào cũng gặp màn hình chặn này, không mất gì thêm). Riêng
+         dấu mở-nhanh bị xoá vì danh tính lưu trên máy không còn đáng
+         tin cho lần mở sau — lần mở sau đi cổng đầy đủ. */
+      if (optimistic) clearBootCaches();
       showBlocked('Tài khoản này chưa được gắn với thành viên nào trong CRM nên chưa xem được dữ liệu. Liên hệ quản trị (Zac) để được gắn tài khoản với đúng thành viên rồi đăng nhập lại.');
       return;
     }
-    if (!member.active) {
+    if (verdict.status === 'inactive') {
+      /* Server xác nhận RÕ: dòng member tồn tại và active=false —
+         trường hợp duy nhất signOut ở đường mở-nhanh. */
       if (optimistic) { await forceSignOutToLogin(client, 'Tài khoản của ' + member.name + ' đã bị ngừng hoạt động trong CRM nên đã bị đăng xuất. Liên hệ quản trị (Zac) nếu cần mở lại.'); return; }
       showBlocked('Tài khoản của ' + member.name + ' đã bị ngừng hoạt động trong CRM nên không còn quyền truy cập dữ liệu. Liên hệ quản trị (Zac) nếu cần mở lại.');
       return;

@@ -112,7 +112,11 @@ test('auth: BD mở mkt.html -> chuyển về index.html', async () => {
 
 test('auth: tài khoản chưa gắn member -> màn hình chặn có lý do', async () => {
   const h = loadAuth({ session: user('u-x'), profile: null, member: null });
-  await tick();
+  /* Kiểm chứng danh tính nay THỬ LẠI trước khi kết luận "chưa gắn"
+     (Việc 2: phản hồi rỗng thoáng qua không được tính là thu hồi) —
+     chờ có điều kiện tới khi màn hình chặn hiện thay vì 1 tick cố định;
+     các khẳng định về hành vi không đổi. */
+  for (let i = 0; i < 100 && h.els.savaBlockedCard.classList.contains('sava-hidden'); i++) await tick();
   assert.equal(h.docClasses.has('sava-locked'), true);
   assert.equal(h.els.savaBlockedCard.classList.contains('sava-hidden'), false);
   assert.match(h.els.savaBlockedMsg.textContent, /chưa được gắn với thành viên/);
