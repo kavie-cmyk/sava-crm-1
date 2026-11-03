@@ -467,6 +467,37 @@ function sortIndicator(state, key) {
 }
 const SavaSort = { KEYS: SORT_KEYS, DEFAULT_DIR: SORT_DEFAULT_DIR, fold: sortFold, timeOf: sortTimeOf, amountOf: sortAmountOf, sortItems, next: nextSortState, indicator: sortIndicator };
 if (typeof window !== "undefined") { window.SavaSort = SavaSort; }
+/* === Phân trang danh sách (Việc 8) — window.SavaPager: logic THUẦN dùng chung ===
+   MỘT cơ chế phân trang duy nhất cho mọi danh sách dài, tách từ mẫu chuẩn
+   đã live ở view Lead dạng Block (LEAD_BLOCK_PAGE_SIZE = 10, pager
+   Trước/Sau + dòng "Trang X/Y · Đang hiện A–B / N mục", ẩn khi ≤1 trang):
+   - PAGE_SIZE mặc định 10 mục/trang cho mọi list (phẳng lẫn theo block).
+   - pagerInfo(total, page): KẸP trang yêu cầu về [1, totalPages] — tập
+     đã lọc/sort co lại thì trang sâu tự về trang cuối hợp lệ, không bao
+     giờ trả trang trống khi total > 0. from/to là vị trí 1-based của
+     mục đầu/cuối trang trong tập ĐÃ LỌC + ĐÃ SORT: STT liên tục qua các
+     trang = from + chỉ số trong trang (Việc 6: sort trước, phân trang sau).
+   - THUẦN tuyệt đối: không mutate mảng/bản ghi, không đọc/ghi kho, không
+     đóng dấu updatedAt, không sinh lịch sử — trạng thái trang/đóng-mở
+     sống ở UI-state trong phiên của từng trang (index.html/publishing.js). */
+const LIST_PAGE_SIZE = 10;
+function pagerInfo(total, page, size) {
+  const n = Math.max(0, Math.floor(Number(total) || 0));
+  const sz = Math.max(1, Math.floor(Number(size) || LIST_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(n / sz));
+  let p = Math.floor(Number(page) || 1);
+  if (p > totalPages) p = totalPages;
+  if (p < 1) p = 1;
+  const start = (p - 1) * sz;
+  return { page: p, totalPages, total: n, size: sz, start, from: n ? start + 1 : 0, to: Math.min(start + sz, n) };
+}
+function pagerSlice(items, page, size) {
+  const list = Array.isArray(items) ? items : [];
+  const info = pagerInfo(list.length, page, size);
+  return { info, pageItems: list.slice(info.start, info.start + info.size) };
+}
+const SavaPager = { PAGE_SIZE: LIST_PAGE_SIZE, info: pagerInfo, slice: pagerSlice };
+if (typeof window !== "undefined") { window.SavaPager = SavaPager; }
 /* === Partner Eval hợp nhất (khung file 2 — Publishing Partner Selection) ===
    Implementation Partner DUY NHẤT dùng chung cho BD (drawer công ty trong
    index.html), module Publishing (adapter trong publishing-score.js) và bridge.

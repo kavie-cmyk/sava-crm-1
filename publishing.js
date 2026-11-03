@@ -16,6 +16,30 @@
   function setReviewSort(key) { if (typeof window !== 'undefined' && window.SavaSort) reviewSort = window.SavaSort.next(reviewSort, key); renderReviews(); }
   /* Hook đọc/đặt trạng thái sort cho test (cùng mẫu hook hiệu lực sẵn có của module). */
   try { window.SavaReviewSort = { get: () => reviewSort, set: setReviewSort }; } catch {}
+  /* Việc 8: phân trang danh sách REQUEST + bảng THỊ TRƯỜNG — DÙNG LẠI
+     window.SavaPager (shared.js, cùng mẫu Lead Block 10 mục/trang của
+     CRM BD): sort áp TRƯỚC phân trang, STT (ở thẻ request) chạy LIÊN
+     TỤC qua các trang theo thứ tự sau lọc + sort (info.start + idx + 1).
+     Trạng thái trang là UI-state thuần trong phiên: đổi bộ lọc/tìm
+     kiếm/sort (request) hoặc nhóm/tìm kiếm (thị trường) -> về trang 1
+     qua chữ ký bộ lọc; tập co lại -> SavaPager.info kẹp về trang cuối
+     hợp lệ. setReviewPage/setMarketPage CHỈ render lại — không ghi
+     lại kho, không đổi updatedAt, không sinh audit (như setReviewSort). */
+  const reviewPagerState = { sig: null, page: 1 }, marketPagerState = { sig: null, page: 1 };
+  function setReviewPage(p) { reviewPagerState.page = p; renderReviews(); }
+  function setMarketPage(p) { marketPagerState.page = p; renderMarket(); }
+  try { window.SavaReviewPager = { get: () => reviewPagerState.page, set: setReviewPage }; window.SavaMarketPager = { get: () => marketPagerState.page, set: setMarketPage }; } catch {}
+  function pubPagerHTML(info, noun, action) {
+    if (!info || info.totalPages <= 1) return '';
+    return `<div class="list-pager" style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap"><button class="btn" data-action="${action}" data-page="${info.page - 1}" ${info.page <= 1 ? 'disabled' : ''}>← Trước</button><span class="mut">Trang ${info.page}/${info.totalPages} · Đang hiện ${info.from}–${info.to} / ${info.total} ${esc(noun)}</span><button class="btn" data-action="${action}" data-page="${info.page + 1}" ${info.page >= info.totalPages ? 'disabled' : ''}>Sau →</button></div>`;
+  }
+  function pubPageSlice(items, sig, sigObj) {
+    if (sigObj.sig !== sig) { sigObj.sig = sig; sigObj.page = 1; }
+    const P = (typeof window !== 'undefined' && window.SavaPager) || null;
+    const out = P ? P.slice(items, sigObj.page) : { info: { page: 1, totalPages: 1, total: items.length, start: 0, from: items.length ? 1 : 0, to: items.length }, pageItems: items.slice() };
+    sigObj.page = out.info.page;
+    return out;
+  }
   function reviewSortBarHTML() {
     const SS = (typeof window !== 'undefined' && window.SavaSort) || null;
     const btn = (key, label) => {
@@ -922,11 +946,17 @@
   }
   function renderMarket() {
     const rows=observations().filter(r=>(category==='all'||r.category===category)&&(!query||(r.name+' '+r.category).toLowerCase().includes(query)));
+    /* Việc 8: BẢNG mechanic phân trang 10 dòng/trang (đổi nhóm/tìm kiếm
+       -> trang 1); phần trực quan (marketVisualsHTML) vẫn tính trên TOÀN
+       tập đã lọc như cũ — chỉ bảng chi tiết ở dưới mới chia trang. */
+    const marketSlice = pubPageSlice(rows, category + '|' + query, marketPagerState);
+    const pageRows = marketSlice.pageItems, marketPageInfo = marketSlice.info;
     const visuals=marketVisualsHTML(rows);
     $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Snapshot Puzzle · 15/08/2026</span><span class="badge">Snapshot Simulation · 25/08/2026</span><span class="badge">US · Google Play + iOS</span></div><button class="btn primary" data-action="market-new">+ Thêm quan sát thị trường</button></div>
     <div class="metrics"><div class="metric"><small>Mechanic / nhóm đang xem</small><strong>${rows.length}</strong><span>${category==='all'?'Hai snapshot khác phạm vi':esc(category)}</span></div><div class="metric"><small>Nhóm có benchmark CPI</small><strong>${rows.filter(r=>r.cpi?.median!=null).length}</strong><span>Android · paid installs · May–Jul 2026</span></div><div class="metric"><small>Quyền cập nhật nghiệp vụ</small><strong>BD + MKT</strong><span>Cùng thêm và bổ sung dữ liệu nguồn</span></div></div>
     ${visuals}<section class="panel"><div class="row"><h3>Quy mô, cạnh tranh & tín hiệu tăng trưởng</h3><span class="mut">Chọn mechanic để xem nguồn và benchmark</span></div><div class="tools"><input id="marketSearch" type="search" aria-label="Tìm mechanic" placeholder="Tìm mechanic…" value="${esc(query)}"><select id="category" aria-label="Nhóm thị trường">${options([['Puzzle','Puzzle'],['Simulation','Simulation'],['all','Tất cả nhóm']],category)}</select></div>
-    <div class="table-scroll"><table><thead><tr><th>Mechanic / nhóm</th><th>Ngày / phạm vi</th><th class="numeric">DL / ngày</th><th class="numeric">Revenue / ngày</th><th class="numeric">Top 3 rev.</th><th class="numeric">Rev. growth 3M</th><th class="numeric">CPI median</th></tr></thead><tbody>${rows.map(r=>`<tr><td><button class="link-button" data-market="${esc(r.id)}">${esc(r.name)}</button><div class="mut">${esc(r.category)}</div></td><td>${esc(r.date)}<div class="mut">${esc(r.geo)}</div>${r.at&&pubShortDate(r.at)?`<div class="mut" title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.at))}</div>`:''}</td><td class="numeric">${num(r.downloads)}</td><td class="numeric">${usd(r.revenue)}</td><td class="numeric">${pct(r.top3)}</td><td class="numeric">${pct(r.history?.revGrowth3)}</td><td class="numeric">${usd(r.cpi?.median)}</td></tr>`).join('')||'<tr><td colspan="7">Không có mechanic khớp bộ lọc.</td></tr>'}</tbody></table></div>
+    <div class="table-scroll"><table><thead><tr><th>Mechanic / nhóm</th><th>Ngày / phạm vi</th><th class="numeric">DL / ngày</th><th class="numeric">Revenue / ngày</th><th class="numeric">Top 3 rev.</th><th class="numeric">Rev. growth 3M</th><th class="numeric">CPI median</th></tr></thead><tbody>${pageRows.map(r=>`<tr><td><button class="link-button" data-market="${esc(r.id)}">${esc(r.name)}</button><div class="mut">${esc(r.category)}</div></td><td>${esc(r.date)}<div class="mut">${esc(r.geo)}</div>${r.at&&pubShortDate(r.at)?`<div class="mut" title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.at))}</div>`:}</td><td class="numeric">${num(r.downloads)}</td><td class="numeric">${usd(r.revenue)}</td><td class="numeric">${pct(r.top3)}</td><td class="numeric">${pct(r.history?.revGrowth3)}</td><td class="numeric">${usd(r.cpi?.median)}</td></tr>`).join('')||'<tr><td colspan="7">Không có mechanic khớp bộ lọc.</td></tr>'}</tbody></table></div>${pubPagerHTML(marketPageInfo, 'mechanic', 'market-page')}
+
     <p class="source-text">Nguồn: ${esc(DATA.source)} · 4 sheet thị trường được chọn. Puzzle: Top100 snapshot; lịch sử chỉ cohort có dữ liệu. Simulation: nhóm tag còn cần gameplay QA. Growth 3M = May–Jul so với Feb–Apr 2026, không phải biến động của daily snapshot. Dấu “—” là thiếu dữ liệu, không phải 0. Không tính LTV từ revenue/download.</p></section>`;
   }
   function marketDetail(id) {
@@ -987,7 +1017,10 @@
     const rows=(typeof window !== 'undefined' && window.SavaSort && reviewSort.key)
       ? window.SavaSort.sortItems(filteredRows, reviewSort, { name: r => label(entity(s, r.kind, r.entityId)) })
       : filteredRows;
-    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc trạng thái">${options([['all','Tất cả trạng thái'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select><select id="reviewKindFilter" aria-label="Lọc loại hồ sơ">${options([['all','Tất cả loại'],['company','Company'],['game','Game']],reviewKindFilter)}</select></div>${reviewSortBarHTML()}<div class="card-grid">${rows.map((r,ri)=>{
+    /* Việc 8: phân trang SAU lọc + sort; đổi lọc/tìm kiếm/sort -> trang 1. */
+    const reviewSlice = pubPageSlice(rows, reviewFilter + '|' + reviewKindFilter + '|' + query + '|' + reviewSort.key + ':' + reviewSort.dir, reviewPagerState);
+    const pageRows = reviewSlice.pageItems, reviewPageInfo = reviewSlice.info;
+    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc trạng thái">${options([['all','Tất cả trạng thái'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select><select id="reviewKindFilter" aria-label="Lọc loại hồ sơ">${options([['all','Tất cả loại'],['company','Company'],['game','Game']],reviewKindFilter)}</select></div>${reviewSortBarHTML()}<div class="card-grid">${pageRows.map((r,ri)=>{
       const en=entity(s,r.kind,r.entityId),v=r.current||{};
       const isCo=r.kind==='company';
       const eff=isCo?null:effectiveGameResult(r);
@@ -995,8 +1028,8 @@
       const rec=isCo?res.recommendation:eff.recommendation;
       const value=isCo?res.total:eff.final;
       const valueLabel=isCo?'Partner Fit (company)':eff.label;
-      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / ĐÁNH GIÁ PARTNER':'GAME / SẢN PHẨM'}</span>${badge(r.status)}<span class="mut list-stt">#${ri+1}</span></div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${fmtFinalScore(value)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${pubShortDate(r.updatedAt)?` · <span title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.updatedAt))}</span>`:''}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
-    }).join('')||`<div class="panel empty full"><h3>${data.requests.length?'Không có hồ sơ khớp bộ lọc':'Chưa có yêu cầu đánh giá'}</h3><p class="mut">${role==='bd'?'Chọn company hoặc game đã có trong CRM để giao MKT đánh giá.':'BD gửi yêu cầu company hoặc game từ CRM; hàng chờ sẽ xuất hiện tại đây.'}</p></div>`}</div>`;
+      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / ĐÁNH GIÁ PARTNER':'GAME / SẢN PHẨM'}</span>${badge(r.status)}<span class="mut list-stt">#${reviewPageInfo.start + ri + 1}</span></div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${fmtFinalScore(value)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${pubShortDate(r.updatedAt)?` · <span title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.updatedAt))}</span>`:''}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
+    }).join('')||`<div class="panel empty full"><h3>${data.requests.length?'Không có hồ sơ khớp bộ lọc':'Chưa có yêu cầu đánh giá'}</h3><p class="mut">${role==='bd'?'Chọn company hoặc game đã có trong CRM để giao MKT đánh giá.':'BD gửi yêu cầu company hoặc game từ CRM; hàng chờ sẽ xuất hiện tại đây.'}</p></div>`}</div>${pubPagerHTML(reviewPageInfo, 'yêu cầu', 'review-page')}`;
   }
   /* A14 (FIX-3): option hồ sơ trong picker yêu cầu đánh giá — game đối tác
      kèm tên STUDIO SỞ HỮU để BD chọn đúng ngữ cảnh; game của Sava giữ dấu
@@ -1273,6 +1306,8 @@
     try {
       if(b.hasAttribute('data-close')){closeDialog();return;}
       if(b.dataset.action==='review-sort'){setReviewSort(b.dataset.sortKey);return;}
+      if(b.dataset.action==='review-page'){setReviewPage(Number(b.dataset.page));return;}
+      if(b.dataset.action==='market-page'){setMarketPage(Number(b.dataset.page));return;}
       if(b.dataset.tab){tab=b.dataset.tab;query='';const url=new URL(location.href);url.searchParams.set('tab',tab);url.searchParams.delete('kind');url.searchParams.delete('id');history.replaceState(null,'',url);render();return;}
       if(b.dataset.market){marketDetail(b.dataset.market);return;}
       if(b.dataset.deleteRequest){deleteRequest(b.dataset.deleteRequest);return;}

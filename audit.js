@@ -69,18 +69,54 @@
   function sectionHTML(entityType, entityId) {
     return `<section class="audit-history" data-audit-for="${escHtml(entityType)}:${escHtml(entityId)}"><h3 style="margin:18px 0 8px">🕘 Lịch sử chỉnh sửa</h3><div class="audit-list"><p class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Đang tải lịch sử…</p></div></section>`;
   }
+  /* Việc 8: phân trang mục lịch sử trong drawer — 10 mục/trang theo
+     ĐÚNG mẫu pager dùng chung (window.SavaPager của shared.js; vắng
+     SavaPager thì tự kẹp/chia tại chỗ, hành vi không đổi). Trạng thái
+     trang là UI-state trong phiên theo từng đối tượng (auditPages),
+     THUẦN hiển thị: chuyển trang chỉ ĐỌC LẠI + dựng lại, không ghi gì. */
+  const AUDIT_PAGE_SIZE = 10;
+  const auditPages = {};
+  let auditLastState = null;
+  function auditPageInfo(total, page) {
+    const P = (typeof window !== 'undefined' && window.SavaPager) || null;
+    if (P && typeof P.info === 'function') return P.info(total, page, AUDIT_PAGE_SIZE);
+    const totalPages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
+    let p = Math.floor(Number(page) || 1);
+    if (p > totalPages) p = totalPages;
+    if (p < 1) p = 1;
+    const start = (p - 1) * AUDIT_PAGE_SIZE;
+    return { page: p, totalPages, total, start, from: total ? start + 1 : 0, to: Math.min(start + AUDIT_PAGE_SIZE, total) };
+  }
+  function auditPagerHTML(entityType, entityId, info) {
+    if (!info || info.totalPages <= 1) return '';
+    const dis = (cond) => cond ? ' disabled' : '';
+    return `<div class="list-pager" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button type="button" class="btn ghost small" onclick="window.SavaAuditUI.goPage('${entityType}','${entityId}',${info.page - 1})"${dis(info.page <= 1)}>← Trước</button><span class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Trang ${info.page}/${info.totalPages} · Đang hiện ${info.from}–${info.to} / ${info.total} mục</span><button type="button" class="btn ghost small" onclick="window.SavaAuditUI.goPage('${entityType}','${entityId}',${info.page + 1})"${dis(info.page >= info.totalPages)}>Sau →</button></div>`;
+  }
+  function goPage(entityType, entityId, page) {
+    auditPages[entityType + ':' + entityId] = page;
+    try {
+      const doc = (typeof document !== 'undefined') ? document : null;
+      const sec = doc && doc.querySelector ? doc.querySelector('.audit-history') : null;
+      const root = sec && sec.parentElement ? sec.parentElement : (doc ? doc.body : null);
+      if (root) loadInto(root, auditLastState, entityType, entityId);
+    } catch (e) {}
+  }
   /* Đọc lịch sử của đúng 1 đối tượng rồi đổ vào section đã render.
      Lỗi/bảng chưa có -> trạng thái nhẹ nhàng, không ném lỗi ra ngoài. */
   async function loadInto(rootEl, state, entityType, entityId) {
     try {
       const box = rootEl && rootEl.querySelector ? rootEl.querySelector('.audit-history .audit-list') : null;
       if (!box) return;
+      auditLastState = state;
       const api = (typeof window !== 'undefined' && window.SavaAudit) || null;
       if (!api || typeof api.listFor !== 'function') { box.innerHTML = '<p class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Lịch sử chưa khả dụng.</p>'; return; }
       const rows = await api.listFor(entityType, entityId);
       if (!Array.isArray(rows)) { box.innerHTML = '<p class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Lịch sử chưa khả dụng.</p>'; return; }
       if (!rows.length) { box.innerHTML = '<p class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Chưa có lịch sử chỉnh sửa.</p>'; return; }
-      box.innerHTML = rows.map(r => entryHTML(state, r)).join('');
+      const key = entityType + ':' + entityId;
+      const info = auditPageInfo(rows.length, auditPages[key] || 1);
+      auditPages[key] = info.page;
+      box.innerHTML = rows.slice(info.start, info.start + AUDIT_PAGE_SIZE).map(r => entryHTML(state, r)).join('') + auditPagerHTML(entityType, entityId, info);
     } catch (e) {
       try {
         const box = rootEl && rootEl.querySelector ? rootEl.querySelector('.audit-history .audit-list') : null;
@@ -88,7 +124,7 @@
       } catch (e2) {}
     }
   }
-  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, byLabel, ACTION_LABELS };
+  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, byLabel, ACTION_LABELS, goPage };
   if (typeof window !== 'undefined') window.SavaAuditUI = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

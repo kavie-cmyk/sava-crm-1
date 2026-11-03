@@ -838,6 +838,57 @@ function sortBarHTML(scope, opts) {
   return `<div class="sort-bar"><span class="mut">↕ Sắp xếp:</span>${btn("name", "Tên")}${btn("updated", "Cập nhật cuối")}${o.amount ? btn("amount", "Giá trị deal") : ""}</div>`;
 }
 
+/* ===== Phân trang + thu gọn/mở rộng cho MỌI danh sách dài (Việc 8) =====
+   DÙNG LẠI ĐÚNG mẫu chuẩn của view Lead dạng Block (khối ngay dưới đây:
+   LEAD_BLOCK_PAGE_SIZE = 10, leadBlockPageInfo/leadBlockPagerHTML —
+   leadBlockPageInfo nay uỷ quyền phép kẹp/chia trang cho SavaPager):
+   logic chia trang THUẦN nằm ở window.SavaPager (shared.js); khối này
+   chỉ giữ UI-STATE trong phiên + dựng HTML pager dùng chung:
+   - listPageState[key] = trang đang xem (1-based); listCollapsedState[key]
+     = true khi block/nhóm đang thu gọn (đóng chỉ còn header + tổng số).
+   - Cả hai là STATE HIỂN THỊ THUẦN: không nằm trong S, không qua save(),
+     không ghi localStorage, không đóng dấu updatedAt, không sinh lịch
+     sử — setListPage/toggleListBlock CHỈ render() lại (+ dựng lại drawer
+     đang mở qua refreshDrawer() khi thao tác ở list trong drawer).
+   - Đổi bộ lọc/tìm kiếm/SORT -> scope về trang 1 (đóng/mở giữ nguyên):
+     mỗi view gọi pagerSyncFilter(scope, sig) với chữ ký lọc+sort của
+     mình; sig đổi thì xoá trang của mọi key thuộc scope đó.
+   - Trang vượt tổng số trang mới (list co lại) -> SavaPager.info KẸP về
+     trang cuối hợp lệ ngay khi render, không hiện trang trống.
+   - Sort (Việc 6) luôn áp TRƯỚC phân trang; STT = info.from + idx nên
+     chạy LIÊN TỤC qua các trang theo thứ tự sau lọc + sort. */
+function listPageSize() { return (window.SavaPager && window.SavaPager.PAGE_SIZE) || 10; }
+let listPageState = {};
+let listCollapsedState = {};
+let listFilterSigs = {};
+function pagerSyncFilter(scope, sig) {
+  if (listFilterSigs[scope] === sig) return;
+  listFilterSigs[scope] = sig;
+  Object.keys(listPageState).forEach(k => { if (k === scope || k.startsWith(scope + ":")) delete listPageState[k]; });
+}
+function listPageInfo(key, total) {
+  const info = window.SavaPager ? window.SavaPager.info(total, listPageState[key] || 1, listPageSize()) : { page: 1, totalPages: 1, total: total || 0, start: 0, from: total ? 1 : 0, to: total || 0 };
+  listPageState[key] = info.page;
+  return info;
+}
+function listPageSlice(key, items) {
+  const list = Array.isArray(items) ? items : [];
+  const info = listPageInfo(key, list.length);
+  return { info, pageItems: list.slice(info.start, info.start + listPageSize()) };
+}
+function listPagerHTML(key, info, noun, setter) {
+  if (!info || info.totalPages <= 1) return "";
+  const fn = setter || "setListPage";
+  return `<div class="list-pager lead-block-pager" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button class="btn ghost small" onclick="${fn}('${key}', ${info.page - 1})" ${info.page <= 1 ? "disabled" : ""}>← Trước</button><span class="mut">Trang ${info.page}/${info.totalPages} · Đang hiện ${info.from}–${info.to} / ${info.total} ${esc(noun || "mục")}</span><button class="btn ghost small" onclick="${fn}('${key}', ${info.page + 1})" ${info.page >= info.totalPages ? "disabled" : ""}>Sau →</button></div>`;
+}
+function setListPage(key, page) { listPageState[key] = page; render(); if (drawerCtx) refreshDrawer(); }
+function toggleListBlock(key) { listCollapsedState[key] = !listCollapsedState[key]; render(); if (drawerCtx) refreshDrawer(); }
+/* Pager riêng cho Lịch sử tổng: danh sách nằm trong #auditHistoryList do
+   loadAuditHistory() nạp bất đồng bộ — chuyển trang/đóng-mở CHỈ nạp lại
+   đúng khối đó, không render lại toàn view. Key đã mang tiền tố "audit:". */
+function setAuditHistPage(key, page) { listPageState[key] = page; loadAuditHistory(); }
+function toggleAuditHistBlock(key) { listCollapsedState[key] = !listCollapsedState[key]; loadAuditHistory(); }
+
 function render() {
   lineTabs();
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === curView));
@@ -1106,9 +1157,12 @@ function relatedTaskRow(t) {
 function relatedTasksHTML(type, id) {
   const meta = TASK_LINK_META[type]; if (!meta) return "";
   const list = tasksForLink(type, id);
+  /* Việc 8: phân trang 10 việc/trang ngay trong drawer (key theo đúng
+     đối tượng đang xem nên mỗi drawer giữ trang riêng trong phiên). */
+  const { info, pageItems } = listPageSlice("tasks:" + type + ":" + id, list);
   return `<h3 style="margin:18px 0 8px">✅ Việc liên quan (${list.length})</h3>
     <div style="margin-bottom:8px"><button class="btn" onclick="editTask(null,'${type}','${id}')">+ Thêm việc</button></div>
-    ${list.length ? list.map(relatedTaskRow).join("") : `<div class="mut">Chưa có việc nào gắn với ${esc(meta.noun.toLowerCase())} này — bấm "+ Thêm việc" ở trên để tạo việc ngay tại đây.</div>`}`;
+    ${list.length ? pageItems.map(relatedTaskRow).join("") + listPagerHTML("tasks:" + type + ":" + id, info, "việc") : `<div class="mut">Chưa có việc nào gắn với ${esc(meta.noun.toLowerCase())} này — bấm "+ Thêm việc" ở trên để tạo việc ngay tại đây.</div>`}`;
 }
 function taskRow(t, stt) {
   const d = S.deals.find(x => x.id === t.deal);
@@ -1158,7 +1212,11 @@ function drop(e, line, stage) {
 function vCompanies() {
   const filteredCompanies = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query)));
   const sortedCompanies = applyListSort("companies", filteredCompanies, c => c.name || "");
-  const rows = sortedCompanies.map((c, idx) => {
+  /* Việc 8: sort TRƯỚC, phân trang SAU (10/trang); đổi lọc/sort -> trang 1;
+     STT = info.from + idx nên liên tục qua các trang. */
+  pagerSyncFilter("companies", curLine + "|" + query + "|" + JSON.stringify(listSortState("companies")));
+  const { info: compPageInfo, pageItems: pageCompanies } = listPageSlice("companies", sortedCompanies);
+  const rows = pageCompanies.map((c, pIdx) => { const idx = compPageInfo.start + pIdx;
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     /* D3: roles có key lạ (không có trong LINES) -> nhãn thô + màu trung tính, không crash */
     const roleChips = Object.entries(c.roles || {}).map(([k,r]) => `<span class="chip" style="background:${lineColor(k)}">${esc(lineName(k))}: ${esc(r)}</span>`).join("");
@@ -1169,14 +1227,17 @@ function vCompanies() {
      "all") — cùng quy ước nhận biết "đang lọc" của vLeads. */
   const filteringCompanies = !!query || curLine !== "all";
   const emptyCompaniesMsg = filteringCompanies ? "Không có công ty nào khớp tìm kiếm hiện tại." : "Chưa có công ty nào.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("companies", "name", "Công ty")}<th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th>${sortThHTML("companies", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="7" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("companies", "name", "Công ty")}<th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th>${sortThHTML("companies", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="7" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>${listPagerHTML("companies", compPageInfo, "công ty")}
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 
 function vGames() {
   const show = S.games.filter(g => (curLine==="all" || (curLine==="game_studio" && g.own==="ours") || (curLine==="publishing" && g.own==="partner")) && (!query || (g.title + " " + g.genre).toLowerCase().includes(query)));
   const sortedGames = applyListSort("games", show, g => g.title || "");
-  const cards = sortedGames.map((g, idx) => {
+  /* Việc 8: phân trang thẻ game 10/trang sau sort; STT liên tục qua trang. */
+  pagerSyncFilter("games", curLine + "|" + query + "|" + JSON.stringify(listSortState("games")));
+  const { info: gamePageInfo, pageItems: pageGames } = listPageSlice("games", sortedGames);
+  const cards = pageGames.map((g, pIdx) => { const idx = gamePageInfo.start + pIdx;
     /* Chỉ đếm deal mà game HIỂN THỊ được theo mảng (dealVisibleGame) —
        liên kết game giữ ẩn của deal đã đổi sang mảng khác không tính. */
     const deals = S.deals.filter(d => { const vg = dealVisibleGame(d); return !!vg && vg.id === g.id; });
@@ -1189,7 +1250,7 @@ function vGames() {
       <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>`<a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)}</a>`).join("; ") || "—"}</div>${sysShortDate(g.updatedAt) ? `<div class="mut" style="margin-top:4px">${sysUpdatedSpan(g)}</div>` : ""}</div>`;
   }).join("");
   const emptyNote = !show.length ? ((curLine === "ai" || curLine === "metaverse") ? `<div class="panel mut" style="font-size:13.5px">Mảng này không dùng game — game chỉ thuộc mảng Game Studio (game của Sava) và Publishing (game đối tác).</div>` : `<div class="panel mut" style="font-size:13.5px">${query ? "Không có game nào khớp tìm kiếm hiện tại." : "Chưa có game nào ở mảng này."}</div>`) : "";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${sortBarHTML("games")}${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">Game Studio: game của Sava. Publishing: game của đối tác.</div>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${sortBarHTML("games")}${emptyNote || `<div class="cards">${cards}</div>${listPagerHTML("games", gamePageInfo, "game")}`}<div class="mut" style="margin-top:10px">Game Studio: game của Sava. Publishing: game của đối tác.</div>`;
 }
 
 /* ===== Leads chia theo trạng thái (vLeads) =====
@@ -1351,6 +1412,17 @@ let leadBlockFilterSig = null;
 function setLeadBlockPage(statusKey, page) { leadBlockPage[statusKey] = page; render(); }
 function toggleLeadBlock(statusKey) { leadBlockCollapsed[statusKey] = !leadBlockCollapsed[statusKey]; render(); }
 function leadBlockPageInfo(g) {
+  /* Việc 8: phép kẹp trang + chia trang uỷ quyền cho window.SavaPager
+     (shared.js) — CÙNG logic thuần mà mọi list khác dùng qua
+     listPageSlice/listPagerHTML; state trang vẫn giữ riêng ở
+     leadBlockPage như cũ. SavaPager vắng (harness cắt đoạn) -> công thức
+     gốc tại chỗ, hành vi không đổi. */
+  if (window.SavaPager) {
+    const info = window.SavaPager.info(g.leads.length, leadBlockPage[g.key] || 1, LEAD_BLOCK_PAGE_SIZE);
+    leadBlockPage[g.key] = info.page;
+    const pageLeads = g.leads.slice(info.start, info.start + LEAD_BLOCK_PAGE_SIZE);
+    return { page: info.page, totalPages: info.totalPages, pageLeads, from: info.from, to: info.to };
+  }
   const totalPages = Math.max(1, Math.ceil(g.leads.length / LEAD_BLOCK_PAGE_SIZE));
   let page = leadBlockPage[g.key] || 1;
   if (page > totalPages) page = totalPages;
@@ -1367,8 +1439,9 @@ function leadBlockPagerHTML(g, info) {
 function vLeads() {
   if (leadViewMode === "pipeline") { vLeadsPipeline(); return; }
   const filtered = filteredLeads();
-  /* Đổi từ khóa tìm kiếm / tab mảng -> mọi block về trang 1 (đóng/mở giữ nguyên). */
-  const blockSig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter;
+  /* Đổi từ khóa tìm kiếm / tab mảng / SORT (Việc 8: đổi sort cũng về
+     trang 1 như đổi lọc) -> mọi block về trang 1 (đóng/mở giữ nguyên). */
+  const blockSig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter + "|" + JSON.stringify(listSortState("leads"));
   if (leadBlockFilterSig !== blockSig) { leadBlockFilterSig = blockSig; leadBlockPage = {}; }
   /* Đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước ẩn-cột-rỗng-khi-đang-lọc của vTasksByMember:
@@ -1505,7 +1578,10 @@ function vEvents() {
     return hay.includes(query);
   });
   const sortedEvents = applyListSort("events", filtered, ev => ev.name || "");
-  const rows = sortedEvents.map((ev, idx) => {
+  /* Việc 8: phân trang sự kiện 10/trang sau sort; STT liên tục qua trang. */
+  pagerSyncFilter("events", query + "|" + JSON.stringify(listSortState("events")));
+  const { info: evPageInfo, pageItems: pageEvents } = listPageSlice("events", sortedEvents);
+  const rows = pageEvents.map((ev, pIdx) => { const idx = evPageInfo.start + pIdx;
     const nc = Array.isArray(ev.companies) ? ev.companies.length : 0;
     const nl = Array.isArray(ev.leads) ? ev.leads.length : 0;
     const nd = Array.isArray(ev.deals) ? ev.deals.length : 0;
@@ -1513,7 +1589,7 @@ function vEvents() {
     return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td class="list-stt">${idx + 1}</td><td><b>🎪 ${esc(ev.name || "—")}</b><div class="mut">${esc(ev.note || "")}</div></td><td>${esc(ev.date || "—")}<div class="mut">${esc(ev.location || "")}</div></td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${counts}</td><td>${sysUpdatedCell(ev)}</td></tr>`;
   }).join("");
   const emptyMsg = !all.length ? "Chưa có sự kiện nào." : "Không có sự kiện nào khớp tìm kiếm hiện tại.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div><div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("events", "name", "Sự kiện")}<th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th>${sortThHTML("events", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="6" class="mut">${emptyMsg}</td></tr>`}</table></div>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div><div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("events", "name", "Sự kiện")}<th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th>${sortThHTML("events", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="6" class="mut">${emptyMsg}</td></tr>`}</table></div>${listPagerHTML("events", evPageInfo, "sự kiện")}
   <div class="mut" style="margin-top:10px">Sự kiện là nơi team gặp gỡ đối tác: công ty, lead và deal phát sinh từ sự kiện được gắn ngay trong chi tiết sự kiện.</div></div>`;
 }
 /* --- 3 loại liên kết của sự kiện: cấu hình dùng chung cho drawer event --- */
@@ -1550,7 +1626,11 @@ function eventLinkBlockHTML(ev, kind) {
   const cfg = EVENT_LINK_KINDS[kind];
   const linked = eventLinkedEntities(ev, kind);
   const candidates = eventCandidateEntities(ev, kind);
-  const list = linked.map(ent => `<div style="margin-bottom:6px"><div class="dcard" onclick="${cfg.openFn}('${ent.id}')"><div class="t">${cfg.icon} ${esc(eventEntityLabel(kind, ent))}</div><div class="c">${esc(eventEntityContext(kind, ent))}</div></div><button class="btn ghost small" onclick="detachEventLink('${ev.id}','${kind}','${ent.id}')">✕ Gỡ liên kết</button></div>`).join("");
+  /* Việc 8: danh sách entity đã gắn trong drawer sự kiện cũng phân
+     trang 10/trang (key theo sự kiện + loại liên kết). */
+  const linkPageKey = "eventlink:" + ev.id + ":" + kind;
+  const linkSlice = listPageSlice(linkPageKey, linked);
+  const list = linkSlice.pageItems.map(ent => `<div style="margin-bottom:6px"><div class="dcard" onclick="${cfg.openFn}('${ent.id}')"><div class="t">${cfg.icon} ${esc(eventEntityLabel(kind, ent))}</div><div class="c">${esc(eventEntityContext(kind, ent))}</div></div><button class="btn ghost small" onclick="detachEventLink('${ev.id}','${kind}','${ent.id}')">✕ Gỡ liên kết</button></div>`).join("") + (linked.length ? listPagerHTML(linkPageKey, linkSlice.info, cfg.noun) : "");
   const picker = candidates.length
     ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${comboSelectHTML(cfg.pickerId, candidates.map(ent => `<option value="${esc(ent.id)}">${esc(eventEntityLabel(kind, ent))}${eventEntityContext(kind, ent) ? " · " + esc(eventEntityContext(kind, ent)) : ""}</option>`).join(""), { wrapStyle: "flex:1;min-width:220px", label: eventEntityLabel(kind, candidates[0]) + (eventEntityContext(kind, candidates[0]) ? " · " + eventEntityContext(kind, candidates[0]) : ""), placeholder: "Gõ tên " + cfg.noun + " để tìm…" })}<button class="btn" onclick="attachEventLinkFromPicker('${ev.id}','${kind}')">Gắn</button></div>`
     : `<div class="mut" style="margin-top:8px">Không còn ${esc(cfg.noun)} nào chưa gắn để chọn.</div>`;
@@ -1679,7 +1759,10 @@ function eventSourceChipsHTML(field, entityId) {
 function eventLinkedBlockHTML(field, entityId, heading) {
   const evs = eventsLinkedTo(field, entityId);
   if (!evs.length) return "";
-  return `<h3 style="margin:18px 0 8px">${heading} (${evs.length})</h3>` + evs.map(ev => `<div class="dcard" onclick="openEvent('${ev.id}')"><div class="t">🎪 ${esc(ev.name || "—")}</div><div class="c">${esc(ev.date || "")}${ev.date && ev.location ? " · " : ""}${esc(ev.location || "")}</div></div>`).join("");
+  /* Việc 8: phân trang 10 sự kiện/trang khi entity gắn nhiều sự kiện. */
+  const evKey = "entityevents:" + field + ":" + entityId;
+  const { info, pageItems } = listPageSlice(evKey, evs);
+  return `<h3 style="margin:18px 0 8px">${heading} (${evs.length})</h3>` + pageItems.map(ev => `<div class="dcard" onclick="openEvent('${ev.id}')"><div class="t">🎪 ${esc(ev.name || "—")}</div><div class="c">${esc(ev.date || "")}${ev.date && ev.location ? " · " : ""}${esc(ev.location || "")}</div></div>`).join("") + listPagerHTML(evKey, info, "sự kiện");
 }
 /* Xoá entity -> gỡ id của nó khỏi mảng tương ứng của MỌI sự kiện (cùng
    lần save() của thao tác xoá — helper này chỉ mutate, không tự save). */
@@ -1731,7 +1814,10 @@ function convertLead(id) {
 function vTasks() {
   const filtered = S.tasks.filter(t => !query || t.title.toLowerCase().includes(query));
   const sortedTasks = applyListSort("tasks", filtered, t => t.title || "");
-  const list = sortedTasks.map((t, idx) => taskRow(t, idx + 1)).join("");
+  /* Việc 8: phân trang việc 10/trang sau sort; STT liên tục qua trang. */
+  pagerSyncFilter("tasks", query + "|" + JSON.stringify(listSortState("tasks")));
+  const { info: taskPageInfo, pageItems: pageTasks } = listPageSlice("tasks", sortedTasks);
+  const list = pageTasks.map((t, pIdx) => taskRow(t, taskPageInfo.start + pIdx + 1)).join("") + listPagerHTML("tasks", taskPageInfo, "việc");
   const emptyMsg = !S.tasks.length
     ? '<div class="empty-state" style="margin-top:10px">Chưa có việc nào — bấm "+ Thêm việc" để tạo việc đầu tiên.</div>'
     : (!filtered.length ? '<div class="empty-state" style="margin-top:10px">Không có việc nào khớp tìm kiếm hiện tại.</div>' : "");
@@ -1768,6 +1854,11 @@ function vTasksByMember() {
   const filterBar = `<div class="panel" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="font-size:13.5px">Lọc theo trạng thái:</b>
     <select onchange="setTaskMemberFilter(this.value)" style="min-width:180px">${[["all", "Tất cả"], ["open", "Đang mở"], ["overdue", "Quá hạn"], ["done", "Đã xong"]].map(([v, t]) => `<option value="${v}" ${f === v ? "selected" : ""}>${t}</option>`).join("")}</select>
     <span class="mut">Bộ lọc áp lên mọi cột; thành viên đang hoạt động vẫn hiện cột kể cả khi chưa có việc nào — cột chỉ ẩn khi đang lọc (theo trạng thái hoặc từ khóa) mà không còn việc khớp.</span>${sortBarHTML("tasksByMember")}</div>`;
+  /* Việc 8: mỗi cột nhóm là một BLOCK — phân trang 10 việc/trang trong
+     cột (sort trước, STT liên tục qua trang trong cột) + đóng/mở từng
+     cột bằng nút ở header (đóng chỉ còn header + dòng tổng số). Đổi bộ
+     lọc/trạng thái/tìm kiếm/sort -> mọi cột về trang 1, đóng/mở giữ nguyên. */
+  pagerSyncFilter("tbm", f + "|" + query + "|" + JSON.stringify(listSortState("tasksByMember")));
   const cols = groups.map(g => {
     const shown = applyListSort("tasksByMember", g.tasks.filter(t => matchFilter(t) && (!query || t.title.toLowerCase().includes(query))), t => t.title || "");
     /* M7: member ĐANG HOẠT ĐỘNG có 0 việc vẫn hiện cột (số 0) — không ẩn vì shown rỗng.
@@ -1776,9 +1867,13 @@ function vTasksByMember() {
     const filtering = f !== "all" || !!query;
     if (!shown.length && !(g.isMember && !g.inactive && !filtering)) return "";
     const open = g.tasks.filter(t => !t.done).length, od = g.tasks.filter(t => isOverdue(t)).length, done = g.tasks.filter(t => t.done).length;
-    return `<div class="col" style="min-width:290px;width:290px"><h4>${esc(g.name)}${g.inactive ? ' <span class="pill gray">đã ngừng</span>' : ""}${g.deleted ? ' <span class="pill gray">đã xoá</span>' : ""}</h4>
-      <div class="sum">Đang mở: <b>${open}</b> · Quá hạn: <b class="${od ? "overdue" : ""}">${od}</b> · Đã xong: <b>${done}</b></div>
-      ${shown.length ? shown.map((t, idx) => taskRow(t, idx + 1)).join("") : '<div class="mut" style="padding:4px 2px">Chưa có việc nào.</div>'}</div>`;
+    const colKey = "tbm:" + g.key;
+    const collapsed = !!listCollapsedState[colKey];
+    const { info: colPageInfo, pageItems: pageShown } = listPageSlice(colKey, shown);
+    const body = collapsed ? "" : (shown.length ? pageShown.map((t, pIdx) => taskRow(t, colPageInfo.start + pIdx + 1)).join("") + listPagerHTML(colKey, colPageInfo, "việc") : '<div class="mut" style="padding:4px 2px">Chưa có việc nào.</div>');
+    return `<div class="col${collapsed ? " list-block--collapsed" : ""}" data-tbm-group="${esc(g.key)}" style="min-width:290px;width:290px"><h4>${esc(g.name)}${g.inactive ? ' <span class="pill gray">đã ngừng</span>' : ""}${g.deleted ? ' <span class="pill gray">đã xoá</span>' : ""} <button class="btn ghost small" onclick="event.stopPropagation(); toggleListBlock('${colKey}')" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mở cột" : "Thu gọn cột"}">${collapsed ? "▸ Mở" : "▾ Thu gọn"}</button></h4>
+      <div class="sum">Đang mở: <b>${open}</b> · Quá hạn: <b class="${od ? "overdue" : ""}">${od}</b> · Đã xong: <b>${done}</b> · Tổng sau lọc: <b>${shown.length}</b> việc</div>
+      ${body}</div>`;
   }).join("");
   document.getElementById("view").innerHTML = overview + filterBar +
     (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
@@ -1925,8 +2020,9 @@ function vImport() {
   impBatchList = I.listBatches(S);
   h += `<section class="panel"><div class="panel-title"><h3>Các lô đã nạp</h3></div>`;
   if (!impBatchList.length) h += `<p class="mut">Chưa có lô nào — bản ghi tạo tay không mang marker lô nên không hiện ở đây.</p>`;
-  else h += `<div class="imp-table-wrap"><table class="imp-table"><thead><tr><th>Lô (importBatch)</th><th>Lead</th><th>Công ty tạo bởi lô</th><th></th></tr></thead><tbody>${impBatchList.map((b, i) => `<tr><td><b>${esc(b.batch)}</b></td><td>${b.leads}</td><td>${b.companies}</td><td><button class="btn danger small" onclick="impRemoveBatch(${i})">Gỡ lô</button></td></tr>`).join("")}</tbody></table></div>
-    <p class="mut" style="margin-top:8px">Gỡ lô: xoá toàn bộ lead của lô; công ty do lô tạo chỉ bị xoá khi không còn lead/deal nào ngoài lô tham chiếu tới — còn được dùng thì giữ lại và báo rõ.</p>`;
+  else { const batchSlice = listPageSlice("importbatches", impBatchList.map((b, i) => ({ b, i })));
+    h += `<div class="imp-table-wrap"><table class="imp-table"><thead><tr><th>Lô (importBatch)</th><th>Lead</th><th>Công ty tạo bởi lô</th><th></th></tr></thead><tbody>${batchSlice.pageItems.map(({ b, i }) => `<tr><td><b>${esc(b.batch)}</b></td><td>${b.leads}</td><td>${b.companies}</td><td><button class="btn danger small" onclick="impRemoveBatch(${i})">Gỡ lô</button></td></tr>`).join("")}</tbody></table></div>${listPagerHTML("importbatches", batchSlice.info, "lô")}
+    <p class="mut" style="margin-top:8px">Gỡ lô: xoá toàn bộ lead của lô; công ty do lô tạo chỉ bị xoá khi không còn lead/deal nào ngoài lô tham chiếu tới — còn được dùng thì giữ lại và báo rõ.</p>`; }
   h += `</section>`;
   view.innerHTML = h;
 }
@@ -2124,16 +2220,27 @@ function auditHistGroupsHTML(rows, filtering) {
   if (unknownRows.length) groups.push({ ...AUDIT_ACTION_UNKNOWN, rows: unknownRows });
   return groups.map(g => {
     if (!g.rows.length && isFiltering) return "";
-    const body = g.rows.length
-      ? g.rows.map(auditHistRowHTML).join("")
-      : '<div class="mut">Chưa có mục lịch sử nào ở loại này.</div>';
+    /* Việc 8: phân trang TRONG block (10 mục/trang qua SavaPager dùng
+       chung) + đóng/mở từng block như block Lead: đóng chỉ còn header
+       (nhãn + tổng số) và nút Mở. Thứ tự trong block giữ nguyên thứ tự
+       đã nạp (mới nhất -> cũ nhất) — phân trang cắt theo đúng thứ tự đó. */
+    const blockKey = "audit:" + g.key;
+    const collapsed = !!listCollapsedState[blockKey];
+    const { info: blockPageInfo, pageItems: pageRows } = listPageSlice(blockKey, g.rows);
+    const body = collapsed ? "" : (g.rows.length
+      ? pageRows.map(auditHistRowHTML).join("") + listPagerHTML(blockKey, blockPageInfo, "mục", "setAuditHistPage")
+      : '<div class="mut">Chưa có mục lịch sử nào ở loại này.</div>');
     const hl = g.key === "delete" ? " audit-action-block--delete" : "";
-    return `<section class="panel audit-action-block${hl}" data-audit-action="${g.key}"><div class="panel-title"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.rows.length} mục</span></h3></div>${body}</section>`;
+    return `<section class="panel audit-action-block${hl}${collapsed ? " audit-action-block--collapsed" : ""}" data-audit-action="${g.key}"><div class="panel-title"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.rows.length} mục</span></h3><button class="btn ghost small" onclick="toggleAuditHistBlock('${blockKey}')" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mở block" : "Thu gọn block"}">${collapsed ? "▸ Mở" : "▾ Thu gọn"}</button></div>${body}</section>`;
   }).join("");
 }
 async function loadAuditHistory() {
   const box = document.getElementById("auditHistoryList");
   if (!box) return;
+  /* Việc 8: đổi bộ lọc lịch sử -> mọi block về trang 1 (đóng/mở giữ
+     nguyên); chuyển trang/đóng-mở gọi lại hàm này với cùng bộ lọc nên
+     chữ ký không đổi, trang đang xem được giữ. */
+  pagerSyncFilter("audit", auditHistTypeFilter + "|" + auditHistMemberFilter);
   box.innerHTML = '<p class="mut">Đang tải lịch sử…</p>';
   const api = (typeof window !== "undefined" && window.SavaAudit) || null;
   if (!api || typeof api.listRecent !== "function") { box.innerHTML = '<p class="mut">Lịch sử chưa khả dụng.</p>'; return; }
@@ -2217,7 +2324,10 @@ function vMembers() {
   const me = authCurrentUser();
   if (admin && memberProfiles === null && !memberAcctLoading) refreshMemberAccounts();
   const sortedMembers = applyListSort("members", memberList(S), m => m.name || "");
-  const rows = sortedMembers.map((m, idx) => {
+  /* Việc 8: phân trang thành viên 10/trang sau sort; STT liên tục qua trang. */
+  pagerSyncFilter("members", JSON.stringify(listSortState("members")));
+  const { info: memPageInfo, pageItems: pageMembers } = listPageSlice("members", sortedMembers);
+  const rows = pageMembers.map((m, pIdx) => { const idx = memPageInfo.start + pIdx;
     const openTasks = S.tasks.filter(t => t.assignee === m.id && !t.done).length;
     const dealCount = S.deals.filter(d => d.owner === m.id).length;
     let acctCell = "", actions = "";
@@ -2238,7 +2348,7 @@ function vMembers() {
     ? `<div class="mut" style="margin-top:10px">ℹ️ Chưa kết nối được chức năng quản lý tài khoản trên máy chủ (Edge Function <b>invite-member</b> có thể chưa được triển khai) — cột <b>Tài khoản</b> đang hiển thị trạng thái suy từ hồ sơ đã gắn trong hệ thống. Các thao tác khác vẫn dùng bình thường.</div>`
     : `<div class="mut" style="margin-top:10px"><b>Tài khoản:</b> “Đã mời – chờ đặt mật khẩu” = đã gửi email mời, người nhận chưa bấm liên kết đặt mật khẩu; “Thu hồi quyền” = ngừng hoạt động trong CRM + khoá đăng nhập (kích hoạt lại được); đổi vai trò qua nút ✏️ Sửa.</div>`;
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button>${admin ? ` <button class="btn" onclick="openInviteMember()">✉️ Mời thành viên</button>` : ""}</div>
-  <div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("members", "name", "Thành viên")}<th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th>${sortThHTML("members", "updated", "Cập nhật cuối")}<th></th></tr>${rows || `<tr><td colspan="${admin ? 9 : 8}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
+  <div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("members", "name", "Thành viên")}<th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th>${sortThHTML("members", "updated", "Cập nhật cuối")}<th></th></tr>${rows || `<tr><td colspan="${admin ? 9 : 8}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>${listPagerHTML("members", memPageInfo, "thành viên")}
   <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Muốn loại một người khỏi các ô chọn gán việc mà vẫn giữ dữ liệu cũ gắn với họ, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa).${admin ? ` Admin có thể <b>Xoá thành viên</b> hẳn — nhưng chỉ khi thành viên không còn dữ liệu nào gắn với họ (deal phụ trách, lead phụ trách, việc được giao, hoạt động, đánh giá…); còn tham chiếu thì hệ thống chặn xoá và báo rõ đang vướng ở đâu.` : ""}</div>${fnNote}</div>`;
 }
 /* ----- Mời thành viên (chỉ Admin): form theo đúng mẫu openEdit của app ----- */
@@ -2478,11 +2588,19 @@ function openMember(id) {
     const revs = (Array.isArray(r.revisions) ? r.revisions : []).concat(r.current && typeof r.current === "object" ? [r.current] : []);
     return revs.some(rv => rv && rv.reviewer === id);
   }) : [];
-  const memberActsHTML = memberActs.length ? memberActs.map(a => {
+  /* Việc 8: mọi danh sách con của drawer thành viên phân trang 10/trang
+     (việc được giao, deal phụ trách, lead phụ trách — thay trần cứng
+     slice(0,20) cũ — hoạt động đã ghi, đánh giá liên quan). */
+  const memTasksSlice = listPageSlice("membertasks:" + id, tasks);
+  const memDealsSlice = listPageSlice("memberdeals:" + id, deals);
+  const memLeadsSlice = listPageSlice("memberleads:" + id, memberLeads);
+  const memActsSlice = listPageSlice("memberacts:" + id, memberActs);
+  const memReqsSlice = listPageSlice("memberreqs:" + id, memberReqs);
+  const memberActsHTML = memberActs.length ? memActsSlice.pageItems.map(a => {
     const ad = S.deals.find(x => x.id === a.deal);
     return `<div class="dcard" ${ad ? `onclick="openDeal('${ad.id}')"` : ""}><div class="t">${esc(a.type || "Hoạt động")}${ad ? " · " + esc(ad.title) : ""}</div><div class="c">${esc(a.text || "")}</div><div class="c" style="margin-top:3px">${esc(fmtWhen(a.when))}${ad ? " · Bấm để mở deal liên quan" : ""}</div></div>`;
-  }).join("") : '<div class="mut">Chưa có hoạt động nào do thành viên này ghi.</div>';
-  const memberReqsHTML = memberReqs.length ? memberReqs.map(r => {
+  }).join("") + listPagerHTML("memberacts:" + id, memActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào do thành viên này ghi.</div>';
+  const memberReqsHTML = memberReqs.length ? memReqsSlice.pageItems.map(r => {
     const isGameReq = r.kind === "game";
     const ent = isGameReq ? game(r.entityId) : comp(r.entityId);
     const entName = ent && (ent.title || ent.name) ? (ent.title || ent.name) : (r.entityId || "—");
@@ -2490,7 +2608,7 @@ function openMember(id) {
     const openFn = isGameReq ? "openGame" : "openCompany";
     const roles = [r.requestedBy === id ? "Người yêu cầu" : "", r.assignee === id ? "Người được giao" : "", ((Array.isArray(r.revisions) ? r.revisions : []).concat(r.current && typeof r.current === "object" ? [r.current] : [])).some(rv => rv && rv.reviewer === id) ? "Reviewer" : ""].filter(Boolean).join(" · ");
     return `<div class="dcard" ${entExists ? `onclick="${openFn}('${r.entityId}')"` : ""}><div class="t">${isGameReq ? "🎮" : "🏢"} ${esc(entName)}</div><div class="c">${esc(r.kind === "company" ? "Đánh giá Partner" : "Đánh giá game")} · Trạng thái: ${esc(r.status || "—")}${roles ? " · " + esc(roles) : ""}</div></div>`;
-  }).join("") : '<div class="mut">Chưa có đánh giá Publishing nào liên quan tới thành viên này.</div>';
+  }).join("") + listPagerHTML("memberreqs:" + id, memReqsSlice.info, "đánh giá") : '<div class="mut">Chưa có đánh giá Publishing nào liên quan tới thành viên này.</div>';
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <div style="margin-bottom:4px">${typeBadgeHTML("member")}</div>
     <h2>👤 ${esc(m.name)}</h2><div class="mut">${esc(m.id)} · ${m.active ? "Đang hoạt động" : "Đã ngừng hoạt động"}</div>
@@ -2505,11 +2623,11 @@ function openMember(id) {
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn" onclick="editMember('${m.id}')">✏️ Sửa thành viên</button>${isAdminViewer() && !(authCurrentUser() && authCurrentUser().memberId === m.id) ? `<button class="btn ghost" onclick="deleteMember('${m.id}')">🗑 Xoá thành viên</button>` : ""}</div>
     <h3 style="margin:18px 0 8px">✅ Việc được giao (${tasks.length})</h3>
-    ${tasks.length ? tasks.map(taskRow).join("") : '<div class="mut">Chưa có việc nào được giao cho thành viên này.</div>'}
+    ${tasks.length ? memTasksSlice.pageItems.map(taskRow).join("") + listPagerHTML("membertasks:" + m.id, memTasksSlice.info, "việc") : '<div class="mut">Chưa có việc nào được giao cho thành viên này.</div>'}
     <h3 style="margin:18px 0 8px">📋 Deal phụ trách (${deals.length}) — bấm để mở deal</h3>
-    ${deals.length ? deals.map(dealMini).join("") : '<div class="mut">Chưa phụ trách deal nào.</div>'}
+    ${deals.length ? memDealsSlice.pageItems.map(dealMini).join("") + listPagerHTML("memberdeals:" + m.id, memDealsSlice.info, "deal") : '<div class="mut">Chưa phụ trách deal nào.</div>'}
     <h3 style="margin:18px 0 8px">📥 Lead phụ trách (${memberLeads.length}) — bấm để mở lead</h3>
-    ${memberLeads.length ? memberLeads.slice(0, 20).map(leadMini).join("") + (memberLeads.length > 20 ? `<div class="mut" style="margin-top:6px">… và ${memberLeads.length - 20} lead nữa. <button class="btn ghost small" onclick="viewLeadsOfMember('${m.id}')">Xem tất cả ở view Lead →</button></div>` : "") : '<div class="mut">Chưa phụ trách lead nào.</div>'}
+    ${memberLeads.length ? memLeadsSlice.pageItems.map(leadMini).join("") + listPagerHTML("memberleads:" + m.id, memLeadsSlice.info, "lead") + `<div class="mut" style="margin-top:6px"><button class="btn ghost small" onclick="viewLeadsOfMember('${m.id}')">Xem tất cả ở view Lead →</button></div>` : '<div class="mut">Chưa phụ trách lead nào.</div>'}
     <h3 style="margin:18px 0 8px">🕘 Hoạt động đã ghi (${memberActs.length})</h3>
     ${memberActsHTML}
     <h3 style="margin:18px 0 8px">📊 Đánh giá liên quan (${memberReqs.length})</h3>
@@ -2583,7 +2701,12 @@ function openDeal(id) {
   const L = lineDefOrFallback(d.line, d.stage), c = comp(d.company), g = dealVisibleGame(d);
   const st = stagePairSafe(d.line, d.stage);
   const fields = (L.fields || []).map(([k, lb]) => `<div class="k">${lb}</div><div>${esc(cfDisplay(d, k))}</div>`).join("");
-  const acts = S.activities.filter(a => a.deal === id).map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
+  /* Việc 8: timeline hoạt động của deal phân trang 10 mục/trang trong drawer. */
+  const dealActsAll = S.activities.filter(a => a.deal === id);
+  const dealActsSlice = listPageSlice("dealacts:" + id, dealActsAll);
+  const acts = dealActsSlice.pageItems.map(a => `<div class="tl"><div class="ev"><b>${esc(a.type)}</b><div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div>${a.url ? `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>` : ""}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`).join("") || '<div class="mut">Chưa có hoạt động nào.</div>';
+  const dealActsPager = listPagerHTML("dealacts:" + id, dealActsSlice.info, "hoạt động");
+
   /* Đánh giá của deal: tóm tắt Publishing canonical của game (v2 / legacy có nhãn /
      chưa gửi yêu cầu) + đúng 1 dòng điểm BD /10 (lưu trữ) nếu game có scores.
      FIX-C1 A15: deal Game Studio có game cũng hiện tóm tắt đánh giá game đó;
@@ -2615,12 +2738,15 @@ function openDeal(id) {
      duy nhất lead.company === deal.company); liên kết chéo chỉ còn tồn tại
      ở nhóm "Đã gắn vào deal này" nếu đã có từ trước — không gắn thêm được. */
   const attachCandidates = d.company ? S.leads.filter(l => l.company === d.company && !(Array.isArray(d.leads) && d.leads.includes(l.id))) : [];
+  /* Việc 8: cả hai nhóm lead trong drawer deal đều phân trang 10/trang. */
+  const attachedSlice = listPageSlice("dealattached:" + d.id, attachedLeads);
+  const unattachedSlice = listPageSlice("dealunattached:" + d.id, companyUnattached);
   const leadsBox = `<h3 style="margin:18px 0 8px">📥 Đầu mối phía đối tác</h3>
     <div class="mut" style="margin-bottom:8px">Một deal có thể được tiếp cận qua nhiều lead. Bấm vào lead để mở chi tiết lead.</div>
-    <div style="font-weight:600;margin-bottom:6px">Đã gắn vào deal này</div>
-    ${attachedLeads.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l, d.company)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào vào deal này.</div>'}
-    <div style="font-weight:600;margin:12px 0 6px">Lead của công ty (chưa gắn vào deal này — chỉ để tham chiếu)</div>
-    ${companyUnattached.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="attachLeadFromDealBlock('${l.id}','${d.id}')">＋ Gắn vào deal</button></div>`).join("") || (d.company ? (companyLeadsAll.length ? '<div class="mut">Tất cả lead của công ty đã được gắn vào deal này.</div>' : '<div class="mut">Công ty này chưa có lead nào.</div>') : '<div class="mut">Deal chưa có công ty — hãy sửa deal để chọn công ty trước, rồi mới gắn được lead của công ty đó.</div>')}
+    <div style="font-weight:600;margin-bottom:6px">Đã gắn vào deal này (${attachedLeads.length})</div>
+    ${attachedSlice.pageItems.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l, d.company)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ lead này khỏi deal</button></div>`).join("") || '<div class="mut">Chưa gắn lead nào vào deal này.</div>'}${attachedLeads.length ? listPagerHTML("dealattached:" + d.id, attachedSlice.info, "lead") : ""}
+    <div style="font-weight:600;margin:12px 0 6px">Lead của công ty (chưa gắn vào deal này — chỉ để tham chiếu) (${companyUnattached.length})</div>
+    ${unattachedSlice.pageItems.map(l => `<div style="margin-bottom:6px">${dealLeadMiniHTML(l)}<button class="btn ghost small" onclick="attachLeadFromDealBlock('${l.id}','${d.id}')">＋ Gắn vào deal</button></div>`).join("") || (d.company ? (companyLeadsAll.length ? '<div class="mut">Tất cả lead của công ty đã được gắn vào deal này.</div>' : '<div class="mut">Công ty này chưa có lead nào.</div>') : '<div class="mut">Deal chưa có công ty — hãy sửa deal để chọn công ty trước, rồi mới gắn được lead của công ty đó.</div>')}${companyUnattached.length ? listPagerHTML("dealunattached:" + d.id, unattachedSlice.info, "lead") : ""}
     ${!d.company ? '<div class="mut" style="margin-top:8px">Deal chưa có công ty nên chưa gắn được lead nào.</div>' : attachCandidates.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${comboSelectHTML("deal_attach_lead", attachCandidates.map(l => `<option value="${l.id}">${esc(leadLabel(l))} — ${LINES[l.line] ? LINES[l.line].name : esc(l.line)} (cùng công ty)${l.mainContact ? " · " + MAIN_CONTACT_LABEL : ""}</option>`).join(""), { wrapStyle: "flex:1;min-width:220px", label: leadLabel(attachCandidates[0]) + " — " + (LINES[attachCandidates[0].line] ? LINES[attachCandidates[0].line].name : attachCandidates[0].line) + " (cùng công ty)" + (attachCandidates[0].mainContact ? " · " + MAIN_CONTACT_LABEL : ""), placeholder: "Gõ tên lead để tìm…" })}<button class="btn" onclick="attachLeadFromDealDrawer('${d.id}')">Gắn lead</button></div>` : '<div class="mut" style="margin-top:8px">Không còn lead nào của công ty này chưa gắn để chọn.</div>'}`;
   /* D3: stage lạ/thiếu không có trong L.stages -> thêm option dự phòng mang đúng giá trị đã lưu */
   const stageOpts = (L.stages.some(s => s[0] === d.stage) ? "" : `<option value="${esc(d.stage || "")}" selected>${esc(st[1])} (${st[2]}%)</option>`) + L.stages.map(s => `<option value="${s[0]}" ${s[0]===d.stage?'selected':''}>${s[1]} (${s[2]}%)</option>`).join("");
@@ -2697,7 +2823,7 @@ function openDeal(id) {
     ${eventLinkedBlockHTML("deals", d.id, "🎪 Từ sự kiện")}
     ${evalBox}
     ${dealTasksBox}
-    <h3 style="margin:18px 0 4px">🕘 Timeline hoạt động</h3>${acts}
+    <h3 style="margin:18px 0 4px">🕘 Timeline hoạt động (${dealActsAll.length})</h3>${acts}${dealActsPager}
     <div style="margin-top:12px"><button class="btn ghost" onclick="toggleDealActivityForm()">➕ Thêm hoạt động</button></div>
     <div id="dealActForm" style="display:none;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px">
       <b style="font-size:13.5px">➕ Thêm hoạt động / ghi chú vào deal này</b>
@@ -3079,6 +3205,14 @@ function openCompany(id) {
      qua các deal của công ty, khử trùng lặp theo id việc — kv và section dùng
      cùng một tập này. */
   const tasks = [...new Map(S.tasks.filter(t => !t.done && (t.company === id || dealIds.includes(t.deal))).map(t => [t.id, t])).values()];
+  /* Việc 8: mọi danh sách con của drawer công ty phân trang 10/trang:
+     lead của công ty, deal của công ty, game liên quan, việc đang treo
+     và hoạt động gần nhất (key riêng theo từng công ty + từng mục). */
+  const coLeadsSlice = listPageSlice("companyleads:" + id, leadsForCompany(c.id));
+  const coDealsSlice = listPageSlice("companydeals:" + id, deals);
+  const coGamesSlice = listPageSlice("companygames:" + id, [...gamesOwned, ...gamesLinked]);
+  const coTasksSlice = listPageSlice("companyopentasks:" + id, tasks);
+  const coActsSlice = listPageSlice("companyacts:" + id, acts);
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <div style="margin-bottom:4px">${typeBadgeHTML("company")}</div>
     <h2>🏢 ${esc(c.name)}</h2><div class="mut">${esc(c.type)} · Tương tác cuối: ${esc(c.last)}</div>
@@ -3094,18 +3228,19 @@ function openCompany(id) {
     ${partnerSummaryBlockHTML(c)}
     ${eventLinkedBlockHTML("companies", c.id, "🎪 Sự kiện đã gặp")}
     <h3 style="margin:18px 0 8px">📥 Leads của công ty này — chính là đầu mối liên hệ của công ty (bấm để xem chi tiết lead)</h3>
-    ${leadsForCompany(c.id).map(leadMini).join("") || '<div class="mut">Chưa có lead nào thuộc công ty này.</div>'}
+    ${coLeadsSlice.pageItems.map(leadMini).join("") || '<div class="mut">Chưa có lead nào thuộc công ty này.</div>'}${listPagerHTML("companyleads:" + c.id, coLeadsSlice.info, "lead")}
     <div style="margin-top:10px"><button class="btn" onclick="editLead(null, '${c.id}')">+ Thêm lead cho công ty này</button></div>
     <h3 style="margin:18px 0 8px">📋 Các deal của công ty này (bấm để xem chi tiết deal)</h3>
-    ${deals.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}
+    ${coDealsSlice.pageItems.map(dealMini).join("") || '<div class="mut">Chưa có deal nào.</div>'}${listPagerHTML("companydeals:" + c.id, coDealsSlice.info, "deal")}
     ${relatedTasksHTML("company", c.id)}
     <h3 style="margin:16px 0 8px">🎮 Games liên quan (bấm để xem game)</h3>
     <div style="margin-bottom:10px"><button class="btn" onclick="editGame(null, '${c.id}')">+ Thêm game cho công ty này</button></div>
-    ${[...gamesOwned, ...gamesLinked].map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${esc(g.emoji || "")} ${esc(g.title)}</div><div class="c">${esc(g.genre || "")} · ${esc(g.stage || "")} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div><div class="c" style="margin-top:3px">📊 ${esc(gameEvalSummaryText(g.id))}</div><div style="margin-top:4px">${window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? PublishingBridge.evalBadge("game", g.id) : ""}</div></div>`).join("") || '<div class="mut">Chưa có game nào liên quan tới công ty này.</div>'}
-    <h3 style="margin:16px 0 4px">✅ Việc đang treo</h3>
-    ${tasks.length ? tasks.map(taskRow).join("") : '<div class="mut">Không có việc đang treo nào.</div>'}
-    <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>
-    ${acts.length ? acts.map(a => { const ad = S.deals.find(x => x.id === a.deal); return `<div class="tl"><div class="ev" ${ad ? `onclick="openDeal('${ad.id}')" style="cursor:pointer" title="Mở deal liên quan"` : ""}><b>${esc(a.type)}</b>${ad ? ` · ${esc(ad.title)}` : ""}<div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`; }).join("") : '<div class="mut">Chưa có hoạt động nào.</div>'}
+    ${coGamesSlice.pageItems.map(g => `<div class="dcard" onclick="openGame('${g.id}')"><div class="t">${esc(g.emoji || "")} ${esc(g.title)}</div><div class="c">${esc(g.genre || "")} · ${esc(g.stage || "")} · ${g.own === 'ours' ? 'Game của Sava' : 'Game đối tác'}</div><div class="c" style="margin-top:3px">📊 ${esc(gameEvalSummaryText(g.id))}</div><div style="margin-top:4px">${window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? PublishingBridge.evalBadge("game", g.id) : ""}</div></div>`).join("") || '<div class="mut">Chưa có game nào liên quan tới công ty này.</div>'}${listPagerHTML("companygames:" + c.id, coGamesSlice.info, "game")}
+    <h3 style="margin:16px 0 4px">✅ Việc đang treo (${tasks.length})</h3>
+    ${tasks.length ? coTasksSlice.pageItems.map(taskRow).join("") + listPagerHTML("companyopentasks:" + c.id, coTasksSlice.info, "việc") : '<div class="mut">Không có việc đang treo nào.</div>'}
+    <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất (${acts.length})</h3>
+    ${acts.length ? coActsSlice.pageItems.map(a => { const ad = S.deals.find(x => x.id === a.deal); return `<div class="tl"><div class="ev" ${ad ? `onclick="openDeal('${ad.id}')" style="cursor:pointer" title="Mở deal liên quan"` : ""}><b>${esc(a.type)}</b>${ad ? ` · ${esc(ad.title)}` : ""}<div>${esc(a.text)}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`; }).join("") + listPagerHTML("companyacts:" + c.id, coActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào.</div>'}
+
     <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Bản thật sẽ thêm: ghi hoạt động mới, đính link Drive.</div>${auditSectionHTML("company", c.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "company", id);
 }
@@ -3211,8 +3346,11 @@ function openGame(id) {
   /* Thẻ deal trong drawer game: dealMini sẵn có (tên + mảng + stage, bấm
      mở drawer deal) + dòng công ty/publisher của deal ngay dưới thẻ. */
   const gameDealRow = d => { const dc = d.company ? comp(d.company) : null; return `${dealMini(d)}<div class="mut" style="margin-top:3px">🏢 Công ty / Publisher: ${dc && dc.id ? esc(dc.name) : "—"}</div>`; };
-  const attachedBox = deals.map(d => `<div style="margin-bottom:8px">${gameDealRow(d)}<button class="btn ghost small" onclick="detachDealFromGame('${d.id}','${g.id}')">✕ Gỡ liên kết khỏi game này</button>${d.line === "publishing" ? '<div class="mut" style="margin-top:3px">Deal Publishing bắt buộc gắn 1 game của công ty này — không gỡ trần được; bấm gỡ sẽ hiện hướng dẫn (xoá deal hoặc đổi game trong form sửa deal).</div>' : ""}</div>`).join("");
-  const attachableBox = attachableDeals.map(d => `<div style="margin-bottom:8px">${gameDealRow(d)}<button class="btn ghost small" onclick="attachDealToGame('${d.id}','${g.id}')">＋ Gắn vào game này</button>${d.game ? '<div class="mut" style="margin-top:3px">Deal đang gắn game khác — gắn vào game này sẽ thay game cũ (sẽ hỏi xác nhận trước).</div>' : ""}</div>`).join("");
+  /* Việc 8: cả hai nhóm deal trong drawer game phân trang 10/trang. */
+  const gameAttachedSlice = listPageSlice("gameattached:" + g.id, deals);
+  const gameAttachableSlice = listPageSlice("gameattachable:" + g.id, attachableDeals);
+  const attachedBox = gameAttachedSlice.pageItems.map(d => `<div style="margin-bottom:8px">${gameDealRow(d)}<button class="btn ghost small" onclick="detachDealFromGame('${d.id}','${g.id}')">✕ Gỡ liên kết khỏi game này</button>${d.line === "publishing" ? '<div class="mut" style="margin-top:3px">Deal Publishing bắt buộc gắn 1 game của công ty này — không gỡ trần được; bấm gỡ sẽ hiện hướng dẫn (xoá deal hoặc đổi game trong form sửa deal).</div>' : ""}</div>`).join("") + listPagerHTML("gameattached:" + g.id, gameAttachedSlice.info, "deal");
+  const attachableBox = gameAttachableSlice.pageItems.map(d => `<div style="margin-bottom:8px">${gameDealRow(d)}<button class="btn ghost small" onclick="attachDealToGame('${d.id}','${g.id}')">＋ Gắn vào game này</button>${d.game ? '<div class="mut" style="margin-top:3px">Deal đang gắn game khác — gắn vào game này sẽ thay game cũ (sẽ hỏi xác nhận trước).</div>' : ""}</div>`).join("") + listPagerHTML("gameattachable:" + g.id, gameAttachableSlice.info, "deal");
   const owner = g.company ? comp(g.company) : null;
   /* Điểm /10 cũ (BD + MKT) chỉ còn là LƯU TRỮ: gập trong 1 mục, đúng 2 dòng text,
      không render bars. Dữ liệu g.scores/g.mktEval giữ nguyên trong state. */
@@ -3281,6 +3419,8 @@ function openLead(id) {
   const lc = leadCompany(l);
   const ownerMember = l.ownerId ? memberList(S).find(x => x.id === l.ownerId) : null;
   const relDeals = dealsForLead(l.id);
+  /* Việc 8: deal đã gắn với lead phân trang 10/trang trong drawer. */
+  const leadDealsSlice = listPageSlice("leaddeals:" + l.id, relDeals);
   /* P1: chỉ gắn được lead vào deal CÙNG CÔNG TY với lead — dropdown chỉ
      liệt kê các deal đó; lead chưa có công ty thì không gắn vào deal nào. */
   const attachDeals = l.company ? S.deals.filter(d => d.company === l.company && !(Array.isArray(d.leads) && d.leads.includes(l.id))) : [];
@@ -3301,8 +3441,8 @@ function openLead(id) {
     </div>
     ${sysMetaHTML(l)}
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap"><button class="btn" onclick="editLead('${l.id}')">✏️ Sửa lead</button><button class="btn danger" onclick="deleteLead('${l.id}')">🗑 Xóa lead</button></div>
-    <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (bấm để mở deal)</h3>
-    ${relDeals.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}
+    <h3 style="margin:16px 0 8px">📋 Deal đã gắn với lead này (${relDeals.length}) (bấm để mở deal)</h3>
+    ${leadDealsSlice.pageItems.map(d => `<div style="margin-bottom:6px">${dealMini(d)}<button class="btn ghost small" onclick="detachLeadFromDeal('${l.id}','${d.id}')">✕ Gỡ liên kết khỏi deal này</button></div>`).join("") || '<div class="mut">Chưa gắn deal nào.</div>'}${listPagerHTML("leaddeals:" + l.id, leadDealsSlice.info, "deal")}
     ${relatedTasksHTML("lead", l.id)}
     ${attachDeals.length ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${comboSelectHTML("lead_attach_deal", attachDeals.map(d => `<option value="${d.id}">${esc(d.title)} — ${LINES[d.line] ? LINES[d.line].name : esc(d.line)} · ${esc(comp(d.company).name)}</option>`).join(""), { wrapStyle: "flex:1;min-width:220px", label: (attachDeals[0].title || "—") + " — " + (LINES[attachDeals[0].line] ? LINES[attachDeals[0].line].name : attachDeals[0].line) + " · " + comp(attachDeals[0].company).name, placeholder: "Gõ tên deal để tìm…" })}<button class="btn" onclick="attachLeadFromLeadDrawer('${l.id}')">Gắn vào deal</button></div>` : (l.company ? '<div class="mut" style="margin-top:8px">Không còn deal nào cùng công ty chưa gắn để chọn.</div>' : '<div class="mut" style="margin-top:8px">Lead chưa gắn công ty — hãy gắn công ty cho lead trước, rồi mới gắn vào deal của công ty đó được.</div>')}
     <div style="margin-top:16px">${l.status !== "converted" ? `<button class="btn" onclick="closeDrawer(); convertLead('${l.id}')">Chuyển thành deal → vào pipeline ${esc(lineName(l.line))}</button>` : `<div class="mut">Lead này đã được chuyển thành deal trong pipeline ${esc(lineName(l.line))}.</div>`}</div>
