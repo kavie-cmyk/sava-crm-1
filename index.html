@@ -147,7 +147,7 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="workspace-design.css?v=20261103.4">
+<link rel="stylesheet" href="workspace-design.css?v=20261103.5">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -2919,7 +2919,7 @@ function saveTermContract(id) {
   termEditDealId = null;
   save(); openDeal(id); render(); toast("Đã lưu term + link hợp đồng cho: " + d.title);
 }
-function closeDrawer() { termEditDealId = null; companyProfileEditId = null; drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); }
+function closeDrawer() { termEditDealId = null; companyProfileEditId = null; drawerCtx = null; document.getElementById("drawer").classList.remove("on"); document.getElementById("scrim").classList.remove("on"); /* Phần 2B: nếu drawer vừa đóng là drawer xem-trước mở từ gợi ý trong form, áp lại snapshot form + gỡ lớp nâng drawer (form KHÔNG bị đóng ở đây). */ try { typeaheadOnDrawerClosed(); } catch (e) {} }
 function showDrawer(html) { /* Drawer khác (công ty/game/lead/member) thay drawer deal -> thoát chế độ sửa Term. openDeal không đi qua hàm này nên không bị ảnh hưởng. */ termEditDealId = null; document.getElementById("drawer").innerHTML = html; document.getElementById("drawer").classList.add("on"); document.getElementById("scrim").classList.add("on"); comboSyncAll(document.getElementById("drawer")); }
 function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${esc(d.title)}</div>
@@ -3157,7 +3157,11 @@ function companyProfileInputHTML(f, prefix, c) {
   /* Phần 2: Website + LinkedIn công ty là 2 tín hiệu trùng EXACT — gõ tới
      đâu kiểm tra trùng (debounce) tới đó ở đúng scope của bề mặt này. */
   const dedupeHook = (f.key === "website" || f.key === "linkedinUrl") ? ` oninput="scheduleCompanyDedupeCheck('${prefix === "cp_" ? "profile" : "form"}')"` : "";
-  return `<input id="${prefix}${f.key}" style="width:100%" value="${esc(val)}"${dedupeHook}>`;
+  /* Phần 2B: CHỈ ở form công ty (tiền tố e_cp_) — hộp gợi ý trống nằm ngay
+     dưới ô Website / LinkedIn hồ sơ; khối hồ sơ trong drawer (cp_) không có. */
+  const taBox = prefix === "e_cp_" && f.key === "website" ? `<div class="ta-box" id="ta_company_website" data-ta-box="1"></div>`
+    : prefix === "e_cp_" && f.key === "linkedinUrl" ? `<div class="ta-box" id="ta_company_linkedin" data-ta-box="1"></div>` : "";
+  return `<input id="${prefix}${f.key}" style="width:100%" value="${esc(val)}"${dedupeHook}>${taBox}`;
 }
 /* Mục "Hồ sơ công ty" trong FORM công ty (editCompany): cả 17 field,
    dựng từ cùng COMPANY_PROFILE_FIELDS + cùng helper ô nhập như drawer. */
@@ -3800,12 +3804,12 @@ function saveDeal() {
 
 /* ===== CRUD: sửa / xóa mọi đối tượng ngay trong prototype ===== */
 function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
-function openEdit(html) { document.getElementById("editBox").innerHTML = html; document.getElementById("editModal").classList.add("on"); comboSyncAll(document.getElementById("editBox")); }
+function openEdit(html) { /* Phần 2B: form mới thay form cũ -> kết thúc mọi xem-trước drawer từ gợi ý của form cũ + huỷ timer gợi ý đang chờ. */ try { typeaheadEndPreview(); typeaheadClearTimers(); } catch (e) {} document.getElementById("editBox").innerHTML = html; document.getElementById("editModal").classList.add("on"); comboSyncAll(document.getElementById("editBox")); }
 /* Đóng form sửa/tạo (editModal) giữa chừng = huỷ thao tác đang dở: pending
    liên kết sự kiện (createEntityFromEvent) phải được xoá để lần tạo entity
    sau không bị gắn nhầm vào sự kiện cũ. Đường lưu thành công tiêu thụ
    pending TRƯỚC khi gọi closeEdit() nên không bị ảnh hưởng. */
-function closeEdit() { pendingEventLink = null; document.getElementById("editModal").classList.remove("on"); }
+function closeEdit() { /* Phần 2B: form đóng -> xem-trước drawer từ gợi ý (nếu còn) kết thúc, gỡ lớp nâng drawer + timer gợi ý. */ try { typeaheadEndPreview(); typeaheadClearTimers(); } catch (e) {} pendingEventLink = null; document.getElementById("editModal").classList.remove("on"); }
 function field(label, inner) { return `<label>${label}</label>${inner}`; }
 function txt(id, val, ph) { return `<input id="${id}" value="${esc(val ?? "")}" placeholder="${esc(ph || "")}">`; }
 function sel(id, opts, cur) { return `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`; }
@@ -4819,6 +4823,18 @@ function scheduleCompanyDedupeCheck(scope) {
   const ctx = companyDedupeCtx[scope]; if (!ctx) return;
   if (ctx.timer) clearTimeout(ctx.timer);
   ctx.timer = setTimeout(() => { ctx.timer = null; refreshCompanyDedupeWarning(scope); }, 400);
+  /* Phần 2B: 3 ô của form công ty (Tên / Website / LinkedIn hồ sơ) dùng
+     CHUNG hook oninput này (thuộc tính oninput giữ nguyên cho Phần 2) —
+     suy bề mặt gợi ý từ ô đang được gõ (document.activeElement) và lên
+     lịch gợi ý tại chỗ cho đúng ô đó. Scope "profile" (drawer) không
+     có gợi ý Phần 2B. */
+  if (scope === "form") {
+    try {
+      const activeId = document.activeElement ? document.activeElement.id : "";
+      const surface = { e_cname: "company-name", e_cp_website: "company-website", e_cp_linkedinUrl: "company-linkedin" }[activeId];
+      if (surface) scheduleTypeahead(surface);
+    } catch (e) {}
+  }
 }
 function dedupeContinueNewCompany(scope) {
   const ctx = companyDedupeCtx[scope]; if (!ctx) return;
@@ -4843,6 +4859,269 @@ function companyDedupeConfirmOnSave(scope) {
   return confirm(`⚠️ Đã có công ty này trong CRM:\n${lines}\n\nThông tin bạn nhập trùng với (các) công ty trên. Vẫn lưu công ty này như một công ty riêng?`);
 }
 
+/* ===== Gợi ý phòng trùng NGAY KHI GÕ trong form thêm mới (Phần 2B) =====
+   Lớp phòng trùng TẠI CHỖ, bổ sung (KHÔNG thay thế) cảnh báo Phần 2 ở
+   trên: đang gõ trong form tạo mới mà dữ liệu đã có sẵn thì hiện gợi ý
+   kiểu search ngay dưới ô nhập để người nhập thấy ngay; cảnh báo lúc
+   bấm Lưu của Phần 2 giữ nguyên hành vi.
+   ENGINE: một nguồn sự thật duy nhất là SavaDedupe (dedupe.js) —
+   nameSimilarity / nameKey / normalizeWebsite / normalizeLinkedIn /
+   normalizeName được gọi trực tiếp cho MỌI bề mặt (tên công ty, tên
+   người của lead, tên game); khối này KHÔNG cài lại phép so giống nào.
+   Dữ liệu gợi ý lấy từ state local đã nạp (S.companies / S.leads /
+   S.games) — không gọi server theo từng phím gõ.
+   NGƯỠNG HIỂN THỊ (đã hiệu chỉnh, thấp hơn ngưỡng CẢNH BÁO 0.70 của
+   Phần 1/2 vì gợi ý chỉ là tham khảo, không chặn/chốt gì):
+   TYPEAHEAD_DISPLAY_THRESHOLD = 0.50. Số đo trên chính engine: gõ dở
+   một tên đúng ý ("Sava Met"~"Sava Meta" = 0.62, "Puzzle Cats"~
+   "Puzzle Cat" = 0.626, "Alph"~"Alpha Games" = 0.633) đều nằm vùng
+   0.55–0.67 — ngưỡng 0.70 sẽ giấu đúng các ca đang-gõ-dở cần thấy nhất;
+   còn tên khác hẳn / chỉ chung token ngành phổ biến ("ABC Studio"~
+   "XYZ Studio" = 0.334, hai tên khác hoàn toàn < 0.4) nằm dưới 0.50
+   nên không gây nhiễu. Cộng thêm cửa token/prefix thật (typeaheadTokenOverlap:
+   chuỗi đã fold là chuỗi con của nhau, hoặc một token của phía này là
+   tiền tố của token phía kia, token dài >= 2) để bắt ca gõ tắt mà điểm
+   Dice bị kéo thấp ("Cat"~"Puzzle Cats" = 0.10 vì token "cat"/"cats"
+   lệch quá ngưỡng khớp mờ của engine) — các ca này xếp ở NHÓM CUỐI.
+   Xếp hạng chung: (0) khớp tuyệt đối (domain ở ô Website / slug ở ô
+   LinkedIn / nameKey bằng nhau) ghim đầu; (1) tên giống > 70% (đạt
+   ngưỡng cảnh báo — kèm nhãn lý do); (2) tên giống >= 0.50; (3) chỉ
+   khớp token/prefix. Tối đa TYPEAHEAD_LIMIT = 6 mục, debounce 300ms.
+   Mục >= 70% hoặc tuyệt đối kèm nhãn lý do ("trùng domain …" /
+   "tên giống 85%"…); mục dưới 70% chỉ hiện tên + thông tin phân biệt.
+   Đóng gợi ý: Esc (khi đang ở trong ô gợi ý), bấm ra ngoài, hoặc mở
+   một gợi ý — đóng KHÔNG xoá chữ đã gõ. Phím Enter trong ô nhập KHÔNG
+   được xử lý ở đây (không chọn gợi ý, không preventDefault) — Enter
+   giữ nguyên thao tác mặc định của form.
+   GIỮ NGUYÊN FORM KHI MỞ DRAWER TỪ GỢI Ý: bấm một dòng gợi ý -> mở
+   drawer bản ghi đích (openCompany / openLead / openGame) LÊN TRÊN
+   form, KHÁC nút [Xem] của Phần 2 (dedupeViewCompany gọi closeEdit()
+   nên huỷ form + xoá pendingEventLink). Ở đây: (1) KHÔNG gọi
+   closeEdit() — DOM của #editBox và pendingEventLink không bị đụng,
+   chữ đã gõ giữ nguyên trong các ô; (2) chụp snapshot mọi ô trong
+   #editBox (id/value/checked) TRƯỚC khi mở drawer, lúc drawer đóng
+   (hook ở cuối closeDrawer) thì áp lại snapshot — phòng trường hợp
+   một thao tác trong drawer dựng lại/chạm vào form; (3) modal form
+   z-index 60 vốn che drawer z-index 50 nên drawer được cộng class
+   .ta-over-modal (z-index 80, + style.zIndex cho môi trường không
+   nạp CSS) trong lúc xem trước, đóng drawer / mở form khác / đóng
+   form thì gỡ lớp nâng này (hook ở closeDrawer / openEdit / closeEdit). */
+const TYPEAHEAD_DISPLAY_THRESHOLD = 0.50;
+const TYPEAHEAD_LIMIT = 6;
+const TYPEAHEAD_DEBOUNCE_MS = 300;
+const TYPEAHEAD_BOXES = { "company-name": "ta_company_name", "company-website": "ta_company_website", "company-linkedin": "ta_company_linkedin", "lead-name": "ta_lead_name", "game-title": "ta_game_title" };
+const TYPEAHEAD_INPUTS = { "company-name": "e_cname", "company-website": "e_cp_website", "company-linkedin": "e_cp_linkedinUrl", "lead-name": "e_lname", "game-title": "e_gtitle" };
+const typeaheadCtx = { leadExcludeId: null, gameExcludeId: null, timers: {}, last: {} };
+const typeaheadState = { preview: null };
+function typeaheadFoldText(s) {
+  const api = dedupeApiGlobal();
+  if (api && typeof api.normalizeName === "function") { try { return api.normalizeName(s); } catch (e) {} }
+  return typeof comboFoldText === "function" ? comboFoldText(s) : String(s ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+function typeaheadTokenOverlap(query, candidateName) {
+  const q = typeaheadFoldText(query), c = typeaheadFoldText(candidateName);
+  if (!q || !c) return false;
+  if (c.includes(q) || q.includes(c)) return true;
+  /* Token ngành quá phổ biến của CHÍNH engine (studio/game/media/tech…)
+     không được tự mình kích hoạt gợi ý — "XYZ Studio" ~ "Beta Studio"
+     chỉ chung chữ Studio (điểm engine 0.318) phải im lặng, đúng ca hiệu
+     chỉnh (iii) của Phần 1. */
+  const api = dedupeApiGlobal();
+  const generic = api && Array.isArray(api.GENERIC_TOKENS) ? api.GENERIC_TOKENS : [];
+  const qt = q.split(" ").filter(Boolean), ct = c.split(" ").filter(Boolean);
+  return qt.some(t => t.length >= 2 && !generic.includes(t) && ct.some(u => !generic.includes(u) && (u.startsWith(t) || t.startsWith(u))));
+}
+function typeaheadNameScore(query, name) {
+  const api = dedupeApiGlobal();
+  if (api && typeof api.nameSimilarity === "function") { try { const s = api.nameSimilarity(query, name); return Number.isFinite(s) ? s : 0; } catch (e) {} }
+  const q = typeaheadFoldText(query), c = typeaheadFoldText(name);
+  return q && c && q === c ? 1 : 0;
+}
+/* Xếp hạng tên dùng chung cho cả 3 bề mặt tên (công ty / lead / game):
+   items là mảng bản ghi, getName lấy chuỗi tên. Trả mảng tối đa
+   TYPEAHEAD_LIMIT mục { entity, score, percent, exact, reasons[] } đã
+   xếp hạng (reasons là nhãn hiển thị sẵn, chỉ có ở mục tuyệt đối hoặc
+   >= 70%). excludeId loại chính bản ghi đang sửa khỏi gợi ý. */
+function typeaheadRankNameMatches(query, items, getName, excludeId) {
+  const q = String(query || "").trim(); if (!q) return [];
+  const api = dedupeApiGlobal();
+  const qKey = api && typeof api.nameKey === "function" ? api.nameKey(q) : "";
+  const found = [];
+  (Array.isArray(items) ? items : []).forEach((ent, idx) => {
+    if (!ent || !ent.id) return;
+    if (excludeId && String(ent.id) === String(excludeId)) return;
+    const name = String(getName(ent) || "");
+    if (!name.trim()) return;
+    const eKey = api && typeof api.nameKey === "function" ? api.nameKey(name) : "";
+    if (qKey && eKey && qKey === eKey) { found.push({ entity: ent, score: 1, percent: 100, exact: true, reasons: ["tên trùng khớp"], _rank: 0, _idx: idx }); return; }
+    const score = typeaheadNameScore(q, name);
+    if (score > typeaheadWarnThreshold()) { found.push({ entity: ent, score, percent: Math.round(score * 100), exact: false, reasons: [`tên giống ${Math.round(score * 100)}%`], _rank: 1, _idx: idx }); return; }
+    if (score >= TYPEAHEAD_DISPLAY_THRESHOLD) { found.push({ entity: ent, score, percent: Math.round(score * 100), exact: false, reasons: [], _rank: 2, _idx: idx }); return; }
+    if (typeaheadTokenOverlap(q, name)) { found.push({ entity: ent, score, percent: Math.round(score * 100), exact: false, reasons: [], _rank: 3, _idx: idx }); }
+  });
+  found.sort((a, b) => (a._rank - b._rank) || (b.score - a.score) || (a._idx - b._idx));
+  return found.slice(0, TYPEAHEAD_LIMIT).map(({ entity, score, percent, exact, reasons }) => ({ entity, score, percent, exact, reasons }));
+}
+function typeaheadWarnThreshold() {
+  const api = dedupeApiGlobal();
+  return api && Number.isFinite(api.SIMILARITY_THRESHOLD) ? api.SIMILARITY_THRESHOLD : 0.70;
+}
+/* --- Bề mặt 1: công ty (theo ĐÚNG ô đang gõ) --- */
+function typeaheadCompanyMatches(source, rawValue) {
+  const q = String(rawValue || "").trim(); if (!q) return [];
+  const api = dedupeApiGlobal();
+  const excludeId = companyDedupeCtx.form ? companyDedupeCtx.form.excludeId : null;
+  const pool = S.companies.filter(c => c && c.id && (!excludeId || String(c.id) !== String(excludeId)));
+  if (source === "website") {
+    const qd = api && typeof api.normalizeWebsite === "function" ? api.normalizeWebsite(q) : "";
+    const qRaw = q.toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0].split(":")[0];
+    const found = [];
+    pool.forEach((c, idx) => {
+      const d = api && typeof api.normalizeWebsite === "function" ? api.normalizeWebsite(c.website || "") : "";
+      if (!d) return;
+      if (qd && d === qd) found.push({ entity: c, company: c, score: 1, percent: 100, exact: true, reasons: ["trùng domain " + d], _rank: 0, _idx: idx });
+      else if (qRaw.length >= 3 && (d.startsWith(qRaw) || d.includes(qRaw))) found.push({ entity: c, company: c, score: 0, percent: null, exact: false, reasons: [], _rank: 3, _idx: idx });
+    });
+    found.sort((a, b) => (a._rank - b._rank) || (a._idx - b._idx));
+    return found.slice(0, TYPEAHEAD_LIMIT).map(({ entity, company, score, percent, exact, reasons }) => ({ entity, company, score, percent, exact, reasons }));
+  }
+  if (source === "linkedin") {
+    const qSlug = api && typeof api.normalizeLinkedIn === "function" ? api.normalizeLinkedIn(q) : "";
+    const qRaw = qSlug || q.toLowerCase().replace(/\/$/, "").split("/").pop();
+    const found = [];
+    pool.forEach((c, idx) => {
+      const slug = api && typeof api.normalizeLinkedIn === "function" ? api.normalizeLinkedIn(c.linkedinUrl || c.linkedin || "") : "";
+      if (!slug) return;
+      if (qSlug && slug === qSlug) found.push({ entity: c, company: c, score: 1, percent: 100, exact: true, reasons: ["trùng LinkedIn " + slug], _rank: 0, _idx: idx });
+      else if (qRaw && qRaw.length >= 3 && (slug.startsWith(qRaw) || slug.includes(qRaw))) found.push({ entity: c, company: c, score: 0, percent: null, exact: false, reasons: [], _rank: 3, _idx: idx });
+    });
+    found.sort((a, b) => (a._rank - b._rank) || (a._idx - b._idx));
+    return found.slice(0, TYPEAHEAD_LIMIT).map(({ entity, company, score, percent, exact, reasons }) => ({ entity, company, score, percent, exact, reasons }));
+  }
+  return typeaheadRankNameMatches(q, pool, c => c.name, null).map(m => ({ ...m, company: m.entity }));
+}
+/* --- Bề mặt 2: lead — CHỈ lead của đúng công ty đang chọn trong form.
+   Chưa chọn công ty (rỗng hoặc "__new__" sắp tạo mới) -> không gợi ý. --- */
+function typeaheadLeadMatches(rawValue, companyId) {
+  const cid = String(companyId || "");
+  if (!cid || cid === "__new__") return [];
+  const pool = S.leads.filter(l => l && l.company === cid);
+  return typeaheadRankNameMatches(rawValue, pool, l => leadDisplayName(l), typeaheadCtx.leadExcludeId).map(m => ({ ...m, lead: m.entity }));
+}
+/* --- Bề mặt 3: game --- */
+function typeaheadGameMatches(rawValue) {
+  return typeaheadRankNameMatches(rawValue, S.games, g => g.title, typeaheadCtx.gameExcludeId).map(m => ({ ...m, game: m.entity }));
+}
+/* --- Thông tin phân biệt trên từng dòng gợi ý --- */
+function typeaheadCompanyMeta(c) {
+  const api = dedupeApiGlobal();
+  const domain = (api && typeof api.normalizeWebsite === "function" ? api.normalizeWebsite(c.website || "") : "") || String(c.website || "");
+  const lines = Object.entries(c.roles || {}).map(([k, v]) => `${typeof LINES !== "undefined" && LINES[k] ? LINES[k].name : k}: ${v}`).join(", ");
+  const nLead = S.leads.filter(l => l.company === c.id).length;
+  const nDeal = S.deals.filter(d => d.company === c.id).length;
+  return [domain, lines, `${nLead} lead`, `${nDeal} deal`].filter(Boolean).join(" · ");
+}
+function typeaheadLeadMeta(l) { return String(l.person || "").trim() || "—"; }
+function typeaheadGameMeta(g) {
+  const studio = g.company ? comp(g.company) : null;
+  return [studio && studio.id ? studio.name : "", g.own === "ours" ? "Game của Sava" : "Game đối tác", g.genre || "", g.stage || ""].filter(Boolean).join(" · ");
+}
+function typeaheadItemHTML(onclick, name, meta, reasons) {
+  const reason = Array.isArray(reasons) && reasons.length ? `<span class="ta-reason">${esc(reasons.join(", "))}</span>` : "";
+  return `<button type="button" class="ta-item" onclick="${onclick}"><span class="ta-name">${esc(name)}</span>${meta ? `<span class="ta-meta">${esc(meta)}</span>` : ""}${reason}</button>`;
+}
+function typeaheadInputValue(surface) {
+  const id = TYPEAHEAD_INPUTS[surface]; if (!id) return "";
+  const el = document.getElementById(id); return el ? String(el.value || "") : "";
+}
+function closeTypeahead(surface) {
+  const boxId = TYPEAHEAD_BOXES[surface]; if (!boxId) return;
+  const box = document.getElementById(boxId); if (box) box.innerHTML = "";
+  delete typeaheadCtx.last[surface];
+}
+function closeAllTypeahead() { Object.keys(TYPEAHEAD_BOXES).forEach(closeTypeahead); }
+function refreshTypeahead(surface) {
+  const boxId = TYPEAHEAD_BOXES[surface]; if (!boxId) return [];
+  Object.keys(TYPEAHEAD_BOXES).forEach(s => { if (s !== surface) closeTypeahead(s); });
+  const box = document.getElementById(boxId); if (!box) return [];
+  let items = [], html = "";
+  if (surface === "company-name") { items = typeaheadCompanyMatches("name", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
+  else if (surface === "company-website") { items = typeaheadCompanyMatches("website", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
+  else if (surface === "company-linkedin") { items = typeaheadCompanyMatches("linkedin", typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenCompany('${m.company.id}')`, m.company.name || "", typeaheadCompanyMeta(m.company), m.reasons)).join(""); }
+  else if (surface === "lead-name") { const cid = document.getElementById("e_lcompany") ? document.getElementById("e_lcompany").value : ""; items = typeaheadLeadMatches(typeaheadInputValue(surface), cid); html = items.map(m => typeaheadItemHTML(`typeaheadOpenLead('${m.lead.id}')`, leadDisplayName(m.lead), typeaheadLeadMeta(m.lead), m.reasons)).join(""); }
+  else if (surface === "game-title") { items = typeaheadGameMatches(typeaheadInputValue(surface)); html = items.map(m => typeaheadItemHTML(`typeaheadOpenGame('${m.game.id}')`, m.game.title || "", typeaheadGameMeta(m.game), m.reasons)).join(""); }
+  typeaheadCtx.last[surface] = items;
+  box.innerHTML = items.length ? `<div class="ta-list" role="listbox">${html}</div>` : "";
+  return items;
+}
+function scheduleTypeahead(surface) {
+  if (!TYPEAHEAD_BOXES[surface]) return;
+  if (typeaheadCtx.timers[surface]) clearTimeout(typeaheadCtx.timers[surface]);
+  typeaheadCtx.timers[surface] = setTimeout(() => { typeaheadCtx.timers[surface] = null; refreshTypeahead(surface); }, TYPEAHEAD_DEBOUNCE_MS);
+}
+function typeaheadClearTimers() { Object.keys(typeaheadCtx.timers).forEach(k => { if (typeaheadCtx.timers[k]) clearTimeout(typeaheadCtx.timers[k]); typeaheadCtx.timers[k] = null; }); }
+/* --- Mở drawer từ gợi ý + giữ nguyên form (cơ chế ở đầu khối) --- */
+function typeaheadBeginPreview(surface) {
+  if (typeaheadState.preview) return;
+  let fields = [];
+  try {
+    const box = document.getElementById("editBox");
+    const nodes = box && typeof box.querySelectorAll === "function" ? box.querySelectorAll("input, select, textarea") : [];
+    (nodes || []).forEach(el => { if (el && el.id) fields.push({ id: el.id, value: el.value, checked: !!el.checked }); });
+  } catch (e) {}
+  typeaheadState.preview = { surface: surface || "", inputId: TYPEAHEAD_INPUTS[surface] || "", fields };
+}
+function typeaheadElevateDrawer() {
+  try { const dr = document.getElementById("drawer"); if (dr) { dr.classList.add("ta-over-modal"); if (dr.style) dr.style.zIndex = "80"; } } catch (e) {}
+}
+function typeaheadEndPreview() {
+  typeaheadState.preview = null;
+  try { const dr = document.getElementById("drawer"); if (dr) { dr.classList.remove("ta-over-modal"); if (dr.style) dr.style.zIndex = ""; } } catch (e) {}
+}
+function typeaheadOnDrawerClosed() {
+  const pv = typeaheadState.preview; if (!pv) return;
+  try {
+    (pv.fields || []).forEach(f => { const el = document.getElementById(f.id); if (el) { el.value = f.value; if ("checked" in el) el.checked = f.checked; } });
+    const inp = pv.inputId ? document.getElementById(pv.inputId) : null;
+    if (inp && typeof inp.focus === "function") inp.focus();
+  } catch (e) {}
+  typeaheadEndPreview();
+}
+function typeaheadOpenDrawer(surface, openFn, id) {
+  closeAllTypeahead();
+  typeaheadBeginPreview(surface);
+  openFn(id);
+  typeaheadElevateDrawer();
+}
+function typeaheadOpenCompany(id) { typeaheadOpenDrawer("company-name", openCompany, id); }
+function typeaheadOpenLead(id) { typeaheadOpenDrawer("lead-name", openLead, id); }
+function typeaheadOpenGame(id) { typeaheadOpenDrawer("game-title", openGame, id); }
+/* Phím / bấm-ra-ngoài cho gợi ý: Esc đóng (không xoá chữ đã gõ); Enter
+   TUYỆT ĐỐI không được xử lý ở đây (giữ thao tác mặc định của form). */
+function typeaheadHandleKeydown(e) {
+  if (!e || e.key !== "Escape") return false;
+  const t = e.target; const id = t && t.id;
+  const surface = Object.keys(TYPEAHEAD_INPUTS).find(k => TYPEAHEAD_INPUTS[k] === id);
+  if (surface) { closeTypeahead(surface); return true; }
+  if (Object.keys(typeaheadCtx.last).length) { closeAllTypeahead(); return true; }
+  return false;
+}
+function typeaheadHandleDocumentClick(e) {
+  const t = e && e.target; if (!t) return false;
+  if (t.id && Object.values(TYPEAHEAD_INPUTS).includes(t.id)) return false;
+  try { if (typeof t.closest === "function" && t.closest("[data-ta-box]")) return false; } catch (err) {}
+  if (t.classList && typeof t.classList.contains === "function" && t.classList.contains("ta-item")) return false;
+  closeAllTypeahead(); return true;
+}
+function initTypeahead() {
+  try {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function" || document.__typeaheadReady) return;
+    document.__typeaheadReady = true;
+    document.addEventListener("keydown", typeaheadHandleKeydown);
+    document.addEventListener("click", typeaheadHandleDocumentClick);
+  } catch (e) {}
+}
+
 /* --- Công ty --- */
 const ROLE_OPTS_BY_LINE = { game_studio: ["Publisher"], publishing: ["Game studio", "Indie dev"], ai: ["Khách hàng"], metaverse: ["Khách hàng"] };
 function editCompany(id) {
@@ -4855,7 +5134,7 @@ function editCompany(id) {
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa công ty" : "🏢 Thêm công ty"}</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("company")}</div>
     <div id="e_company_dedupe_warn" class="dedupe-sticky"></div>
-    ${field("Tên công ty", `<input id="e_cname" value="${esc(c.name ?? "")}" oninput="scheduleCompanyDedupeCheck('form')">`)}
+    ${field("Tên công ty", `<input id="e_cname" value="${esc(c.name ?? "")}" oninput="scheduleCompanyDedupeCheck('form')">`)}<div class="ta-box" id="ta_company_name" data-ta-box="1"></div>
     ${field("Loại hình", selLegacy("e_ctype", ["Publisher", "Game studio", "Indie dev", "Doanh nghiệp", "Khác"], c.type || "", "— Chưa chọn —"))}
     <div class="mut" style="margin-top:12px">Người liên hệ của công ty là các <b>Lead</b> thuộc công ty này (một nguồn sự thật duy nhất) — thêm/sửa người liên hệ ở mục Lead, không còn trường đầu mối riêng ở công ty.</div>
     <div class="mut" style="margin-top:12px">Vai trò theo mảng — bật mảng nào thì công ty hiện trong mảng đó:</div>
@@ -4953,13 +5232,14 @@ function editGame(id, presetCompanyId) {
   const presetComp = !id && presetCompanyId ? comp(presetCompanyId) : null;
   const g = id ? game(id) : { title: "", emoji: "🎮", own: (presetComp && presetComp.id) ? "partner" : (curLine === "game_studio" ? "ours" : "partner"), genre: "", platform: "", stage: "", desc: "", bdNote: "", buildUrl: "", trailerUrl: "", company: (presetComp && presetComp.id) ? presetComp.id : "", scores: null, verdict: "" };
   if (id && !g) return;
+  typeaheadCtx.gameExcludeId = id || null; /* Phần 2B: sửa game thì gợi ý loại chính game đó */
   const compOpts = [["", "— Chưa chọn studio —"], ...S.companies.map(c => [c.id, c.name]),
     ...((g.company && !S.companies.some(c => c.id === g.company)) ? [[g.company, "(dữ liệu cũ) " + g.company]] : []),
     ["__new__", "＋ Tạo công ty mới…"]];
   const scoreHtml = BD_SCORE_KEYS.map(k => field(`Điểm ${k} (0–10, để trống = chưa chấm)`, `<input id="e_gs_${k}" type="number" min="0" max="10" step="0.5" value="${esc((g.scores && g.scores[k]) ?? "")}">`)).join("");
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa game" : "🎮 Thêm game"}</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("game")}</div>
-    ${field("Tên game", txt("e_gtitle", g.title))}
+    ${field("Tên game", `<input id="e_gtitle" value="${esc(g.title ?? "")}" oninput="scheduleTypeahead('game-title')">`)}<div class="ta-box" id="ta_game_title" data-ta-box="1"></div>
     ${field("Emoji", txt("e_gemoji", g.emoji))}
     ${field("Loại game", sel("e_gown", [["ours", "Game của Sava"], ["partner", "Game đối tác"]], g.own))}
     ${field("Studio sở hữu (chỉ game đối tác)", `${comboSelectHTML("e_gcompany", compOpts.map(([v2, t2]) => `<option value="${esc(v2)}" ${String(v2) === String(g.company || "") ? "selected" : ""}>${esc(t2)}</option>`).join(""), { attrs: 'onchange="toggleGameNewCompany()"', label: (compOpts.find(([v2]) => String(v2) === String(g.company || "")) || [null, "— Chưa chọn studio —"])[1], placeholder: "Gõ tên studio / công ty để tìm…" })}<div id="e_gnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_gnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu game"></div>`)}
@@ -5065,6 +5345,7 @@ function editLead(id, presetCompanyId) {
      có ngữ cảnh mảng cụ thể / preset công ty thì chọn sẵn như cũ. */
   const l = id ? S.leads.find(x => x.id === id) : { name: "", line: curLine !== "all" ? curLine : "", source: (pendingEventLink && pendingEventLink.kind === "lead") ? "Sự kiện" : "", status: "new", note: "", when: "Vừa xong", company: "", person: "", phone: "", email: "", linkedinUrl: "", ownerId: "", mainContact: false };
   if (id && !l) return;
+  typeaheadCtx.leadExcludeId = id || null; /* Phần 2B: sửa lead thì gợi ý loại chính lead đó */
   const presetComp = presetCompanyId ? comp(presetCompanyId) : null;
   const curCompId = id ? (l.company || "") : (presetComp && presetComp.id ? presetComp.id : (l.company || ""));
   const presetLine = !id && presetComp && presetComp.id && presetComp.roles ? Object.keys(presetComp.roles)[0] : null;
@@ -5077,7 +5358,7 @@ function editLead(id, presetCompanyId) {
     `<option value="__new__">＋ Tạo công ty mới…</option>`;
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa lead" : "📥 Thêm lead"}</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("lead")}</div>
-    ${field("Tên lead (người đầu mối)", txt("e_lname", l.name))}
+    ${field("Tên lead (người đầu mối)", `<input id="e_lname" value="${esc(l.name ?? "")}" oninput="scheduleTypeahead('lead-name')">`)}<div class="ta-box" id="ta_lead_name" data-ta-box="1"></div>
     ${field("Công ty", `${comboSelectHTML("e_lcompany", compOpts, { attrs: 'onchange="toggleLeadNewCompany()"', label: curCompId ? ((S.companies.find(c => c.id === curCompId) || {}).name || "(dữ liệu cũ) " + curCompId) : "— Chưa gắn công ty —", placeholder: "Gõ tên công ty để tìm…" })}<div id="e_lnewCompanyWrap" style="display:none; margin-top:6px"><input id="e_lnewCompany" placeholder="Tên công ty mới — sẽ tạo khi lưu lead"></div>`)}
     ${field("Position", txt("e_lperson", l.person || "", "VD: Chief Executive Officer"))}
     ${field("Điện thoại", txt("e_lphone", l.phone || "", "SĐT của người liên hệ này"))}
@@ -5417,6 +5698,7 @@ function deleteActivity(id) {
 
 render();
 initCombos();
+initTypeahead();
 /* Boot mở-nhanh (supabase-auth.js): khi kiểm chứng ngầm tải được dữ
    liệu MỚI từ Supabase về cache, auth gọi hook này để app nạp lại state
    trong bộ nhớ từ cache mới rồi render lại TẠI CHỖ — không reload
