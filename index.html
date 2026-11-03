@@ -147,7 +147,7 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="workspace-design.css?v=20261103.5">
+<link rel="stylesheet" href="workspace-design.css?v=20261103.6">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1315,7 +1315,7 @@ function vCompanies() {
      "all") — cùng quy ước nhận biết "đang lọc" của vLeads. */
   const filteringCompanies = !!query || curLine !== "all";
   const emptyCompaniesMsg = filteringCompanies ? "Không có công ty nào khớp tìm kiếm hiện tại." : "Chưa có công ty nào.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("companies", "name", "Công ty")}<th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th>${sortThHTML("companies", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="7" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>${listPagerHTML("companies", compPageInfo, "công ty")}
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table class="companies-table"><tr><th>STT</th>${sortThHTML("companies", "name", "Công ty")}<th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th>${sortThHTML("companies", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="7" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>${listPagerHTML("companies", compPageInfo, "công ty")}
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 

@@ -392,3 +392,23 @@ td.list-stt {color:#64748b;font-weight:600}
 .dash-table-wrap>table,.table-scroll>table {min-width:640px}
 .imp-table-wrap>table {min-width:560px}
 @media(max-width:700px){:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table th,:is(.table-wrap,.dash-table-wrap,.imp-table-wrap,.table-scroll)>table td {padding:9px 10px}.table-wrap>table {min-width:720px}}
+/* 5 — VÒNG 3 (QA render thật 3/11): sàn RIÊNG cho cột Deal của bảng CÔNG TY
+   (class .companies-table gắn tại vCompanies trong index.html — mọi bảng
+   .table-wrap khác không có class này nên không bị chạm). Cột Deal (cột 5)
+   trước đây không có sàn nào mà nội dung lại là chữ thường ngắt dòng được
+   ("1 deal mở" / "Cơ hội đang theo dõi") nên min-content rất nhỏ: hễ bề
+   rộng bảng bị các cột còn lại (STT 52 cố định, cột Công ty sàn 180, chip
+   vai trò nowrap, đầu mối/ngày) chiếm gần hết, layout auto bóp cột Deal
+   về ~46–50px, nội dung vỡ 8–9 dòng, hàng cao ~173–177px — đo thật ở
+   390px (46px/173px) và lỗi còn kéo dài tới viewport ~1400px (118px).
+   Sàn 130px cho th/td cột 5: nội dung hiện trọn 2 dòng, hàng ở 390px về
+   81–92px (do các cột khác quyết định như hàng thường), các cột khác
+   không đổi một pixel, bảng chỉ dài thêm đúng phần thiếu và wrapper vẫn
+   cuộn ngang. CHỈ áp trong @media(max-width:1600px): từ ~1500px trở lên
+   bề rộng tự nhiên của cột Deal đã vượt sàn (đo thật: 135px @1500,
+   182px @1900) nên sàn không còn cần; khoanh tới 1600 để chừa biên cho
+   dữ liệu thật nặng hơn dữ liệu minh họa, và để layout màn rộng (1900px)
+   giữ nguyên tuyệt đối — min-width đặt vô điều kiện sẽ làm thuật toán
+   chia phần dư của layout auto lệch cột Deal @1900 thêm ~6px dù sàn
+   không hề "cắn" ở bề rộng đó (đã đo đối chứng). */
+@media(max-width:1600px){.table-wrap>table.companies-table th:nth-child(5),.table-wrap>table.companies-table td:nth-child(5){min-width:130px}}
