@@ -175,15 +175,17 @@ test('Việc 4 bổ sung / hiển thị: mọi danh sách CRM có chỉ dấu C�
   assert.ok(h.run(`leadCardHTML(S.leads[0])`).includes('🕘 ' + dstr), 'thẻ lead trên pipeline hiện chỉ dấu');
   assert.ok(!h.run(`leadCardHTML(S.leads[1])`).includes('🕘'), 'thẻ lead chưa có dấu: không hiện chỉ dấu');
 
+  const TH_UPDATED = /<th[^>]*>(?:<button[^>]*>)?Cập nhật cuối/; /* Việc 6: tiêu đề cột thành nút sort trong th — vẫn là cột Cập nhật cuối */
+  const TH_WHEN = /<th[^>]*>(?:<button[^>]*>)?Thời gian</;
   h.run(`vLeads();`);
-  assert.ok(h.getEl('view').innerHTML.includes('<th>Cập nhật cuối</th>'), 'bảng Lead có cột Cập nhật cuối');
-  assert.ok(!h.getEl('view').innerHTML.includes('<th>Thời gian</th>'), 'không còn cột "Thời gian" đọc when ở bảng Lead');
+  assert.ok(TH_UPDATED.test(h.getEl('view').innerHTML), 'bảng Lead có cột Cập nhật cuối');
+  assert.ok(!TH_WHEN.test(h.getEl('view').innerHTML), 'không còn cột "Thời gian" đọc when ở bảng Lead');
   h.run(`vCompanies();`);
-  assert.ok(h.getEl('view').innerHTML.includes('<th>Cập nhật cuối</th>') && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Công ty có cột Cập nhật cuối + số thật');
+  assert.ok(TH_UPDATED.test(h.getEl('view').innerHTML) && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Công ty có cột Cập nhật cuối + số thật');
   h.run(`vEvents();`);
-  assert.ok(h.getEl('view').innerHTML.includes('<th>Cập nhật cuối</th>') && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Sự kiện có cột Cập nhật cuối + số thật');
+  assert.ok(TH_UPDATED.test(h.getEl('view').innerHTML) && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Sự kiện có cột Cập nhật cuối + số thật');
   h.run(`vMembers();`);
-  assert.ok(h.getEl('view').innerHTML.includes('<th>Cập nhật cuối</th>') && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Thành viên có cột Cập nhật cuối + số thật');
+  assert.ok(TH_UPDATED.test(h.getEl('view').innerHTML) && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Thành viên có cột Cập nhật cuối + số thật');
   h.run(`vGames();`);
   assert.ok(h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'thẻ Game hiện chỉ dấu cập nhật');
   assert.ok(h.run(`taskRow(S.tasks[0])`).includes('🕘 ' + dstr), 'dòng Việc hiện chỉ dấu cập nhật');
