@@ -149,7 +149,7 @@ const FIELD_LABELS = {
   game: { title: "Tên game", own: "Loại game", company: "Studio sở hữu", genre: "Genre", platform: "Nền tảng", stage: "Giai đoạn phát triển", emoji: "Emoji", desc: "Mô tả", bdNote: "Ghi chú BD", buildUrl: "Link build", trailerUrl: "Link trailer", scores: "Điểm BD /10 (lưu trữ)", verdict: "Kết luận BD (lưu trữ)", mktEval: "Đánh giá MKT /10 (lưu trữ)" },
   task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
   member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
-  activity: { deal: "Deal", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
+  activity: { deal: "Deal", lead: "Lead", game: "Game", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
   event: { name: "Tên sự kiện", date: "Ngày diễn ra", location: "Địa điểm", attendees: "Người tham dự", note: "Ghi chú", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
   request: { kind: "Loại hồ sơ", entityId: "Hồ sơ CRM", requestedBy: "BD phụ trách", assignee: "MKT được giao", due: "Hạn đánh giá", requestNote: "Thông tin đầu vào / yêu cầu BD", source: "Link build / bằng chứng", build: "Build / phiên bản", status: "Trạng thái", intake: "Hồ sơ đầu vào", entitySnapshot: "Dữ liệu chụp hồ sơ" },
 };
@@ -158,7 +158,7 @@ const REF_FIELDS = {
   lead: { company: "company", ownerId: "member" },
   game: { company: "company" },
   task: { assignee: "member", deal: "deal", company: "company", lead: "lead", game: "game" },
-  activity: { who: "member", deal: "deal" },
+  activity: { who: "member", deal: "deal", lead: "lead", game: "game" },
   request: { requestedBy: "member", assignee: "member", entityId: "entity" },
 };
 function cloneForDiff(v) {
@@ -846,7 +846,7 @@ function migrateState(s) {
   });
   s.leads.forEach(l => { if (typeof l.company === "number" && Number.isFinite(l.company)) l.company = String(l.company); });
   s.tasks.forEach(t => { if (typeof t.deal === "number" && Number.isFinite(t.deal)) t.deal = String(t.deal); });
-  s.activities.forEach(a => { if (typeof a.deal === "number" && Number.isFinite(a.deal)) a.deal = String(a.deal); });
+  s.activities.forEach(a => { ["deal", "lead", "game"].forEach(f => { if (typeof a[f] === "number" && Number.isFinite(a[f])) a[f] = String(a[f]); }); });
   (s.deals || []).forEach(d => { if (!Array.isArray(d.leads)) d.leads = []; else d.leads = d.leads.map(v => (typeof v === "number" && Number.isFinite(v)) ? String(v) : v); });
   let migSeq = 0;
   const newCompanyId = () => {

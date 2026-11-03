@@ -319,6 +319,13 @@
       ensureParentRows(plans.deal_contracts.upserts, 'deal_id', 'deals');
       ensureParentRows(plans.tasks.upserts, 'deal_id', 'deals');
       ensureParentRows(plans.activities.upserts, 'deal_id', 'deals');
+      /* Đợt Lead/Game: hoạt động gắn TRỰC TIẾP vào lead/game — cha của
+         chúng là leads/games, và thứ tự `order` (games/leads TRƯỚC
+         activities) đã đảm bảo cha được upsert trước con trong cùng vòng
+         khi cả hai cùng có plan; ensureParentRows phủ ca cha không đổi ở
+         local (không nằm trong plan) nhưng vắng mặt trên server. */
+      ensureParentRows(plans.activities.upserts, 'lead_id', 'leads');
+      ensureParentRows(plans.activities.upserts, 'game_id', 'games');
       ensureParentRows([...leadChangedDeals].map(id => ({ deal_id: id })), 'deal_id', 'deals');
       ensureParentRows([...linkChangedEvents].map(id => ({ event_id: id })), 'event_id', 'events');
     }

@@ -169,7 +169,7 @@
      và khôi phục nguyên vẹn khi đọc (xem hai chiều bên dưới) — đúng tinh
      thần cặp raw/date: raw luôn thắng khi đọc lại (pairBack). */
   const TASK_KNOWN = ['id', 'title', 'assignee', 'deal', 'due', 'dueDate', 'done', 'overdue'];
-  const ACTIVITY_KNOWN = ['id', 'deal', 'type', 'who', 'when', 'text', 'url'];
+  const ACTIVITY_KNOWN = ['id', 'deal', 'lead', 'game', 'type', 'who', 'when', 'text', 'url'];
   const MEMBER_KNOWN = ['id', 'name', 'role', 'active'];
   /* Sự kiện: attendees (mảng member id), note và 3 trường hệ thống
      (createdAt/updatedAt/updatedBy) CỐ Ý không nằm trong EVENT_KNOWN:
@@ -289,24 +289,36 @@
         legacy_extra: taskExtra,
       });
     });
-    /* Việc 7: activities.deal_id là NOT NULL + FK -> deals — hoạt động
-       không gắn deal hợp lệ (deal rỗng / deal đã xoá ở local) KHÔNG được
-       thành row đẩy lên server: một row như vậy làm vỡ FK/NOT NULL và,
-       vì snapshot đồng bộ chỉ tiến khi sync chạy trọn, sẽ kẹt MỌI lần
-       đồng bộ sau đó. Bỏ qua ở cả hai chiều state->rows (bản mới lẫn
-       snapshot) nên không sinh plan xoá/upsert nào cho chúng; bản ghi
-       vẫn giữ nguyên ở local để người dùng gắn lại vào deal còn tồn tại. */
+    /* Việc 7 + đợt Lead/Game: activities có ĐÚNG MỘT chủ — deal_id /
+       lead_id / game_id (CHECK activities_exactly_one_owner ở DB, FK cả
+       ba). Hoạt động KHÔNG có đúng 1 chủ hợp lệ (0 chủ, 2+ chủ, hoặc chủ
+       đã xoá ở local) KHÔNG được thành row đẩy lên server: một row như
+       vậy làm vỡ CHECK/FK và, vì snapshot đồng bộ chỉ tiến khi sync chạy
+       trọn, sẽ kẹt MỌI lần đồng bộ sau đó. Bỏ qua ở cả hai chiều
+       state->rows (bản mới lẫn snapshot) nên không sinh plan xoá/upsert
+       nào cho chúng; bản ghi vẫn giữ nguyên ở local để người dùng gắn
+       lại vào chủ còn tồn tại (chuẩn Việc 7, mở rộng cho lead/game). */
     const dealIdSet = new Set(rows.deals.map(r => String(r.id)));
+    const leadIdSet = new Set(rows.leads.map(r => String(r.id)));
+    const gameIdSet = new Set(rows.games.map(r => String(r.id)));
     (Array.isArray(s.activities) ? s.activities : []).forEach(a => {
       if (!isObj(a) || !a.id) return;
-      if (!a.deal || !dealIdSet.has(String(a.deal))) return;
+      const owners = [];
+      if (a.deal) owners.push(['deal_id', a.deal, dealIdSet]);
+      if (a.lead) owners.push(['lead_id', a.lead, leadIdSet]);
+      if (a.game) owners.push(['game_id', a.game, gameIdSet]);
+      if (owners.length !== 1) return;
+      const [ownerCol, ownerId, ownerSet] = owners[0];
+      if (!ownerSet.has(String(ownerId))) return;
       const when = datePair(a.when);
-      rows.activities.push({
-        id: a.id, deal_id: a.deal, type: a.type || 'Note', actor_id: nullIfEmpty(a.who),
+      const row = {
+        id: a.id, deal_id: null, lead_id: null, game_id: null, type: a.type || 'Note', actor_id: nullIfEmpty(a.who),
         occurred_date: when.date, occurred_raw: when.raw,
         text: String(a.text || ''), url: a.url === undefined || a.url === '' ? null : a.url,
         legacy_extra: extrasOf(a, ACTIVITY_KNOWN),
-      });
+      };
+      row[ownerCol] = ownerId;
+      rows.activities.push(row);
     });
     (Array.isArray(s.events) ? s.events : []).forEach(e => {
       if (!isObj(e) || !e.id) return;
@@ -429,10 +441,18 @@
       if (o.dueDate_raw !== undefined) { o.dueDate = pairBack(t.due_date, o.dueDate_raw); delete o.dueDate_raw; }
     });
     arr('activities').forEach(a => {
+      /* Chủ của hoạt động: đúng một khoá deal/lead/game được đặt theo cột
+         chủ khác NULL (hàng cũ chỉ có deal_id -> o.deal như trước, 100%
+         tương thích ngược; hàng mồ côi cả 3 cột NULL — DB nay chặn bằng
+         CHECK — thì không đặt khoá chủ nào, adapter state->rows sẽ giữ
+         nó ở local như hoạt động 0 chủ). */
       const o = {
-        id: a.id, deal: a.deal_id, type: a.type, who: emptyIfNull(a.actor_id),
+        id: a.id, type: a.type, who: emptyIfNull(a.actor_id),
         when: pairBack(a.occurred_date, a.occurred_raw), text: a.text || '',
       };
+      if (a.deal_id) o.deal = a.deal_id;
+      if (a.lead_id) o.lead = a.lead_id;
+      if (a.game_id) o.game = a.game_id;
       if (a.url !== null && a.url !== undefined) o.url = a.url;
       state.activities.push(mergeExtras(o, a));
     });

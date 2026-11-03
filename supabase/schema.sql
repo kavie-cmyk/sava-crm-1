@@ -449,7 +449,9 @@ create index deal_leads_lead_id_idx on public.deal_leads (lead_id);
 --   overdue_stored giữ đúng cờ đã lưu để đối chiếu; giai đoạn 2 tính động
 --   như app, không coi cột này là sự thật.
 -- - deal có thể KHÔNG có (task độc lập) hoặc bị delete khi lưu rỗng -> NULL.
--- app activity: {id, deal, type, who, when, text, url?}
+-- app activity: {id, deal?|lead?|game?, type, who, when, text, url?} — đúng
+--   MỘT khoá chủ (deal cũ giữ nguyên; lead/game là gắn TRỰC TIẾP không qua
+--   deal, đợt activity-lead-game.sql).
 -- - type: 'Note'|'Call'|'Email'|'Meeting'|'Demo'|'Zalo'|'Messenger' (giữ
 --   text + check theo đúng danh sách form hiện tại; dữ liệu cũ lạ sẽ bị bộ
 --   nạp ghi vào legacy_extra kèm báo cáo thay vì nới check tuỳ tiện).
@@ -477,7 +479,9 @@ create trigger tasks_set_updated_at before update on public.tasks
 
 create table public.activities (
   id            text primary key,                     -- app: activities[].id (a1…)
-  deal_id       text not null references public.deals (id) on delete cascade, -- app: deal
+  deal_id       text references public.deals (id) on delete cascade, -- app: deal (chủ khi gắn Deal; nullable từ đợt activity-lead-game — xem CHECK dưới)
+  lead_id       text references public.leads (id) on delete cascade, -- app: lead (chủ khi gắn TRỰC TIẾP vào Lead)
+  game_id       text references public.games (id) on delete cascade, -- app: game (chủ khi gắn TRỰC TIẾP vào Game)
   type          text not null default 'Note'
                 check (type in ('Note', 'Call', 'Email', 'Meeting', 'Demo', 'Zalo', 'Messenger')), -- app: type
   actor_id      text,                                 -- app: who (member id, '' -> NULL)
@@ -488,9 +492,18 @@ create table public.activities (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   created_by  text,
-  legacy_extra jsonb not null default '{}'::jsonb
+  legacy_extra jsonb not null default '{}'::jsonb,
+  -- Đúng MỘT chủ: Deal HOẶC Lead HOẶC Game (đợt activity-lead-game, file
+  -- supabase/activity-lead-game.sql áp cùng định nghĩa này lên project thật).
+  constraint activities_exactly_one_owner check (
+    (case when deal_id is not null then 1 else 0 end
+     + case when lead_id is not null then 1 else 0 end
+     + case when game_id is not null then 1 else 0 end) = 1
+  )
 );
 create index activities_deal_id_idx on public.activities (deal_id);
+create index activities_lead_id_idx on public.activities (lead_id);
+create index activities_game_id_idx on public.activities (game_id);
 create trigger activities_set_updated_at before update on public.activities
   for each row execute function public.set_updated_at();
 
