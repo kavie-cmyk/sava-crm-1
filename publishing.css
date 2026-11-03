@@ -37,3 +37,5 @@ dialog{border:1px solid var(--line);border-radius:17px;width:min(1040px,calc(100
 .mk-company-nav .btn{flex-shrink:0}
 /* ---- D6: chuỗi dài không khoảng trắng không tràn tiêu đề thẻ/dialog ---- */
 .review-card h3,.dialog-head h2{overflow-wrap:anywhere;word-break:break-word}
+/* Việc 6 — sort danh sách request: STT hiển thị + nút sort đang chọn. */
+.list-stt{white-space:nowrap;font-variant-numeric:tabular-nums}

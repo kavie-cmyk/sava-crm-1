@@ -274,3 +274,11 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .imp-list {margin:0 0 4px 18px;font-size:13px;color:#42586a;line-height:1.6}
 .imp-result {border-color:#bbf7d0;background:#f0fdf4}
 @media(max-width:900px){.imp-kpis{grid-template-columns:repeat(2,1fr)}.imp-settings{grid-template-columns:1fr}}
+
+/* Việc 6 — sort + STT danh sách: hàng điều khiển sort (sortBarHTML), tiêu đề
+   cột bấm-để-sort (sortThHTML) và chỉ số thứ tự hiển thị (.list-stt). */
+.sort-bar {display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+.sort-bar .sort-btn.on {background:var(--workspace-accent,#2563eb);border-color:transparent;color:#fff;font-weight:700}
+th.sort-th.on {color:var(--workspace-accent,#2563eb)}
+.list-stt {white-space:nowrap;font-variant-numeric:tabular-nums}
+td.list-stt {color:#64748b;font-weight:600}

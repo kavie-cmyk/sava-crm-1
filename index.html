@@ -788,6 +788,56 @@ function setView(v) { curView = v; render(); }
 document.getElementById("nav").addEventListener("click", e => { const b = e.target.closest("button[data-view]"); if (b) setView(b.dataset.view); });
 document.getElementById("search").addEventListener("input", e => { query = e.target.value.trim().toLowerCase(); render(); });
 
+/* ===== Sort + STT cho mọi danh sách (Việc 6) =====
+   PATTERN DUY NHẤT toàn app (cùng window.SavaSort của shared.js):
+   - Danh sách dạng BẢNG: bấm vào TIÊU ĐỀ CỘT để sort theo cột đó
+     (sortThHTML) — các cột Tên / Cập nhật cuối / Giá trị deal.
+   - Danh sách KHÔNG có cột (thẻ pipeline Deal/Lead, thẻ Game, dòng
+     Việc): hàng điều khiển sort nhỏ (sortBarHTML) ngay trên đầu danh
+     sách/cột với ĐÚNG cùng bộ nút tiêu chí + cùng chỉ dấu chiều.
+   Chỉ dấu: ▲ = tăng dần, ▼ = giảm dần, ↕ = chưa chọn tiêu chí này.
+   Bấm tiêu chí mới -> chiều mặc định của tiêu chí (Tên A→Z, Cập nhật
+   cuối Mới→Cũ, Deal size Lớn→Nhỏ); bấm lại cùng tiêu chí -> đảo chiều.
+   Trạng thái sort (listSortStates theo scope) là UI-state THUẦN trong
+   phiên: giữ nguyên khi chuyển view qua lại trong cùng lần mở trang,
+   KHÔNG nằm trong S, KHÔNG qua save()/đồng bộ, KHÔNG đóng dấu
+   updatedAt, KHÔNG sinh lịch sử — setListSort chỉ render() lại.
+   Mặc định lần đầu vào mỗi list (chưa chọn tiêu chí): GIỮ NGUYÊN thứ
+   tự hiện hành của app cho list đó (thứ tự dữ liệu/bảng sẵn có); STT
+   vẫn đánh 1..n theo đúng thứ tự hiển thị đó.
+   STT là thứ tự HIỂN THỊ sau lọc + sau sort (đánh lại từ 1 mỗi lần
+   render theo mảng đã lọc/sort), không phải id và không cố định theo
+   bản ghi; riêng Lead dạng Block, STT chạy LIÊN TỤC qua các trang
+   trong cùng block (trang 2 bắt đầu từ 11 với cỡ trang 10). */
+let listSortStates = {};
+function listSortState(scope) { return listSortStates[scope] || { key: null, dir: null }; }
+function setListSort(scope, key) {
+  if (!window.SavaSort) return;
+  listSortStates[scope] = SavaSort.next(listSortState(scope), key);
+  render(); /* CHỈ render lại — tuyệt đối không save()/sync ở đây */
+}
+function applyListSort(scope, items, nameOf) {
+  const st = listSortState(scope);
+  if (!st.key || !window.SavaSort) return Array.isArray(items) ? items.slice() : [];
+  return SavaSort.sortItems(items, st, { name: nameOf });
+}
+function sortThHTML(scope, key, label) {
+  const st = listSortState(scope);
+  const ind = window.SavaSort ? SavaSort.indicator(st, key) : "";
+  const on = st.key === key;
+  return `<th class="sort-th${on ? " on" : ""}" style="cursor:pointer;white-space:nowrap" title="Bấm để sắp xếp theo ${esc(label)}" aria-sort="${on ? (st.dir === "desc" ? "descending" : "ascending") : "none"}" onclick="setListSort('${scope}','${key}')">${esc(label)} ${ind}</th>`;
+}
+function sortBarHTML(scope, opts) {
+  const o = opts || {};
+  const st = listSortState(scope);
+  const btn = (key, label) => {
+    const on = st.key === key;
+    const ind = window.SavaSort ? SavaSort.indicator(st, key) : "";
+    return `<button class="btn ghost small sort-btn${on ? " on" : ""}" aria-pressed="${on ? "true" : "false"}" title="Sắp xếp theo ${esc(label)}" onclick="setListSort('${scope}','${key}')">${esc(label)} ${ind}</button>`;
+  };
+  return `<div class="sort-bar"><span class="mut">↕ Sắp xếp:</span>${btn("name", "Tên")}${btn("updated", "Cập nhật cuối")}${o.amount ? btn("amount", "Giá trị deal") : ""}</div>`;
+}
+
 function render() {
   lineTabs();
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === curView));
@@ -1060,12 +1110,12 @@ function relatedTasksHTML(type, id) {
     <div style="margin-bottom:8px"><button class="btn" onclick="editTask(null,'${type}','${id}')">+ Thêm việc</button></div>
     ${list.length ? list.map(relatedTaskRow).join("") : `<div class="mut">Chưa có việc nào gắn với ${esc(meta.noun.toLowerCase())} này — bấm "+ Thêm việc" ở trên để tạo việc ngay tại đây.</div>`}`;
 }
-function taskRow(t) {
+function taskRow(t, stt) {
   const d = S.deals.find(x => x.id === t.deal);
   const od = isOverdue(t);
   const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
   const chip = taskLinkChipHTML(t);
-  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span>${sysShortDate(t.updatedAt) ? " · " + sysUpdatedSpan(t) : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
+  return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')">${stt === undefined || stt === null ? "" : `<span class="list-stt mut">#${stt}</span>`}<div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span>${sysShortDate(t.updatedAt) ? " · " + sysUpdatedSpan(t) : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
 
@@ -1077,8 +1127,9 @@ function vBoard() {
     const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (line !== "metaverse" || dealMatchesVerticalFilter(d)) && (!query || (d.title+" "+comp(d.company).name).toLowerCase().includes(query)));
     const amt = {}; ds.forEach(d => { if (d.amount) amt[d.cur] = (amt[d.cur]||0)+d.amount; });
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
-    const cards = ds.map(d => { const gt = dealVisibleGame(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
-      <div class="t">${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
+    const sds = applyListSort("deals", ds, d => d.title || "");
+    const cards = sds.map((d, di) => { const gt = dealVisibleGame(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
+      <div class="t"><span class="list-stt">#${di + 1}</span> ${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
       <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysUpdatedSpan(d)}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
     /* Khung cuộn pipeline (workspace-design.css .board.pipeline-board):
@@ -1088,7 +1139,7 @@ function vBoard() {
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
       <h4>${s[1]} <span class="pill" style="background:${L.color}">${ds.length}</span></h4><div class="sum">${sum||"—"} · xác suất ${s[2]}%</div><div class="col-cards">${cards||'<div class="mut" style="padding:4px 2px">Kéo deal vào đây</div>'}</div></div>`;
   }).join("");
-  document.getElementById("view").innerHTML = note + (line === "metaverse" ? boardVerticalFilterHTML() : "") + `<div class="board pipeline-board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động.</div>`;
+  document.getElementById("view").innerHTML = note + (line === "metaverse" ? boardVerticalFilterHTML() : "") + sortBarHTML("deals", { amount: true }) + `<div class="board pipeline-board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động. Hàng sắp xếp ở trên áp dụng TRONG từng cột stage; số # trên thẻ là STT trong cột sau khi lọc + sắp xếp.</div>`;
 }
 let dragId = null;
 function drag(e, id) { dragId = id; }
@@ -1106,37 +1157,39 @@ function drop(e, line, stage) {
 
 function vCompanies() {
   const filteredCompanies = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query)));
-  const rows = filteredCompanies.map(c => {
+  const sortedCompanies = applyListSort("companies", filteredCompanies, c => c.name || "");
+  const rows = sortedCompanies.map((c, idx) => {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     /* D3: roles có key lạ (không có trong LINES) -> nhãn thô + màu trung tính, không crash */
     const roleChips = Object.entries(c.roles || {}).map(([k,r]) => `<span class="chip" style="background:${lineColor(k)}">${esc(lineName(k))}: ${esc(r)}</span>`).join("");
-    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td><td>${sysUpdatedCell(c)}</td></tr>`;
+    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td class="list-stt">${idx + 1}</td><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td><td>${sysUpdatedCell(c)}</td></tr>`;
   }).join("");
   /* F4: phân biệt trống-thật với đang-lọc-mà-không-khớp như vLeads/vTasks:
      đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước nhận biết "đang lọc" của vLeads. */
   const filteringCompanies = !!query || curLine !== "all";
   const emptyCompaniesMsg = filteringCompanies ? "Không có công ty nào khớp tìm kiếm hiện tại." : "Chưa có công ty nào.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Công ty</th><th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th><th>Cập nhật cuối</th></tr>${rows || `<tr><td colspan="6" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("companies", "name", "Công ty")}<th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th>${sortThHTML("companies", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="7" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 
 function vGames() {
   const show = S.games.filter(g => (curLine==="all" || (curLine==="game_studio" && g.own==="ours") || (curLine==="publishing" && g.own==="partner")) && (!query || (g.title + " " + g.genre).toLowerCase().includes(query)));
-  const cards = show.map(g => {
+  const sortedGames = applyListSort("games", show, g => g.title || "");
+  const cards = sortedGames.map((g, idx) => {
     /* Chỉ đếm deal mà game HIỂN THỊ được theo mảng (dealVisibleGame) —
        liên kết game giữ ẩn của deal đã đổi sang mảng khác không tính. */
     const deals = S.deals.filter(d => { const vg = dealVisibleGame(d); return !!vg && vg.id === g.id; });
     const scores = g.scores ? `<div class="mut" style="margin-top:8px">Điểm BD /10 (lưu trữ): TB <b>${scoreAvg(g.scores)}</b> · ${esc(g.verdict || "")}</div>` : "";
     const v2chip = gameV2ChipText(g.id);
-    return `<div class="gcard" onclick="openGame('${g.id}')" style="cursor:pointer" title="Bấm để xem chi tiết game + deal liên quan"><div class="emoji">${esc(g.emoji || "")}</div><h4>${esc(g.title)}</h4>
+    return `<div class="gcard" onclick="openGame('${g.id}')" style="cursor:pointer" title="Bấm để xem chi tiết game + deal liên quan"><div class="emoji">${esc(g.emoji || "")}</div><div class="mut list-stt">#${idx + 1}</div><h4>${esc(g.title)}</h4>
       <div class="mut">${esc(g.genre || "")} · ${esc(g.platform || "")}</div>
       <div style="margin:6px 0"><span class="pill" style="background:${g.own==='ours'?'#22c55e':'#0ea5e9'}">${g.own==='ours'?'Game của Sava':'Game đối tác'}</span> <span class="pill gray">${esc(g.stage || "")}</span> ${window.PublishingBridge ? PublishingBridge.gameBadge(g.id) : ""}${v2chip ? ` <span class="pill" style="background:#0ea5e9">${esc(v2chip)}</span>` : ""}</div>
       <div class="gdesc" style="font-size:13px">${esc(g.desc || "")}</div>${scores}
       <div class="mut" style="margin-top:8px">${deals.length} deal liên quan: ${deals.map(d=>`<a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)}</a>`).join("; ") || "—"}</div>${sysShortDate(g.updatedAt) ? `<div class="mut" style="margin-top:4px">${sysUpdatedSpan(g)}</div>` : ""}</div>`;
   }).join("");
   const emptyNote = !show.length ? ((curLine === "ai" || curLine === "metaverse") ? `<div class="panel mut" style="font-size:13.5px">Mảng này không dùng game — game chỉ thuộc mảng Game Studio (game của Sava) và Publishing (game đối tác).</div>` : `<div class="panel mut" style="font-size:13.5px">${query ? "Không có game nào khớp tìm kiếm hiện tại." : "Chưa có game nào ở mảng này."}</div>`) : "";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">Game Studio: game của Sava. Publishing: game của đối tác.</div>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editGame(null)">+ Thêm game</button></div>${sortBarHTML("games")}${emptyNote || `<div class="cards">${cards}</div>`}<div class="mut" style="margin-top:10px">Game Studio: game của Sava. Publishing: game của đối tác.</div>`;
 }
 
 /* ===== Leads chia theo trạng thái (vLeads) =====
@@ -1197,14 +1250,16 @@ function leadStatusDef(status) { return LEAD_STATUSES.find(s => s.key === status
    Nay cột đọc ĐÚNG updatedAt (dấu hệ thống do save() đóng — cùng nguồn
    + định dạng với mọi danh sách khác qua sysUpdatedCell) và đổi tên
    cột thành "Cập nhật cuối" cho đúng nghĩa; l.when vẫn giữ nguyên ở
-   form lead + drawer lead (ô "Thời gian") như field nghiệp vụ riêng. */
-function leadRowHTML(l) {
+   form lead + drawer lead (ô "Thời gian") như field nghiệp vụ riêng.
+   Việc 6: hàng nhận thêm tham số stt — số thứ tự hiển thị liên tục
+   trong block sau lọc + sort (ô STT đầu hàng). */
+function leadRowHTML(l, stt) {
   const def = leadStatusDef(l.status);
   const st = def ? [def.label, def.color] : [(l.status ? String(l.status) : "—"), "#64748b"];
   const lc = leadCompany(l);
   const relDeals = dealsForLead(l.id);
   const dealsHtml = relDeals.length ? relDeals.map(d => `<div><a href="#" onclick="event.stopPropagation(); openDeal('${d.id}'); return false" title="Mở deal liên quan">${esc(d.title)} →</a></div>`).join("") : '<span class="mut">Chưa gắn deal</span>';
-  return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}${l.ownerId ? `<div style="margin-top:3px">${leadOwnerChipHTML(l)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${sysUpdatedCell(l)}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
+  return `<tr onclick="openLead('${l.id}')" style="cursor:pointer" title="Bấm để xem chi tiết lead"><td class="list-stt">${stt === undefined || stt === null ? "" : stt}</td><td><b>${esc(leadDisplayName(l))}</b>${mainContactBadgeHTML(l)}<div>🏢 ${lc ? `<a href="#" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>${l.person ? `<div>👤 ${esc(l.person)}</div>` : ""}${l.ownerId ? `<div style="margin-top:3px">${leadOwnerChipHTML(l)}</div>` : ""}<div class="mut">${esc(l.note || "")}</div></td><td><span class="chip" style="background:${lineColor(l.line)}">${esc(lineName(l.line))}</span></td><td>${esc(l.source || "")}</td><td>${sysUpdatedCell(l)}</td><td><span class="pill" style="background:${st[1]}">${esc(st[0])}</span></td><td onclick="event.stopPropagation()">${dealsHtml}</td>
     <td>${l.status!=="converted"?`<button class="btn" style="padding:6px 10px" onclick="event.stopPropagation(); convertLead('${l.id}')">Chuyển thành deal →</button>`:'<span class="mut">Đã vào pipeline</span>'}</td></tr>`;
 }
 /* Bộ lọc NGƯỜI PHỤ TRÁCH của view Lead — UI-state thuần tuý trong phiên
@@ -1268,7 +1323,8 @@ function leadViewHeadHTML() {
       <button class="${leadViewMode === "pipeline" ? "on" : ""}" onclick="setLeadViewMode('pipeline')">▤ Pipeline</button>
     </div>
     <select id="leadOwnerFilterSel" onchange="setLeadOwnerFilter(this.value)" title="Lọc theo người phụ trách" aria-label="Lọc theo người phụ trách">${ownerOpts}</select>
-    <select id="leadStatusFilterSel" onchange="setLeadStatusFilter(this.value)" title="Lọc theo trạng thái" aria-label="Lọc theo trạng thái">${statusOpts}</select></div>`;
+    <select id="leadStatusFilterSel" onchange="setLeadStatusFilter(this.value)" title="Lọc theo trạng thái" aria-label="Lọc theo trạng thái">${statusOpts}</select>
+    ${sortBarHTML("leads")}</div>`;
 }
 /* Nhảy từ drawer member sang view Lead đã lọc sẵn theo member đó (bỏ lọc
    trạng thái để không giấu lead của member ngoài trạng thái đang lọc). */
@@ -1319,15 +1375,18 @@ function vLeads() {
      khi đang lọc, block nào không còn lead khớp thì ẨN hẳn; khi không
      lọc, mọi block trạng thái đều hiện kể cả khi rỗng. */
   const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter;
-  const groups = LEAD_STATUSES.map(def => ({ ...def, leads: filtered.filter(l => l.status === def.key) }));
+  /* Việc 6: sort áp TRONG từng block/trạng thái TRƯỚC khi chia trang;
+     STT chạy liên tục qua các trang trong block (info.from là vị trí
+     1-based của lead đầu trang trong tập block đã lọc + sort). */
+  const groups = LEAD_STATUSES.map(def => ({ ...def, leads: applyListSort("leads", filtered.filter(l => l.status === def.key), l => leadDisplayName(l)) }));
   const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
-  if (unknownLeads.length) groups.push({ ...LEAD_STATUS_UNKNOWN, leads: unknownLeads });
+  if (unknownLeads.length) groups.push({ ...LEAD_STATUS_UNKNOWN, leads: applyListSort("leads", unknownLeads, l => leadDisplayName(l)) });
   const blocks = groups.map(g => {
     if (!g.leads.length && filtering) return "";
     const collapsed = !!leadBlockCollapsed[g.key];
     const info = leadBlockPageInfo(g);
     const body = collapsed ? "" : (g.leads.length
-      ? `<div class="table-wrap"><table><tr><th>Lead (người đầu mối + công ty)</th><th>Mảng</th><th>Nguồn</th><th>Cập nhật cuối</th><th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${info.pageLeads.map(leadRowHTML).join("")}</table></div>${leadBlockPagerHTML(g, info)}`
+      ? `<div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("leads", "name", "Lead (người đầu mối + công ty)")}<th>Mảng</th><th>Nguồn</th>${sortThHTML("leads", "updated", "Cập nhật cuối")}<th>Trạng thái</th><th>Deal liên quan</th><th></th></tr>${info.pageLeads.map((l, idx) => leadRowHTML(l, info.from + idx)).join("")}</table></div>${leadBlockPagerHTML(g, info)}`
       : `<div class="mut">Chưa có lead nào ở trạng thái này.</div>`);
     return `<section class="panel lead-status-block${collapsed ? " lead-status-block--collapsed" : ""}" data-lead-status="${g.key}"><div class="panel-title lead-block-head" onclick="toggleLeadBlock('${g.key}')" style="cursor:pointer" title="Bấm để ${collapsed ? "mở" : "thu gọn"} block này"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.leads.length} lead</span></h3><button class="btn ghost small" onclick="event.stopPropagation(); toggleLeadBlock('${g.key}')" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mở block" : "Thu gọn block"}">${collapsed ? "▸ Mở" : "▾ Thu gọn"}</button></div>${body}</section>`;
   }).join("");
@@ -1378,11 +1437,11 @@ function dropLead(e, statusKey) {
    (field person, chỉ hiện khi khác hẳn tên lead qua leadPersonShown),
    chip ★ Đầu mối chính (mainContactBadgeHTML), chip mảng (lineColor/
    lineName — cùng helper an toàn enum của leadRowHTML). */
-function leadCardHTML(l) {
+function leadCardHTML(l, stt) {
   const lc = leadCompany(l);
   const person = leadPersonShown(l);
   return `<div class="dcard" draggable="true" ondragstart="dragLead(event,'${l.id}')" onclick="openLead('${l.id}')" title="Bấm để xem chi tiết lead — kéo sang cột khác để đổi trạng thái">
-    <div class="t">📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
+    <div class="t">${stt === undefined || stt === null ? "" : `<span class="list-stt">#${stt}</span> `}📥 ${esc(leadDisplayName(l))}${mainContactBadgeHTML(l)}</div>
     <div class="c">🏢 ${lc ? `<a href="#" draggable="false" onclick="event.stopPropagation(); openCompany('${lc.id}'); return false" title="Mở hồ sơ công ty">${esc(lc.name)} →</a>` : "— (chưa gắn công ty)"}</div>
     ${person ? `<div class="c">👤 ${esc(person)}</div>` : ""}
     ${l.phone ? `<div class="c">📞 ${esc(l.phone)}</div>` : ""}
@@ -1400,10 +1459,10 @@ function vLeadsPipeline() {
   const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter;
   const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
   const cols = LEAD_STATUSES.map(def => {
-    const inCol = filtered.filter(l => l.status === def.key);
+    const inCol = applyListSort("leads", filtered.filter(l => l.status === def.key), l => leadDisplayName(l));
     const totalInStatus = S.leads.filter(l => l.status === def.key).length;
     const shownCount = Math.min(leadBoardShown[def.key] || LEAD_BOARD_PAGE_SIZE, inCol.length);
-    const cards = inCol.slice(0, shownCount).map(leadCardHTML).join("");
+    const cards = inCol.slice(0, shownCount).map((l, idx) => leadCardHTML(l, idx + 1)).join("");
     const more = inCol.length > shownCount
       ? `<button class="btn ghost small lead-show-more" onclick="showMoreLeadBoard('${def.key}')">Hiển thị thêm (${inCol.length - shownCount} lead nữa)</button><div class="mut" style="margin-top:4px">Đang hiện ${shownCount} / ${inCol.length} lead của cột</div>` : "";
     /* Đếm ở đầu cột = số SAU LỌC (như pill số lượng của pipeline deal);
@@ -1445,15 +1504,16 @@ function vEvents() {
     const hay = [ev.name || "", ev.date || "", ev.location || "", ev.note || "", eventAttendeeNames(ev).join(" ")].join(" ").toLowerCase();
     return hay.includes(query);
   });
-  const rows = filtered.map(ev => {
+  const sortedEvents = applyListSort("events", filtered, ev => ev.name || "");
+  const rows = sortedEvents.map((ev, idx) => {
     const nc = Array.isArray(ev.companies) ? ev.companies.length : 0;
     const nl = Array.isArray(ev.leads) ? ev.leads.length : 0;
     const nd = Array.isArray(ev.deals) ? ev.deals.length : 0;
     const counts = `<span class="chip" style="background:#0f766e">${nc} công ty</span> <span class="chip" style="background:#b45309">${nl} lead</span> <span class="chip" style="background:#2563eb">${nd} deal</span>`;
-    return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td><b>🎪 ${esc(ev.name || "—")}</b><div class="mut">${esc(ev.note || "")}</div></td><td>${esc(ev.date || "—")}<div class="mut">${esc(ev.location || "")}</div></td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${counts}</td><td>${sysUpdatedCell(ev)}</td></tr>`;
+    return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td class="list-stt">${idx + 1}</td><td><b>🎪 ${esc(ev.name || "—")}</b><div class="mut">${esc(ev.note || "")}</div></td><td>${esc(ev.date || "—")}<div class="mut">${esc(ev.location || "")}</div></td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${counts}</td><td>${sysUpdatedCell(ev)}</td></tr>`;
   }).join("");
   const emptyMsg = !all.length ? "Chưa có sự kiện nào." : "Không có sự kiện nào khớp tìm kiếm hiện tại.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div><div class="panel"><div class="table-wrap"><table><tr><th>Sự kiện</th><th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th><th>Cập nhật cuối</th></tr>${rows || `<tr><td colspan="5" class="mut">${emptyMsg}</td></tr>`}</table></div>
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div><div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("events", "name", "Sự kiện")}<th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th>${sortThHTML("events", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="6" class="mut">${emptyMsg}</td></tr>`}</table></div>
   <div class="mut" style="margin-top:10px">Sự kiện là nơi team gặp gỡ đối tác: công ty, lead và deal phát sinh từ sự kiện được gắn ngay trong chi tiết sự kiện.</div></div>`;
 }
 /* --- 3 loại liên kết của sự kiện: cấu hình dùng chung cho drawer event --- */
@@ -1670,11 +1730,12 @@ function convertLead(id) {
 
 function vTasks() {
   const filtered = S.tasks.filter(t => !query || t.title.toLowerCase().includes(query));
-  const list = filtered.map(taskRow).join("");
+  const sortedTasks = applyListSort("tasks", filtered, t => t.title || "");
+  const list = sortedTasks.map((t, idx) => taskRow(t, idx + 1)).join("");
   const emptyMsg = !S.tasks.length
     ? '<div class="empty-state" style="margin-top:10px">Chưa có việc nào — bấm "+ Thêm việc" để tạo việc đầu tiên.</div>'
     : (!filtered.length ? '<div class="empty-state" style="margin-top:10px">Không có việc nào khớp tìm kiếm hiện tại.</div>' : "");
-  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành việc.</div></div>`;
+  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${sortBarHTML("tasks")}${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành việc.</div></div>`;
 }
 
 /* ===== Việc theo người (admin): gom task theo assignee + lọc trạng thái ===== */
@@ -1706,9 +1767,9 @@ function vTasksByMember() {
   </div>`;
   const filterBar = `<div class="panel" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="font-size:13.5px">Lọc theo trạng thái:</b>
     <select onchange="setTaskMemberFilter(this.value)" style="min-width:180px">${[["all", "Tất cả"], ["open", "Đang mở"], ["overdue", "Quá hạn"], ["done", "Đã xong"]].map(([v, t]) => `<option value="${v}" ${f === v ? "selected" : ""}>${t}</option>`).join("")}</select>
-    <span class="mut">Bộ lọc áp lên mọi cột; thành viên đang hoạt động vẫn hiện cột kể cả khi chưa có việc nào — cột chỉ ẩn khi đang lọc (theo trạng thái hoặc từ khóa) mà không còn việc khớp.</span></div>`;
+    <span class="mut">Bộ lọc áp lên mọi cột; thành viên đang hoạt động vẫn hiện cột kể cả khi chưa có việc nào — cột chỉ ẩn khi đang lọc (theo trạng thái hoặc từ khóa) mà không còn việc khớp.</span>${sortBarHTML("tasksByMember")}</div>`;
   const cols = groups.map(g => {
-    const shown = g.tasks.filter(t => matchFilter(t) && (!query || t.title.toLowerCase().includes(query)));
+    const shown = applyListSort("tasksByMember", g.tasks.filter(t => matchFilter(t) && (!query || t.title.toLowerCase().includes(query))), t => t.title || "");
     /* M7: member ĐANG HOẠT ĐỘNG có 0 việc vẫn hiện cột (số 0) — không ẩn vì shown rỗng.
        Chỉ ẩn cột member active khi đang lọc (trạng thái != tất cả hoặc có từ khóa) mà cột trống sau lọc.
        Member đã ngừng / nhóm Chưa gán: giữ hành vi cũ (trống là ẩn). */
@@ -1717,7 +1778,7 @@ function vTasksByMember() {
     const open = g.tasks.filter(t => !t.done).length, od = g.tasks.filter(t => isOverdue(t)).length, done = g.tasks.filter(t => t.done).length;
     return `<div class="col" style="min-width:290px;width:290px"><h4>${esc(g.name)}${g.inactive ? ' <span class="pill gray">đã ngừng</span>' : ""}${g.deleted ? ' <span class="pill gray">đã xoá</span>' : ""}</h4>
       <div class="sum">Đang mở: <b>${open}</b> · Quá hạn: <b class="${od ? "overdue" : ""}">${od}</b> · Đã xong: <b>${done}</b></div>
-      ${shown.length ? shown.map(taskRow).join("") : '<div class="mut" style="padding:4px 2px">Chưa có việc nào.</div>'}</div>`;
+      ${shown.length ? shown.map((t, idx) => taskRow(t, idx + 1)).join("") : '<div class="mut" style="padding:4px 2px">Chưa có việc nào.</div>'}</div>`;
   }).join("");
   document.getElementById("view").innerHTML = overview + filterBar +
     (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
@@ -2155,7 +2216,8 @@ function vMembers() {
   const admin = isAdminViewer();
   const me = authCurrentUser();
   if (admin && memberProfiles === null && !memberAcctLoading) refreshMemberAccounts();
-  const rows = memberList(S).map(m => {
+  const sortedMembers = applyListSort("members", memberList(S), m => m.name || "");
+  const rows = sortedMembers.map((m, idx) => {
     const openTasks = S.tasks.filter(t => t.assignee === m.id && !t.done).length;
     const dealCount = S.deals.filter(d => d.owner === m.id).length;
     let acctCell = "", actions = "";
@@ -2170,13 +2232,13 @@ function vMembers() {
          lại ở tầng hàm). */
       if (!(me && me.memberId === m.id)) actions += ` <button class="btn ghost small" onclick="event.stopPropagation(); deleteMember('${m.id}')">🗑 Xoá thành viên</button>`;
     }
-    return `<tr onclick="openMember('${m.id}')" style="cursor:pointer" title="Bấm để xem chi tiết thành viên: việc được giao + deal phụ trách"><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td>${acctCell}<td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td>${sysUpdatedCell(m)}</td><td><button class="btn ghost small" onclick="event.stopPropagation(); editMember('${m.id}')">✏️ Sửa</button>${actions}</td></tr>`;
+    return `<tr onclick="openMember('${m.id}')" style="cursor:pointer" title="Bấm để xem chi tiết thành viên: việc được giao + deal phụ trách"><td class="list-stt">${idx + 1}</td><td><b>${esc(m.name)}</b><div class="mut">${esc(m.id)}</div></td><td><span class="pill" style="background:${m.role === "Admin" ? "#dc2626" : m.role === "BD" ? "#2563eb" : m.role === "MKT" ? "#8b5cf6" : "#64748b"}">${esc(m.role)}</span></td><td>${m.active ? '<span class="pill" style="background:#22c55e">Đang hoạt động</span>' : '<span class="pill gray">Đã ngừng hoạt động</span>'}</td>${acctCell}<td><b>${openTasks}</b> việc đang mở</td><td><b>${dealCount}</b> deal phụ trách</td><td>${sysUpdatedCell(m)}</td><td><button class="btn ghost small" onclick="event.stopPropagation(); editMember('${m.id}')">✏️ Sửa</button>${actions}</td></tr>`;
   }).join("");
   const fnNote = !admin ? "" : memberFnUnavailable
     ? `<div class="mut" style="margin-top:10px">ℹ️ Chưa kết nối được chức năng quản lý tài khoản trên máy chủ (Edge Function <b>invite-member</b> có thể chưa được triển khai) — cột <b>Tài khoản</b> đang hiển thị trạng thái suy từ hồ sơ đã gắn trong hệ thống. Các thao tác khác vẫn dùng bình thường.</div>`
     : `<div class="mut" style="margin-top:10px"><b>Tài khoản:</b> “Đã mời – chờ đặt mật khẩu” = đã gửi email mời, người nhận chưa bấm liên kết đặt mật khẩu; “Thu hồi quyền” = ngừng hoạt động trong CRM + khoá đăng nhập (kích hoạt lại được); đổi vai trò qua nút ✏️ Sửa.</div>`;
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editMember(null)">+ Thêm thành viên</button>${admin ? ` <button class="btn" onclick="openInviteMember()">✉️ Mời thành viên</button>` : ""}</div>
-  <div class="panel"><div class="table-wrap"><table><tr><th>Thành viên</th><th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th><th>Cập nhật cuối</th><th></th></tr>${rows || `<tr><td colspan="${admin ? 8 : 7}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
+  <div class="panel"><div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("members", "name", "Thành viên")}<th>Vai trò</th><th>Trạng thái</th>${admin ? "<th>Tài khoản</th>" : ""}<th>Việc đang mở</th><th>Deal phụ trách</th>${sortThHTML("members", "updated", "Cập nhật cuối")}<th></th></tr>${rows || `<tr><td colspan="${admin ? 9 : 8}" class="mut">Chưa có thành viên nào.</td></tr>`}</table></div>
   <div class="mut" style="margin-top:10px">Đây là quản lý danh sách thành viên phục vụ <b>gán việc / gán người phụ trách</b> trong CRM. Muốn loại một người khỏi các ô chọn gán việc mà vẫn giữ dữ liệu cũ gắn với họ, hãy sửa và tắt "Đang hoạt động" (người đã ngừng sẽ không hiện trong ô chọn nữa).${admin ? ` Admin có thể <b>Xoá thành viên</b> hẳn — nhưng chỉ khi thành viên không còn dữ liệu nào gắn với họ (deal phụ trách, lead phụ trách, việc được giao, hoạt động, đánh giá…); còn tham chiếu thì hệ thống chặn xoá và báo rõ đang vướng ở đâu.` : ""}</div>${fnNote}</div>`;
 }
 /* ----- Mời thành viên (chỉ Admin): form theo đúng mẫu openEdit của app ----- */

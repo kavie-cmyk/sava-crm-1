@@ -6,6 +6,25 @@
   let tab = ['market','reviews','framework'].includes(params.get('tab')) ? params.get('tab') : 'market';
   let query = '', category = 'Puzzle', reviewFilter = 'all', reviewKindFilter = 'all', active = null, focusBefore = null;
   let bdEditMode = false; /* B4 (FIX-3): khối BD trong dialog review mặc định CHẾ ĐỘ XEM (view-first như khối Term); true chỉ khi BD bấm "Sửa hồ sơ". */
+  /* Việc 6: sort danh sách REQUEST — UI-state thuần trong phiên theo ĐÚNG
+     pattern của app BD (window.SavaSort dùng chung ở shared.js): hàng nút
+     tiêu chí Tên / Cập nhật cuối kèm chỉ dấu ▲/▼/↕, bấm lại cùng tiêu chí
+     thì đảo chiều. Chỉ renderReviews() lại — KHÔNG write(), không đổi
+     updatedAt, không sinh audit. Mặc định lần đầu: giữ nguyên thứ tự
+     hiện hành của danh sách. */
+  let reviewSort = { key: null, dir: null };
+  function setReviewSort(key) { if (typeof window !== 'undefined' && window.SavaSort) reviewSort = window.SavaSort.next(reviewSort, key); renderReviews(); }
+  /* Hook đọc/đặt trạng thái sort cho test (cùng mẫu hook hiệu lực sẵn có của module). */
+  try { window.SavaReviewSort = { get: () => reviewSort, set: setReviewSort }; } catch {}
+  function reviewSortBarHTML() {
+    const SS = (typeof window !== 'undefined' && window.SavaSort) || null;
+    const btn = (key, label) => {
+      const on = reviewSort.key === key;
+      const ind = SS ? SS.indicator(reviewSort, key) : '';
+      return `<button class="btn sort-btn${on ? ' primary' : ''}" data-action="review-sort" data-sort-key="${key}" aria-pressed="${on ? 'true' : 'false'}" title="Sắp xếp theo ${esc(label)}">${esc(label)} ${ind}</button>`;
+    };
+    return `<div class="sort-bar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="mut">↕ Sắp xếp:</span>${btn('name', 'Tên')}${btn('updated', 'Cập nhật cuối')}</div>`;
+  }
   const $ = s => document.querySelector(s);
   const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const num = (v,d=0) => typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString('en-US',{maximumFractionDigits:d}) : '—';
@@ -962,8 +981,13 @@
   }
   function renderReviews() {
     const data=read(),s=crm();
-    const rows=data.requests.filter(r=>reviewFilter==='all'||r.status===reviewFilter).filter(r=>reviewKindFilter==='all'||r.kind===reviewKindFilter).filter(r=>!query||(label(entity(s,r.kind,r.entityId))+' '+r.kind).toLowerCase().includes(query));
-    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc trạng thái">${options([['all','Tất cả trạng thái'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select><select id="reviewKindFilter" aria-label="Lọc loại hồ sơ">${options([['all','Tất cả loại'],['company','Company'],['game','Game']],reviewKindFilter)}</select></div><div class="card-grid">${rows.map(r=>{
+    const filteredRows=data.requests.filter(r=>reviewFilter==='all'||r.status===reviewFilter).filter(r=>reviewKindFilter==='all'||r.kind===reviewKindFilter).filter(r=>!query||(label(entity(s,r.kind,r.entityId))+' '+r.kind).toLowerCase().includes(query));
+    /* Sort SAU lọc bằng SavaSort thuần (không mutate data.requests);
+       tên = tên hiển thị của hồ sơ (label của entity company/game). */
+    const rows=(typeof window !== 'undefined' && window.SavaSort && reviewSort.key)
+      ? window.SavaSort.sortItems(filteredRows, reviewSort, { name: r => label(entity(s, r.kind, r.entityId)) })
+      : filteredRows;
+    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Company ≠ Game</span><span class="badge">MKT: chuyên môn · BD: thương mại</span></div>${role==='bd'?'<button class="btn primary" data-action="request">+ Gửi yêu cầu đánh giá</button>':''}</div><div class="metrics"><div class="metric"><small>Chờ / đang đánh giá</small><strong>${data.requests.filter(r=>['Chờ đánh giá','Đang đánh giá'].includes(r.status)).length}</strong><span>Company và game riêng biệt</span></div><div class="metric"><small>Chờ bổ sung</small><strong>${data.requests.filter(r=>r.status==='Chờ bổ sung').length}</strong><span>Yêu cầu có bằng chứng còn thiếu</span></div><div class="metric"><small>Hoàn tất chuyên môn</small><strong>${data.requests.filter(r=>r.status==='Hoàn tất').length}</strong><span>Không đồng nghĩa đã duyệt deal</span></div></div><div class="tools"><input type="search" id="reviewSearch" aria-label="Tìm hồ sơ đánh giá" placeholder="Tìm company hoặc game…" value="${esc(query)}"><select id="reviewFilter" aria-label="Lọc trạng thái">${options([['all','Tất cả trạng thái'],'Chờ đánh giá','Đang đánh giá','Chờ bổ sung','Hoàn tất'],reviewFilter)}</select><select id="reviewKindFilter" aria-label="Lọc loại hồ sơ">${options([['all','Tất cả loại'],['company','Company'],['game','Game']],reviewKindFilter)}</select></div>${reviewSortBarHTML()}<div class="card-grid">${rows.map((r,ri)=>{
       const en=entity(s,r.kind,r.entityId),v=r.current||{};
       const isCo=r.kind==='company';
       const eff=isCo?null:effectiveGameResult(r);
@@ -971,7 +995,7 @@
       const rec=isCo?res.recommendation:eff.recommendation;
       const value=isCo?res.total:eff.final;
       const valueLabel=isCo?'Partner Fit (company)':eff.label;
-      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / ĐÁNH GIÁ PARTNER':'GAME / SẢN PHẨM'}</span>${badge(r.status)}</div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${fmtFinalScore(value)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${pubShortDate(r.updatedAt)?` · <span title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.updatedAt))}</span>`:''}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
+      return `<article class="panel review-card"><div class="row"><span class="eyebrow">${r.kind==='company'?'STUDIO / ĐÁNH GIÁ PARTNER':'GAME / SẢN PHẨM'}</span>${badge(r.status)}<span class="mut list-stt">#${ri+1}</span></div><h3>${esc(label(en))}</h3><p class="mut">${r.kind==='game'?esc(label(s.companies.find(c=>c.id===en?.company))):'Bộ tiêu chí studio/indie; không áp cho publisher'}</p><p class="text-break sub">${esc(r.requestNote||'')}</p><div class="row">${badge(rec)}<span>${esc(valueLabel)} <b>${fmtFinalScore(value)}</b> /100</span></div><p class="source-text">${r.revisions.length} phiên bản · ${r.current?.at?esc(stamp(r.current.at)):'Chưa chấm'}${pubShortDate(r.updatedAt)?` · <span title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.updatedAt))}</span>`:''}${en?.name?.includes('(mẫu)')||s.companies.find(c=>c.id===en?.company)?.name?.includes('(mẫu)')?' · Hồ sơ CRM mẫu':''}</p><div class="row"><button class="btn ${role==='mkt'?'primary':''}" data-review="${esc(r.id)}">${role==='mkt'?'Mở đánh giá':'Xem kết quả / bổ sung'}</button><button class="btn danger" data-delete-request="${esc(r.id)}">Xóa yêu cầu</button></div></article>`;
     }).join('')||`<div class="panel empty full"><h3>${data.requests.length?'Không có hồ sơ khớp bộ lọc':'Chưa có yêu cầu đánh giá'}</h3><p class="mut">${role==='bd'?'Chọn company hoặc game đã có trong CRM để giao MKT đánh giá.':'BD gửi yêu cầu company hoặc game từ CRM; hàng chờ sẽ xuất hiện tại đây.'}</p></div>`}</div>`;
   }
   /* A14 (FIX-3): option hồ sơ trong picker yêu cầu đánh giá — game đối tác
@@ -1248,6 +1272,7 @@
     if(!b){ const pt=e.target.closest?.('[data-market]'); if(pt){ try{ marketDetail(pt.dataset.market); }catch(err){ notify(err.message); } } return; }
     try {
       if(b.hasAttribute('data-close')){closeDialog();return;}
+      if(b.dataset.action==='review-sort'){setReviewSort(b.dataset.sortKey);return;}
       if(b.dataset.tab){tab=b.dataset.tab;query='';const url=new URL(location.href);url.searchParams.set('tab',tab);url.searchParams.delete('kind');url.searchParams.delete('id');history.replaceState(null,'',url);render();return;}
       if(b.dataset.market){marketDetail(b.dataset.market);return;}
       if(b.dataset.deleteRequest){deleteRequest(b.dataset.deleteRequest);return;}

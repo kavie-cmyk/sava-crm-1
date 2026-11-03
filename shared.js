@@ -372,6 +372,101 @@ function fmtSysTime(v) {
 if (typeof window !== "undefined") {
   window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, updatedByLabel, fmtSysTime, cloneForDiff };
 }
+/* === Sắp xếp danh sách (Việc 6) — window.SavaSort: logic THUẦN dùng chung ===
+   Một cơ chế sort DUY NHẤT cho mọi danh sách của app BD (index.html) và
+   danh sách request của Publishing (publishing.js):
+   - Tiêu chí: "name" (Tên, so sánh KHÔNG DẤU tiếng Việt qua sortFold —
+     cùng phép chuẩn hoá NFD bỏ dấu Mn + đ->d như impFold/dedupe/combobox
+     của codebase, nên "Ếch"/"Ân" không bị đẩy xuống cuối), "updated"
+     (Date modified = dấu updatedAt hệ thống do save() đóng qua
+     stampCollection ở trên), "amount" (Deal size = deal.amount).
+   - Chiều mặc định khi CHỌN MỚI một tiêu chí: name = asc (A→Z),
+     updated = desc (Mới→Cũ), amount = desc (Lớn→Nhỏ). Bấm lại CÙNG
+     tiêu chí thì đảo chiều (nextSortState).
+   - Bản ghi THIẾU dấu updatedAt (hoặc dấu không đọc được) luôn xếp CUỐI
+     ở CẢ hai chiều — không bịa thời gian. Deal KHÔNG có amount hợp lệ
+     (thiếu/không phải số hữu hạn, hoặc deal mảng game Game
+     Studio/Publishing vốn không có amount — rev-share) cũng luôn xếp
+     CUỐI ở cả hai chiều khi sort theo amount.
+   - sortItems KHÔNG mutate mảng vào lẫn bản ghi: trả MẢNG MỚI đã sắp
+     (bản ghi giữ nguyên tham chiếu + nguyên mọi field, gồm updatedAt).
+     Sort là thao tác hiển thị thuần: tầng UI chỉ render() lại, TUYỆT
+     ĐỐI không gọi save()/sync, không đóng dấu, không sinh audit.
+   - Hoà (tie) ở tiêu chí chính: phá hoà bằng tên đã fold tăng dần rồi
+     bằng vị trí gốc (ổn định, xác định). */
+const SORT_KEYS = ["name", "updated", "amount"];
+const SORT_DEFAULT_DIR = { name: "asc", updated: "desc", amount: "desc" };
+function sortFold(v) {
+  if (v === null || v === undefined) return "";
+  return String(v).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().replace(/\s+/g, " ").trim();
+}
+function sortTimeOf(item) {
+  const v = item && item.updatedAt;
+  if (!v) return null;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+function sortAmountOf(item) {
+  if (!item || typeof item !== "object") return null;
+  if (typeof GAME_LINES !== "undefined" && GAME_LINES.includes(item.line)) return null;
+  const v = item.amount;
+  return (typeof v === "number" && Number.isFinite(v)) ? v : null;
+}
+function sortCmpText(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+function sortItems(items, state, getters) {
+  const list = Array.isArray(items) ? items : [];
+  const key = state && SORT_KEYS.includes(state.key) ? state.key : null;
+  if (!key) return list.slice();
+  const dir = state.dir === "asc" || state.dir === "desc" ? state.dir : (SORT_DEFAULT_DIR[key] || "asc");
+  const sign = dir === "desc" ? -1 : 1;
+  const g = getters || {};
+  const nameOf = typeof g.name === "function" ? g.name : (x => (x && (x.name || x.title)) || "");
+  const timeOf = typeof g.updated === "function" ? g.updated : sortTimeOf;
+  const amountOf = typeof g.amount === "function" ? g.amount : sortAmountOf;
+  const decorated = list.map((item, idx) => {
+    const tv = timeOf(item), av = amountOf(item);
+    return { item, idx, name: sortFold(nameOf(item)), time: (typeof tv === "number" && Number.isFinite(tv)) ? tv : null, amount: (typeof av === "number" && Number.isFinite(av)) ? av : null };
+  });
+  decorated.sort((a, b) => {
+    let c = 0;
+    if (key === "name") {
+      c = sign * sortCmpText(a.name, b.name);
+    } else if (key === "updated") {
+      /* Thiếu dấu: CUỐI ở cả hai chiều (không nhân sign). */
+      if (a.time === null && b.time === null) c = 0;
+      else if (a.time === null) return 1;
+      else if (b.time === null) return -1;
+      else c = sign * (a.time - b.time);
+    } else if (key === "amount") {
+      /* Không có amount hợp lệ: CUỐI ở cả hai chiều (không nhân sign). */
+      if (a.amount === null && b.amount === null) c = 0;
+      else if (a.amount === null) return 1;
+      else if (b.amount === null) return -1;
+      else c = sign * (a.amount - b.amount);
+    }
+    if (c !== 0) return c;
+    const cn = sortCmpText(a.name, b.name);
+    if (cn !== 0) return cn;
+    return a.idx - b.idx;
+  });
+  return decorated.map(d => d.item);
+}
+/* Bấm vào một tiêu chí: đang chọn đúng tiêu chí đó -> đảo chiều; chọn
+   tiêu chí mới -> chiều mặc định của tiêu chí đó. Trả state MỚI (không
+   mutate state cũ). */
+function nextSortState(state, key) {
+  if (!SORT_KEYS.includes(key)) return state && SORT_KEYS.includes(state.key) ? { key: state.key, dir: state.dir } : { key: null, dir: null };
+  if (state && state.key === key && (state.dir === "asc" || state.dir === "desc")) return { key, dir: state.dir === "asc" ? "desc" : "asc" };
+  return { key, dir: SORT_DEFAULT_DIR[key] || "asc" };
+}
+/* Chỉ dấu chiều cho tiêu đề/nút sort: đang chọn -> ▲ (tăng) / ▼ (giảm);
+   chưa chọn -> ↕ trung tính. */
+function sortIndicator(state, key) {
+  if (!state || state.key !== key) return "↕";
+  return state.dir === "desc" ? "▼" : "▲";
+}
+const SavaSort = { KEYS: SORT_KEYS, DEFAULT_DIR: SORT_DEFAULT_DIR, fold: sortFold, timeOf: sortTimeOf, amountOf: sortAmountOf, sortItems, next: nextSortState, indicator: sortIndicator };
+if (typeof window !== "undefined") { window.SavaSort = SavaSort; }
 /* === Partner Eval hợp nhất (khung file 2 — Publishing Partner Selection) ===
    Implementation Partner DUY NHẤT dùng chung cho BD (drawer công ty trong
    index.html), module Publishing (adapter trong publishing-score.js) và bridge.
