@@ -442,6 +442,83 @@ function currentMemberIdForStamp() {
   try { const u = authCurrentUser(); if (u && u.memberId) return String(u.memberId); } catch (e) {}
   return "";
 }
+/* === Ép đóng dấu cho BẢN GHI CHỦ khi HOẠT ĐỘNG của nó thay đổi ===
+   Hoạt động là collection RIÊNG (S.activities) gắn vào đúng 1 chủ
+   (deal/lead/game): thêm/sửa/xoá hoạt động không đổi field nào của bản
+   ghi chủ nên stampCollection (so field của chính chủ) không thấy thay
+   đổi — trước đợt này chủ KHÔNG được đóng dấu updatedAt/updatedBy và
+   KHÔNG có mục lịch sử nào, dù thao tác hoạt động là một lần cập nhật
+   thật của chủ (QA độc lập đo bằng fixture: dấu đứng yên, audit chỉ có
+   mục của chính activity). Nay stampCrmAndAudit TIỀN-TÍNH tác động lên
+   chủ từ diff của chính collection activities (bản chụp crmPrevSnap so
+   state hiện tại, bỏ qua 3 trường hệ thống qua diffEntity) TRƯỚC khi
+   đóng dấu, rồi truyền vào stampCollection của chủ qua forcedChangesById
+   (shared.js) — chủ được đóng dấu + sinh ĐÚNG 1 mục audit (action
+   "update", change field "activity") bằng ĐÚNG cơ chế stamp sẵn có, dấu
+   nằm trên chính object chủ nên đi qua save() + legacy_extra +
+   diff-sync lên server như mọi lần sửa khác (máy khác nhận về qua
+   snapshot, không đóng dấu lại). Áp cho CẢ 3 loại chủ deal/lead/game để
+   nhất quán (gốc yêu cầu chỉ nêu lead/game; deal trước đây cũng thiếu
+   dấu y hệt). Quyết định chi tiết:
+   - Thêm: chủ mới nhận change "Hoạt động — thêm" (to = tóm tắt activity).
+   - Sửa (giữ chủ): change "Hoạt động — sửa" (from/to = tóm tắt cũ/mới).
+   - Xoá: change "Hoạt động — xoá" (from = tóm tắt activity đã xoá).
+   - Đổi chủ: chủ CŨ nhận "Hoạt động — chuyển đi", chủ MỚI nhận "Hoạt
+     động — chuyển đến" — cả hai đều được đóng dấu + ghi lịch sử.
+   - Chủ đã bị xoá trong CÙNG lần lưu (vd xoá lead kéo theo hoạt động
+     gắn trực tiếp): bỏ qua — chủ đã có mục delete của chính nó.
+   - Thao tác bị chặn (createActivity/saveActivity validate fail, xoá bị
+     huỷ ở confirm): S.activities không hề mutate nên diff rỗng -> không
+     sinh forced nào -> chủ giữ nguyên dấu, 0 mục audit cho chủ.
+   - Nhiều hoạt động của cùng 1 chủ đổi trong 1 lần lưu: các change gộp
+     vào ĐÚNG 1 mục audit của chủ trong lần lưu đó (stampCollection gộp
+     forced vào mục duy nhất nó sinh cho entity). */
+function activityOwnerKeyOf(a) {
+  if (!a) return null;
+  const kinds = ["deal", "lead", "game"].filter(k => a[k]);
+  if (kinds.length !== 1) return null;
+  return { kind: kinds[0], id: String(a[kinds[0]]) };
+}
+function activityStampSummary(a) {
+  const type = String((a && a.type) || "Hoạt động");
+  const text = String((a && a.text) || "").trim().replace(/\s+/g, " ");
+  const short = text.length > 80 ? text.slice(0, 80) + "…" : text;
+  return short ? type + ": " + short : type;
+}
+function crmActivityOwnerForced() {
+  const maps = { deal: new Map(), lead: new Map(), game: new Map() };
+  try {
+    if (!window.SavaSys || !crmPrevSnap || !crmPrevSnap.activities) return maps;
+    const before = crmPrevSnap.activities;
+    const cur = new Map();
+    (Array.isArray(S.activities) ? S.activities : []).forEach(a => { if (a && a.id !== undefined && a.id !== null) cur.set(String(a.id), a); });
+    const push = (owner, change) => {
+      if (!owner) return;
+      const coll = owner.kind === "deal" ? S.deals : owner.kind === "lead" ? S.leads : S.games;
+      if (!Array.isArray(coll) || !coll.some(x => x && String(x.id) === owner.id)) return;
+      if (!maps[owner.kind].has(owner.id)) maps[owner.kind].set(owner.id, []);
+      maps[owner.kind].get(owner.id).push(change);
+    };
+    cur.forEach((a, id) => {
+      const b = before.get(id);
+      const newOwner = activityOwnerKeyOf(a);
+      if (!b) { push(newOwner, { field: "activity", label: "Hoạt động — thêm", from: "", to: activityStampSummary(a) }); return; }
+      if (!SavaSys.diffEntity(S, "activity", b, a).length) return;
+      const oldOwner = activityOwnerKeyOf(b);
+      if (oldOwner && newOwner && (oldOwner.kind !== newOwner.kind || oldOwner.id !== newOwner.id)) {
+        push(oldOwner, { field: "activity", label: "Hoạt động — chuyển đi", from: activityStampSummary(b), to: "" });
+        push(newOwner, { field: "activity", label: "Hoạt động — chuyển đến", from: "", to: activityStampSummary(a) });
+      } else {
+        push(newOwner || oldOwner, { field: "activity", label: "Hoạt động — sửa", from: activityStampSummary(b), to: activityStampSummary(a) });
+      }
+    });
+    before.forEach((b, id) => {
+      if (cur.has(id)) return;
+      push(activityOwnerKeyOf(b), { field: "activity", label: "Hoạt động — xoá", from: activityStampSummary(b), to: "" });
+    });
+  } catch (e) {}
+  return maps;
+}
 function stampCrmAndAudit() {
   let entries = [];
   try {
@@ -449,8 +526,9 @@ function stampCrmAndAudit() {
     if (!crmPrevSnap) crmPrevSnap = crmSnapshotOf(null);
     const nowIso = new Date().toISOString();
     const by = currentMemberIdForStamp();
+    const forcedByType = crmActivityOwnerForced();
     SavaSys.CRM_ENTITY_TYPES.forEach(([key, type]) => {
-      entries = entries.concat(SavaSys.stampCollection(S, S[key], crmPrevSnap[key], type, by, nowIso));
+      entries = entries.concat(SavaSys.stampCollection(S, S[key], crmPrevSnap[key], type, by, nowIso, forcedByType[type]));
     });
     crmPrevSnap = crmSnapshotOf(S);
   } catch (e) { entries = []; }

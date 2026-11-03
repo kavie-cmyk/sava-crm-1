@@ -48,17 +48,22 @@ function makeDoc(seedHTML) {
 }
 const SEED = `<div class="top-actions"><button class="icon-btn">x</button></div><div class="tabs"></div><main id="view"></main><aside id="drawer"></aside><div id="scrim"></div><div id="modalWrap"></div><div id="toast"></div>`;
 
+/* Dấu hệ thống CŨ của mọi bản ghi chủ trong fixture — mốc để nhóm test
+   LG-STAMP-* chứng minh thao tác hoạt động ÉP chủ đổi dấu sang hiện tại. */
+const OLD_CREATED = "2020-01-01T00:00:00.000Z", OLD_UPDATED = "2020-01-02T00:00:00.000Z", OLD_BY = "qaOld";
+const OLD_STAMP = { createdAt: OLD_CREATED, updatedAt: OLD_UPDATED, updatedBy: OLD_BY };
+
 function fixture() {
   return {
     companies: [{ id: "c1", name: "Studio Alpha", type: "Game studio", roles: { publishing: "Game studio" }, last: "" }],
     leads: [
-      { id: "l1", name: "Anh Lead Có Deal", company: "c1", line: "publishing", status: "qualified", ownerId: "zac", source: "", when: "2026-11-02" },
-      { id: "lSolo", name: "Chị Lead Chưa Deal", company: "c1", line: "publishing", status: "new", ownerId: "zac", source: "", when: "2026-11-02" },
+      { id: "l1", name: "Anh Lead Có Deal", company: "c1", line: "publishing", status: "qualified", ownerId: "zac", source: "", when: "2026-11-02", ...OLD_STAMP },
+      { id: "lSolo", name: "Chị Lead Chưa Deal", company: "c1", line: "publishing", status: "new", ownerId: "zac", source: "", when: "2026-11-02", ...OLD_STAMP },
     ],
-    deals: [{ id: "d1", line: "publishing", title: "Deal Một", company: "c1", leads: ["l1"], game: "g1", stage: "contact", owner: "zac", due: "", idle: 0, term: {}, contract: {}, custom: {} }],
+    deals: [{ id: "d1", line: "publishing", title: "Deal Một", company: "c1", leads: ["l1"], game: "g1", stage: "contact", owner: "zac", due: "", idle: 0, term: {}, contract: {}, custom: {}, ...OLD_STAMP }],
     games: [
-      { id: "g1", title: "Game Có Deal", own: "partner", company: "c1", genre: "", platform: "", stage: "", emoji: "", desc: "" },
-      { id: "gSolo", title: "Game Chưa Deal", own: "ours", company: "", genre: "", platform: "", stage: "", emoji: "", desc: "" },
+      { id: "g1", title: "Game Có Deal", own: "partner", company: "c1", genre: "", platform: "", stage: "", emoji: "", desc: "", ...OLD_STAMP },
+      { id: "gSolo", title: "Game Chưa Deal", own: "ours", company: "", genre: "", platform: "", stage: "", emoji: "", desc: "", ...OLD_STAMP },
     ],
     tasks: [], requests: [],
     members: [{ id: "zac", name: "Zac", role: "Admin", active: true }, { id: "hoang", name: "Hoàng", role: "BD", active: true }],
@@ -88,6 +93,9 @@ function loadApp() {
   assert.ok(blocks.length, "phải trích được script app từ index.html");
   blocks.forEach((code, i) => run(code, "index-inline-" + i + ".js"));
   sb.SavaAuth = { currentUser: () => ({ id: "zac", memberId: "zac", name: "Zac", role: "Admin" }), isAdmin: () => true };
+  /* Bắt mọi mục audit save() sinh ra (đường SavaAudit.recordBatch thật). */
+  const captured = [];
+  sb.SavaAudit = { recordBatch: entries => { captured.push(...entries); }, listFor: async () => [] };
   /* S là biến `let` trong ngữ cảnh vm — gán qua runInContext mới thay được
      binding thật (gán sb.S từ ngoài chỉ tạo property, app không thấy). */
   run("S = " + JSON.stringify(fixture()), "fixture.js");
@@ -97,7 +105,7 @@ function loadApp() {
   const drawerHTML = () => doc._els.get("drawer").innerHTML;
   const state = () => run("S", "getS.js");
   const setField = (id, val) => { const e = El(id); e.value = val; doc._els.set(id, e); };
-  return { sb, doc, drawerHTML, setField, state };
+  return { sb, doc, drawerHTML, setField, state, captured };
 }
 
 test("LG-UI-1: lead CHƯA có deal — drawer vẫn dựng form gắn trực tiếp (hidden lead:<id>) + hiện hoạt động gắn trực tiếp + hint link", () => {
@@ -225,6 +233,174 @@ test("LG-UI-8: createActivity validate — 0 chủ / 2 chủ (ref lạ) / chủ 
   assert.equal(state().activities.length, n, "không sinh bản ghi nào khi bị chặn");
   const ok = sb.createActivityFor("lead", "l1", { text: "Đường tường minh" });
   assert.ok(ok && ok.lead === "l1" && !("deal" in ok) && !("game" in ok), "createActivityFor(lead) sinh đúng 1 khoá");
+});
+
+/* ================= 1b) Ép đóng dấu BẢN GHI CHỦ khi hoạt động thay đổi =================
+   QA độc lập phán KHÔNG ĐẠT mục 4/7 của đợt gốc: thêm activity vào
+   Lead/Game solo -> updatedAt/updatedBy của chủ KHÔNG đổi, audit chỉ có
+   mục của chính activity. Cơ chế sửa: stampCrmAndAudit tiền-tính tác
+   động lên chủ từ diff activities rồi truyền forcedChanges vào
+   SavaSys.stampCollection của chủ (deal/lead/game nhất quán). Fixture:
+   mọi chủ mang dấu cũ 2020-01-02 / qaOld (OLD_STAMP ở trên). */
+const ownerEntriesOf = (captured, type, id) => captured.filter(e => e.entityType === type && e.entityId === id);
+function assertFreshStamp(ent, what) {
+  assert.ok(ent, what + " phải tồn tại");
+  assert.notEqual(ent.updatedAt, OLD_UPDATED, what + ": updatedAt phải rời mốc cũ 2020");
+  assert.ok(new Date(ent.updatedAt).getTime() > new Date(OLD_UPDATED).getTime(), what + ": updatedAt phải là thời điểm thao tác");
+  assert.equal(ent.updatedBy, "zac", what + ": updatedBy phải là member đang đăng nhập (zac)");
+  assert.equal(ent.createdAt, OLD_CREATED, what + ": createdAt bất biến");
+}
+function assertOldStamp(ent, what) {
+  assert.equal(ent.updatedAt, OLD_UPDATED, what + ": thao tác bị chặn -> updatedAt giữ nguyên mốc cũ");
+  assert.equal(ent.updatedBy, OLD_BY, what + ": thao tác bị chặn -> updatedBy giữ nguyên qaOld");
+}
+
+test("LG-STAMP-1: THÊM activity vào lead solo -> lead đổi dấu + ĐÚNG 1 audit chủ (field activity, nhãn thêm) + audit của activity giữ nguyên + row sync mang dấu mới + lưu lại không đóng dấu lại", () => {
+  const { sb, doc, setField, state, captured } = loadApp();
+  sb.openLead("lSolo");
+  ["na_lead_type", "na_lead_who", "na_lead_text", "na_lead_url"].forEach(id => doc._els.set(id, El(id)));
+  setField("na_lead_deal", "lead:lSolo");
+  setField("na_lead_type", "Call"); setField("na_lead_who", "zac");
+  setField("na_lead_text", "Gọi xác nhận nhu cầu"); setField("na_lead_url", "");
+  sb.addActivityScoped("lead");
+  const lead = state().leads.find(x => x.id === "lSolo");
+  assertFreshStamp(lead, "lead chủ");
+  const oe = ownerEntriesOf(captured, "lead", "lSolo");
+  assert.equal(oe.length, 1, "đúng 1 mục audit cho lead chủ: " + JSON.stringify(captured));
+  assert.equal(oe[0].action, "update");
+  assert.equal(oe[0].byMemberId, "zac");
+  assert.equal(oe[0].changes.length, 1, "mục chủ chỉ chứa đúng change hoạt động");
+  assert.equal(oe[0].changes[0].field, "activity");
+  assert.ok(oe[0].changes[0].label.includes("thêm"), "nhãn phải đọc hiểu là thêm hoạt động: " + oe[0].changes[0].label);
+  assert.ok(oe[0].changes[0].to.includes("Call") && oe[0].changes[0].to.includes("Gọi xác nhận nhu cầu"), "change phải kèm loại + tóm tắt activity: " + oe[0].changes[0].to);
+  const ae = captured.filter(e => e.entityType === "activity" && e.action === "create");
+  assert.equal(ae.length, 1, "mục audit create của chính activity giữ nguyên, đúng 1");
+  assert.equal(captured.length, 2, "toàn lần lưu chỉ 2 mục: activity create + lead update (không trùng, không lan sang chủ khác)");
+  /* Dấu đi qua adapter -> row của chủ thay đổi ở legacy_extra (điều kiện
+     để diff-sync upsert hàng chủ lên server). */
+  const rows = adapter.crmStateToRows(state());
+  const rowLead = rows.leads.find(r => r.id === "lSolo");
+  assert.equal(rowLead.legacy_extra.updatedAt, lead.updatedAt, "row leads mang updatedAt mới trong legacy_extra");
+  assert.equal(rowLead.legacy_extra.updatedBy, "zac", "row leads mang updatedBy mới trong legacy_extra");
+  const oldRowLead = adapter.crmStateToRows(fixture()).leads.find(r => r.id === "lSolo");
+  assert.notDeepEqual(rowLead, oldRowLead, "row chủ sau thao tác phải KHÁC row cũ (diff-sync mới upsert)");
+  /* Lưu lại không đổi gì thêm: snapshot đã tiến -> không đóng dấu lại,
+     không sinh audit mới (máy khác nhận về cũng vậy). */
+  const stamp1 = lead.updatedAt, nCap = captured.length;
+  sb.save();
+  assert.equal(state().leads.find(x => x.id === "lSolo").updatedAt, stamp1, "save() không đổi không được đóng dấu lại");
+  assert.equal(captured.length, nCap, "save() không đổi không sinh thêm audit");
+});
+
+test("LG-STAMP-2: THÊM activity vào game solo -> game đổi dấu + ĐÚNG 1 audit chủ", () => {
+  const { sb, doc, setField, state, captured } = loadApp();
+  sb.openGame("gSolo");
+  ["na_game_type", "na_game_who", "na_game_text", "na_game_url"].forEach(id => doc._els.set(id, El(id)));
+  setField("na_game_deal", "game:gSolo");
+  setField("na_game_type", "Demo"); setField("na_game_who", "zac");
+  setField("na_game_text", "Chơi thử bản build mới"); setField("na_game_url", "");
+  sb.addActivityScoped("game");
+  assertFreshStamp(state().games.find(x => x.id === "gSolo"), "game chủ");
+  const oe = ownerEntriesOf(captured, "game", "gSolo");
+  assert.equal(oe.length, 1, "đúng 1 mục audit cho game chủ");
+  assert.equal(oe[0].changes.length, 1);
+  assert.equal(oe[0].changes[0].field, "activity");
+  assert.ok(oe[0].changes[0].label.includes("thêm") && oe[0].changes[0].to.includes("Chơi thử bản build mới"));
+  assert.equal(captured.filter(e => e.entityType === "activity" && e.action === "create").length, 1);
+  assertOldStamp(state().leads.find(x => x.id === "lSolo"), "lead không liên quan");
+});
+
+test("LG-STAMP-3: SỬA activity (giữ nguyên chủ lead) -> lead đổi dấu + ĐÚNG 1 audit chủ nhãn sửa, from/to là tóm tắt cũ/mới", () => {
+  const { sb, doc, setField, state, captured } = loadApp();
+  sb.editActivity("aLead");
+  ["ea_type", "ea_who", "ea_when", "ea_text", "ea_url", "ea_deal"].forEach(id => doc._els.set(id, El(id)));
+  setField("ea_type", "Zalo"); setField("ea_who", "zac"); setField("ea_when", "2026-11-03");
+  setField("ea_text", "Đã nhắn lại, chờ phản hồi"); setField("ea_url", ""); setField("ea_deal", "lead:lSolo");
+  sb.saveActivity("aLead");
+  assertFreshStamp(state().leads.find(x => x.id === "lSolo"), "lead chủ");
+  const oe = ownerEntriesOf(captured, "lead", "lSolo");
+  assert.equal(oe.length, 1, "đúng 1 mục audit cho lead chủ khi sửa activity");
+  assert.equal(oe[0].changes.length, 1);
+  assert.equal(oe[0].changes[0].field, "activity");
+  assert.ok(oe[0].changes[0].label.includes("sửa"), "nhãn sửa: " + oe[0].changes[0].label);
+  assert.ok(oe[0].changes[0].from.includes("Nhắn Zalo lead chưa deal"), "from = tóm tắt activity cũ");
+  assert.ok(oe[0].changes[0].to.includes("Đã nhắn lại, chờ phản hồi"), "to = tóm tắt activity mới");
+  assert.equal(captured.filter(e => e.entityType === "activity" && e.entityId === "aLead" && e.action === "update").length, 1, "audit update của chính activity giữ nguyên, đúng 1");
+});
+
+test("LG-STAMP-4: XOÁ activity gắn game -> game đổi dấu + ĐÚNG 1 audit chủ nhãn xoá", () => {
+  const { sb, state, captured } = loadApp();
+  sb.openGame("gSolo");
+  sb.deleteActivity("aGame");
+  assert.ok(!state().activities.some(x => x.id === "aGame"));
+  assertFreshStamp(state().games.find(x => x.id === "gSolo"), "game chủ");
+  const oe = ownerEntriesOf(captured, "game", "gSolo");
+  assert.equal(oe.length, 1, "đúng 1 mục audit cho game chủ khi xoá activity");
+  assert.equal(oe[0].changes.length, 1);
+  assert.equal(oe[0].changes[0].field, "activity");
+  assert.ok(oe[0].changes[0].label.includes("xoá"), "nhãn xoá: " + oe[0].changes[0].label);
+  assert.ok(oe[0].changes[0].from.includes("Ghi chú game chưa deal"), "from = tóm tắt activity đã xoá");
+  assert.equal(captured.filter(e => e.entityType === "activity" && e.entityId === "aGame" && e.action === "delete").length, 1, "audit delete của chính activity giữ nguyên, đúng 1");
+});
+
+test("LG-STAMP-5: SỬA activity ĐỔI CHỦ deal -> lead -> CẢ chủ cũ lẫn chủ mới đổi dấu + mỗi chủ đúng 1 audit (chuyển đi / chuyển đến)", () => {
+  const { sb, doc, setField, state, captured } = loadApp();
+  sb.editActivity("aDeal");
+  ["ea_type", "ea_who", "ea_when", "ea_text", "ea_url", "ea_deal"].forEach(id => doc._els.set(id, El(id)));
+  setField("ea_type", "Call"); setField("ea_who", "zac"); setField("ea_when", "2026-11-03");
+  setField("ea_text", "Hoạt động qua deal cũ"); setField("ea_url", ""); setField("ea_deal", "lead:lSolo");
+  sb.saveActivity("aDeal");
+  const a = state().activities.find(x => x.id === "aDeal");
+  assert.ok(a.lead === "lSolo" && a.deal === undefined, "activity đã đổi chủ sang lead");
+  assertFreshStamp(state().deals.find(x => x.id === "d1"), "deal chủ cũ");
+  assertFreshStamp(state().leads.find(x => x.id === "lSolo"), "lead chủ mới");
+  const oeDeal = ownerEntriesOf(captured, "deal", "d1");
+  assert.equal(oeDeal.length, 1, "chủ cũ đúng 1 mục audit");
+  assert.equal(oeDeal[0].changes.length, 1);
+  assert.equal(oeDeal[0].changes[0].field, "activity");
+  assert.ok(oeDeal[0].changes[0].label.includes("chuyển đi"), "nhãn chủ cũ: " + oeDeal[0].changes[0].label);
+  const oeLead = ownerEntriesOf(captured, "lead", "lSolo");
+  assert.equal(oeLead.length, 1, "chủ mới đúng 1 mục audit");
+  assert.equal(oeLead[0].changes.length, 1);
+  assert.equal(oeLead[0].changes[0].field, "activity");
+  assert.ok(oeLead[0].changes[0].label.includes("chuyển đến"), "nhãn chủ mới: " + oeLead[0].changes[0].label);
+  assertOldStamp(state().games.find(x => x.id === "gSolo"), "game không liên quan");
+  assert.equal(captured.filter(e => e.entityType === "activity" && e.entityId === "aDeal" && e.action === "update").length, 1);
+});
+
+test("LG-STAMP-6: thao tác BỊ CHẶN (chủ rỗng / chủ mồ côi / nội dung rỗng / lưu sửa với chủ rỗng) -> chủ giữ nguyên dấu, 0 audit chủ, 0 audit nào khác", () => {
+  const { sb, doc, setField, state, captured } = loadApp();
+  assert.equal(sb.createActivity("", { text: "x" }), null);
+  assert.equal(sb.createActivity("lead:lKhongCo", { text: "x" }), null);
+  assert.equal(sb.createActivity("lead:lSolo", { text: "   " }), null);
+  sb.save();
+  assert.equal(captured.length, 0, "không sinh bất kỳ mục audit nào khi mọi thao tác đều bị chặn");
+  assertOldStamp(state().leads.find(x => x.id === "lSolo"), "lead sau create bị chặn + save()");
+  sb.editActivity("aLead");
+  ["ea_type", "ea_who", "ea_when", "ea_text", "ea_url", "ea_deal"].forEach(id => doc._els.set(id, El(id)));
+  setField("ea_type", "Zalo"); setField("ea_who", "zac"); setField("ea_when", "2026-11-03");
+  setField("ea_text", "Không được ghi vì chủ rỗng"); setField("ea_url", ""); setField("ea_deal", "");
+  sb.saveActivity("aLead");
+  setField("ea_deal", "lead:lDaXoa");
+  sb.saveActivity("aLead");
+  assert.equal(captured.length, 0, "saveActivity bị chặn không sinh audit");
+  assertOldStamp(state().leads.find(x => x.id === "lSolo"), "lead sau saveActivity bị chặn");
+  const a = state().activities.find(x => x.id === "aLead");
+  assert.ok(a.lead === "lSolo" && a.text === "Nhắn Zalo lead chưa deal", "activity giữ nguyên khi lưu bị chặn");
+});
+
+test("LG-STAMP-7: THÊM activity vào DEAL (chủ thứ ba) cũng đổi dấu + ĐÚNG 1 audit chủ — 3 loại chủ nhất quán", () => {
+  const { sb, state, captured } = loadApp();
+  const a = sb.createActivity("d1", { type: "Call", who: "zac", text: "Gọi chốt deal một", url: "" });
+  assert.ok(a && a.deal === "d1");
+  sb.save();
+  assertFreshStamp(state().deals.find(x => x.id === "d1"), "deal chủ");
+  const oe = ownerEntriesOf(captured, "deal", "d1");
+  assert.equal(oe.length, 1, "đúng 1 mục audit cho deal chủ");
+  assert.equal(oe[0].changes.length, 1);
+  assert.equal(oe[0].changes[0].field, "activity");
+  assert.ok(oe[0].changes[0].label.includes("thêm") && oe[0].changes[0].to.includes("Gọi chốt deal một"));
+  assertOldStamp(state().leads.find(x => x.id === "l1"), "lead gắn deal nhưng không phải chủ trực tiếp của activity");
 });
 
 /* ================= 2) Adapter ================= */

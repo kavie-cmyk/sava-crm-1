@@ -143,10 +143,10 @@ const COMPANY_PROFILE_FIELDS = [
 ];
 if (typeof window !== "undefined") { window.COMPANY_PROFILE_FIELDS = COMPANY_PROFILE_FIELDS; window.CompanyProfileFields = COMPANY_PROFILE_FIELDS; }
 const FIELD_LABELS = {
-  deal: { title: "Tiêu đề", line: "Mảng", stage: "Giai đoạn", owner: "Người phụ trách", company: "Công ty", game: "Game", due: "Hạn chốt", amount: "Giá trị", cur: "Tiền tệ", vertical: "Phân khúc ngành", leads: "Lead gắn kèm", custom: "Thông tin riêng theo mảng", term: "Điều khoản (Term)", contract: "Hợp đồng", idle: "Số ngày chưa cập nhật" },
+  deal: { title: "Tiêu đề", line: "Mảng", stage: "Giai đoạn", owner: "Người phụ trách", company: "Công ty", game: "Game", due: "Hạn chốt", amount: "Giá trị", cur: "Tiền tệ", vertical: "Phân khúc ngành", leads: "Lead gắn kèm", custom: "Thông tin riêng theo mảng", term: "Điều khoản (Term)", contract: "Hợp đồng", idle: "Số ngày chưa cập nhật", activity: "Hoạt động" },
   company: { name: "Tên công ty", type: "Loại hình", roles: "Vai trò theo mảng", last: "Tương tác cuối", partnerEval: "Đánh giá Partner (legacy)", partnerEvalMigrated: "Cờ chuyển dữ liệu Partner", location: "Địa điểm", establishedYear: "Năm thành lập", size: "Quy mô", employees: "Số nhân sự", industry: "Ngành", website: "Website", linkedinUrl: "LinkedIn công ty", parentCompany: "Công ty mẹ / Nhà đầu tư", parentWebsite: "Website công ty mẹ", suborgCount: "Số tổ chức con", suborgDomains: "Domain tổ chức con", suborgNames: "Tên tổ chức con", buyingSignals: "Tín hiệu mua (Buying Signals)", vertical: "Ngành dọc", savaOffering: "SAVA Offering", bizModel: "Mô hình kinh doanh (Biz Model)", priority: "Mức ưu tiên (Priority)" },
-  lead: { name: "Tên lead", company: "Công ty", person: "Position", phone: "Điện thoại", email: "Email", linkedinUrl: "LinkedIn cá nhân", ownerId: "Người phụ trách", line: "Mảng", source: "Nguồn", status: "Trạng thái", note: "Ghi chú", when: "Thời điểm", mainContact: "Đầu mối chính" },
-  game: { title: "Tên game", own: "Loại game", company: "Studio sở hữu", genre: "Genre", platform: "Nền tảng", stage: "Giai đoạn phát triển", emoji: "Emoji", desc: "Mô tả", bdNote: "Ghi chú BD", buildUrl: "Link build", trailerUrl: "Link trailer", scores: "Điểm BD /10 (lưu trữ)", verdict: "Kết luận BD (lưu trữ)", mktEval: "Đánh giá MKT /10 (lưu trữ)" },
+  lead: { name: "Tên lead", company: "Công ty", person: "Position", phone: "Điện thoại", email: "Email", linkedinUrl: "LinkedIn cá nhân", ownerId: "Người phụ trách", line: "Mảng", source: "Nguồn", status: "Trạng thái", note: "Ghi chú", when: "Thời điểm", mainContact: "Đầu mối chính", activity: "Hoạt động" },
+  game: { title: "Tên game", own: "Loại game", company: "Studio sở hữu", genre: "Genre", platform: "Nền tảng", stage: "Giai đoạn phát triển", emoji: "Emoji", desc: "Mô tả", bdNote: "Ghi chú BD", buildUrl: "Link build", trailerUrl: "Link trailer", scores: "Điểm BD /10 (lưu trữ)", verdict: "Kết luận BD (lưu trữ)", mktEval: "Đánh giá MKT /10 (lưu trữ)", activity: "Hoạt động" },
   task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
   member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
   activity: { deal: "Deal", lead: "Lead", game: "Game", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
@@ -322,10 +322,27 @@ function diffEntity(state, entityType, before, after) {
   return changes;
 }
 /* Đóng dấu + sinh audit cho 1 danh sách entity. beforeMap: Map id -> bản
-   chụp TRƯỚC khi sửa (đã clone). Trả mảng mục audit (chưa ghi). */
-function stampCollection(state, list, beforeMap, entityType, byMemberId, nowIso) {
+   chụp TRƯỚC khi sửa (đã clone). Trả mảng mục audit (chưa ghi).
+   forcedChangesById (tuỳ chọn, Map id -> mảng change): thay đổi NẰM NGOÀI
+   field của chính entity nhưng VẪN là một lần cập nhật thật của entity —
+   vd hoạt động (collection riêng) gắn vào lead/game/deal thay đổi: field
+   của bản ghi chủ không đổi nên diff thường rỗng, chủ không được đóng
+   dấu. Caller (stampCrmAndAudit phía index.html) tiền-tính các change mô
+   tả đó (field "activity") và truyền vào đây: entity được đóng dấu
+   updatedAt/updatedBy NHƯ MỌI lần sửa thật khác (vẫn qua save() +
+   legacy_extra + diff-sync như thường, máy khác nhận về qua snapshot nên
+   không đóng dấu lại) và các change ép được GỘP vào ĐÚNG mục audit duy
+   nhất của entity trong lần lưu này (không sinh mục thứ hai); entity đã
+   bị xoá trong cùng lần lưu thì phần tử của nó không nằm trong `list`
+   nên không bị ép dấu (mục delete riêng xử lý). */
+function stampCollection(state, list, beforeMap, entityType, byMemberId, nowIso, forcedChangesById) {
   const entries = [];
   if (!Array.isArray(list)) return entries;
+  const forcedOf = id => {
+    if (!forcedChangesById) return null;
+    const v = typeof forcedChangesById.get === "function" ? forcedChangesById.get(id) : forcedChangesById[id];
+    return Array.isArray(v) && v.length ? v.map(c => ({ ...c })) : null;
+  };
   const seen = new Set();
   list.forEach(ent => {
     if (!ent || typeof ent !== "object" || !ent.id) return;
@@ -333,10 +350,15 @@ function stampCollection(state, list, beforeMap, entityType, byMemberId, nowIso)
     const before = beforeMap ? beforeMap.get(String(ent.id)) : undefined;
     if (!before) {
       ent.createdAt = nowIso; ent.updatedAt = nowIso; ent.updatedBy = byMemberId || "";
-      entries.push({ entityType, entityId: String(ent.id), at: nowIso, byMemberId: byMemberId || "", action: "create", changes: diffEntity(state, entityType, {}, ent) });
+      const createChanges = diffEntity(state, entityType, {}, ent);
+      const fcNew = forcedOf(String(ent.id));
+      if (fcNew) createChanges.push(...fcNew);
+      entries.push({ entityType, entityId: String(ent.id), at: nowIso, byMemberId: byMemberId || "", action: "create", changes: createChanges });
       return;
     }
-    const changes = diffEntity(state, entityType, before, ent);
+    let changes = diffEntity(state, entityType, before, ent);
+    const fc = forcedOf(String(ent.id));
+    if (fc) changes = changes.concat(fc);
     if (!changes.length) return;
     ent.updatedAt = nowIso; ent.updatedBy = byMemberId || "";
     if (!ent.createdAt) ent.createdAt = before.createdAt || nowIso;
