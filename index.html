@@ -303,6 +303,7 @@
 <div id="toast"></div>
 <script src="apple-ui.js"></script>
 <script src="shared.js"></script>
+<script src="dedupe.js"></script>
 <script src="audit.js"></script>
 <script src="publishing-score.js"></script>
 <script src="publishing-bridge.js"></script>
@@ -2046,6 +2047,8 @@ function impPreviewHTML() {
       <div class="kpi"><div class="k">Dòng lỗi</div><div class="v">${st.errors}</div><div class="s">sau khi đã nối công ty xuống dòng (carry-down)</div></div>
       <div class="kpi"><div class="k">Trạng thái lạ → “Mới”</div><div class="v">${st.unknownStatus}</div>${unkList ? `<div class="s">${unkList}</div>` : ""}</div>
     </div>
+    ${p.companiesMatched.length ? `<h4 class="imp-subhead">Công ty khớp với công ty có sẵn — không tạo trùng</h4><ul class="imp-list">${p.companiesMatched.map(m => `<li><b>${esc(m.name)}</b>${m.matchReasons && m.matchReasons.length ? ` — khớp theo: ${esc(dedupeReasonText(m.matchReasons))}` : " — khớp theo tên công ty"}</li>`).join("")}</ul>` : ""}
+    ${(p.companiesToCreate || []).some(c => (c.dedupeWarnings || []).length) ? `<h4 class="imp-subhead">⚠️ Công ty sắp tạo có công ty tương tự trong CRM</h4><ul class="imp-list">${(p.companiesToCreate || []).filter(c => (c.dedupeWarnings || []).length).map(c => (c.dedupeWarnings || []).map(w => `<li><b>${esc(c.name)}</b> (sắp tạo) — tương tự <b>${esc(w.name)}</b>${w.percent !== null && w.percent !== undefined ? ` — giống ${w.percent}%` : ""} — ${esc(dedupeReasonText(w.reasons || []))}</li>`).join("")).join("")}</ul><p class="mut">Các công ty trên vẫn sẽ được tạo mới khi bạn bấm Nạp — cảnh báo chỉ để bạn kiểm tra lại trước, không chặn nạp.</p>` : ""}
     ${p.duplicates.length ? `<h4 class="imp-subhead">Ví dụ dòng trùng (bỏ qua)</h4><ul class="imp-list">${dupList}</ul>` : ""}
     ${p.errors.length ? `<h4 class="imp-subhead">Dòng lỗi</h4><ul class="imp-list">${errList}</ul>` : ""}
     ${p.preview.length ? `<h4 class="imp-subhead">Mẫu ${p.preview.length} dòng đầu sau biến đổi</h4><div class="imp-table-wrap"><table class="imp-table"><thead><tr><th>Công ty</th><th>PIC</th><th>Email</th><th>SĐT</th><th>LinkedIn</th><th>Trạng thái đích</th></tr></thead><tbody>${sample}</tbody></table></div>` : ""}
@@ -3151,7 +3154,10 @@ function companyProfileInputHTML(f, prefix, c) {
   const val = c && c[f.key] !== undefined && c[f.key] !== null ? String(c[f.key]) : "";
   if (f.type === "vertical") return selLegacy(prefix + f.key, companyProfileVerticalOptions(), val, "— Chưa chọn —");
   if (f.type === "textarea") return `<textarea id="${prefix}${f.key}">${esc(val)}</textarea>`;
-  return `<input id="${prefix}${f.key}" style="width:100%" value="${esc(val)}">`;
+  /* Phần 2: Website + LinkedIn công ty là 2 tín hiệu trùng EXACT — gõ tới
+     đâu kiểm tra trùng (debounce) tới đó ở đúng scope của bề mặt này. */
+  const dedupeHook = (f.key === "website" || f.key === "linkedinUrl") ? ` oninput="scheduleCompanyDedupeCheck('${prefix === "cp_" ? "profile" : "form"}')"` : "";
+  return `<input id="${prefix}${f.key}" style="width:100%" value="${esc(val)}"${dedupeHook}>`;
 }
 /* Mục "Hồ sơ công ty" trong FORM công ty (editCompany): cả 17 field,
    dựng từ cùng COMPANY_PROFILE_FIELDS + cùng helper ô nhập như drawer. */
@@ -3178,8 +3184,13 @@ function applyCompanyProfile(c, values) {
 }
 function companyProfileBlockHTML(c) {
   if (companyProfileEditId === c.id) {
+    /* Phần 2: khối sửa hồ sơ cũng là một bề mặt sửa Website/LinkedIn —
+       gắn ngữ cảnh kiểm tra trùng (trừ chính công ty này, snapshot gốc)
+       + vùng cảnh báo ngay đầu khối. */
+    dedupeSetContext("profile", c.id, { name: c.name || "", website: c.website || "", linkedinUrl: c.linkedinUrl || "" });
     const rows = COMPANY_PROFILE_FIELDS.map(f => `<div class="k">${esc(f.label)}</div><div>${companyProfileInputHTML(f, "cp_", c)}</div>`).join("");
     return `<h3 style="margin:16px 0 4px">🏢 Hồ sơ công ty — đang sửa</h3>
+    <div id="cp_dedupe_warn"></div>
     <div class="kv">${rows}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="persistCompanyProfile('${c.id}')">💾 Lưu hồ sơ</button><button class="btn ghost" onclick="cancelCompanyProfileEdit('${c.id}')">Hủy</button></div>`;
   }
@@ -3194,6 +3205,9 @@ function companyProfileBlockHTML(c) {
    saveCompany" trong test cũ không bắt nhầm hàm này. */
 function persistCompanyProfile(id) {
   const c = comp(id); if (!c || !c.id) return;
+  /* Phần 2: lưu hồ sơ từ drawer cũng chốt kiểm tra trùng một lần như form
+     công ty — EXACT thì confirm, từ chối là giữ nguyên chế độ sửa. */
+  if (!companyDedupeConfirmOnSave("profile")) return;
   applyCompanyProfile(c, readCompanyProfileForm("cp_"));
   /* Lưu THÀNH CÔNG mới thoát chế độ sửa -> quay về dạng xem ngay. */
   companyProfileEditId = null;
@@ -4673,6 +4687,162 @@ function publishingRequestCount(kind, entityId) {
   } catch (e) { return 0; }
 }
 
+/* ===== Cảnh báo trùng công ty trong FORM (Phần 2 — dùng SavaDedupe Phần 1) =====
+   Hai bề mặt sửa cùng một bộ field (Tên + Website + LinkedIn công ty —
+   website/linkedinUrl nằm trong COMPANY_PROFILE_FIELDS, lưu phẳng trên
+   object công ty qua legacy_extra, xem shared.js):
+   - scope "form": form tạo/sửa công ty (editCompany; ô e_cname +
+     e_cp_website / e_cp_linkedinUrl);
+   - scope "profile": khối "Hồ sơ công ty" đang sửa trong drawer
+     (persistCompanyProfile; ô cp_website / cp_linkedinUrl, tên lấy từ
+     chính công ty đang mở).
+   Hành vi ĐÃ CHỐT: gõ tới đâu kiểm tra tới đó (debounce 400ms) + chốt lại
+   một lần khi bấm Lưu. EXACT (trùng website/LinkedIn đã chuẩn hoá hoặc
+   nameKey bằng nhau qua SavaDedupe.matchCompanies) -> cảnh báo mạnh
+   "Đã có công ty này" + nút xem công ty đó; vẫn cho lưu nếu người dùng
+   cố tình nhưng bấm Lưu phải qua thêm một confirm(). SIMILAR (tên giống
+   >70%) -> cảnh báo "Có công ty tương tự" kèm % + lý do, nút xem từng
+   ứng viên và nút "Tiếp tục nhập công ty mới" để đóng cảnh báo; không
+   chặn cứng. Khi sửa: excludeId = chính công ty đó VÀ chỉ cảnh báo khi
+   giá trị đã ĐỔI so với lúc mở form (snapshot gốc) — mở form không đụng
+   gì thì không tự cảnh báo, kể cả khi dữ liệu cũ vốn đã trùng.
+   SavaDedupe chưa nạp được -> fallback tối thiểu: trùng tên tuyệt đối
+   (trim, không phân biệt hoa/thường — đúng luật chặn trùng tên cũ S8,
+   nay đổi thành cảnh báo + confirm thay vì chặn cứng). */
+const companyDedupeCtx = {
+  form: { excludeId: null, orig: { name: "", website: "", linkedinUrl: "" }, timer: null, last: { exact: [], similar: [] }, sig: "", dismissedSig: "" },
+  profile: { excludeId: null, orig: { name: "", website: "", linkedinUrl: "" }, timer: null, last: { exact: [], similar: [] }, sig: "", dismissedSig: "" },
+};
+function dedupeApiGlobal() {
+  try { if (typeof SavaDedupe !== "undefined" && SavaDedupe && typeof SavaDedupe.matchCompanies === "function") return SavaDedupe; } catch (e) {}
+  try { if (typeof window !== "undefined" && window.SavaDedupe && typeof window.SavaDedupe.matchCompanies === "function") return window.SavaDedupe; } catch (e) {}
+  return null;
+}
+function dedupeSetContext(scope, excludeId, orig) {
+  const ctx = companyDedupeCtx[scope]; if (!ctx) return;
+  ctx.excludeId = excludeId || null;
+  ctx.orig = { name: String((orig && orig.name) || ""), website: String((orig && orig.website) || ""), linkedinUrl: String((orig && orig.linkedinUrl) || "") };
+  ctx.last = { exact: [], similar: [] }; ctx.sig = ""; ctx.dismissedSig = "";
+  if (ctx.timer) { clearTimeout(ctx.timer); ctx.timer = null; }
+}
+function dedupeCandidate(scope) {
+  const ctx = companyDedupeCtx[scope];
+  const v = i => { const el = document.getElementById(i); return el ? String(el.value || "").trim() : ""; };
+  if (scope === "profile") {
+    const c = ctx && ctx.excludeId ? comp(ctx.excludeId) : { name: "" };
+    return { name: String((c && c.name) || ""), website: v("cp_website"), linkedin: v("cp_linkedinUrl"), linkedinUrl: v("cp_linkedinUrl"), excludeId: ctx ? ctx.excludeId : null };
+  }
+  const prof = typeof readCompanyProfileForm === "function" ? readCompanyProfileForm("e_cp_") : { website: v("e_cp_website"), linkedinUrl: v("e_cp_linkedinUrl") };
+  return { name: v("e_cname"), website: String(prof.website || ""), linkedin: String(prof.linkedinUrl || ""), linkedinUrl: String(prof.linkedinUrl || ""), excludeId: ctx ? ctx.excludeId : null };
+}
+function dedupeEntryNorm(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const company = entry.company && typeof entry.company === "object" ? entry.company : entry;
+  if (!company || !company.id) return null;
+  const found = S.companies.find(x => String(x.id) === String(company.id)) || company;
+  /* reasons của SavaDedupe là [{kind:'website'|'linkedin'|'nameKey'|'nameSimilarity', value}] */
+  const reasons = Array.isArray(entry.reasons) ? entry.reasons.map(r => String(r && typeof r === "object" ? (r.kind || r.code || r.type || r.label || "") : r)).filter(Boolean) : [];
+  const score = typeof entry.score === "number" && Number.isFinite(entry.score) ? entry.score : null;
+  const percent = typeof entry.percent === "number" && Number.isFinite(entry.percent) ? entry.percent : (score !== null ? Math.round(score * 100) : null);
+  return { company: found, score, percent, reasons };
+}
+function companyDedupeMatch(candidate) {
+  const empty = { exact: [], similar: [] };
+  if (!candidate || (!String(candidate.name || "").trim() && !String(candidate.website || "").trim() && !String(candidate.linkedin || candidate.linkedinUrl || "").trim())) return empty;
+  const api = dedupeApiGlobal();
+  if (api) {
+    const mapped = S.companies.map(c => Object.assign({}, c, { linkedin: String(c.linkedin || c.linkedinUrl || ""), linkedinUrl: String(c.linkedinUrl || c.linkedin || "") }));
+    let res = null;
+    try { res = api.matchCompanies({ name: candidate.name || "", website: candidate.website || "", linkedin: candidate.linkedin || candidate.linkedinUrl || "", linkedinUrl: candidate.linkedinUrl || candidate.linkedin || "", excludeId: candidate.excludeId || undefined }, mapped); } catch (e) { res = null; }
+    if (res && typeof res === "object") {
+      const norm = arr => (Array.isArray(arr) ? arr : []).map(dedupeEntryNorm).filter(Boolean)
+        .filter(e => !candidate.excludeId || String(e.company.id) !== String(candidate.excludeId));
+      const exact = norm(res.exact);
+      const exactIds = new Set(exact.map(e => String(e.company.id)));
+      return { exact, similar: norm(res.similar).filter(e => !exactIds.has(String(e.company.id))) };
+    }
+  }
+  /* Fallback (chưa có SavaDedupe): chỉ còn luật tên tuyệt đối cũ. */
+  const nm = String(candidate.name || "").trim().toLowerCase();
+  if (!nm) return empty;
+  const hit = S.companies.filter(c => c && c.id && (!candidate.excludeId || String(c.id) !== String(candidate.excludeId)) && String(c.name || "").trim().toLowerCase() === nm);
+  return { exact: hit.map(c => ({ company: c, score: 1, reasons: ["name"] })), similar: [] };
+}
+function dedupeReasonText(reasons) {
+  const parts = [];
+  (Array.isArray(reasons) ? reasons : []).forEach(r => {
+    const s = String(r || "").toLowerCase();
+    let label = "";
+    if (s.includes("website") || s.includes("domain")) label = "trùng website";
+    else if (s.includes("linkedin")) label = "trùng LinkedIn";
+    else if (s.includes("name")) label = s.includes("similar") || s.includes("simil") ? "tên giống nhau" : "tên công ty trùng khớp";
+    else label = String(r || "");
+    if (label && !parts.includes(label)) parts.push(label);
+  });
+  return parts.length ? parts.join(", ") : "thông tin trùng khớp";
+}
+function dedupeCandidateChanged(scope, candidate) {
+  const ctx = companyDedupeCtx[scope]; if (!ctx || !ctx.excludeId) return true;
+  const o = ctx.orig;
+  return String(candidate.name || "").trim() !== String(o.name || "").trim()
+    || String(candidate.website || "").trim() !== String(o.website || "").trim()
+    || String(candidate.linkedinUrl || candidate.linkedin || "").trim() !== String(o.linkedinUrl || "").trim();
+}
+function dedupeCompute(scope) {
+  const candidate = dedupeCandidate(scope);
+  if (!dedupeCandidateChanged(scope, candidate)) return { candidate, result: { exact: [], similar: [] } };
+  return { candidate, result: companyDedupeMatch(candidate) };
+}
+function companyDedupeWarningHTML(scope, result, sig) {
+  const ctx = companyDedupeCtx[scope];
+  let h = "";
+  if (result.exact.length) {
+    const items = result.exact.map(e => `<li><b>${esc(e.company.name || "")}</b> — ${esc(dedupeReasonText(e.reasons))} <button class="btn small" onclick="dedupeViewCompany('${e.company.id}')">Xem công ty đó</button></li>`).join("");
+    h += `<div class="dedupe-alert dedupe-alert-exact" role="alert"><strong>⚠️ Đã có công ty này</strong><div>Thông tin bạn nhập trùng với công ty đã có trong CRM:</div><ul class="dedupe-list">${items}</ul><div class="mut">Vẫn bấm Lưu được nếu đây thật là công ty khác — khi bấm Lưu, hệ thống sẽ hỏi xác nhận lại một lần nữa.</div></div>`;
+  }
+  if (result.similar.length && (!ctx || ctx.dismissedSig !== sig)) {
+    const items = result.similar.map(e => `<li><b>${esc(e.company.name || "")}</b>${e.percent !== null && e.percent !== undefined ? ` — giống ${e.percent}%` : ""} — ${esc(dedupeReasonText(e.reasons))} <button class="btn small ghost" onclick="dedupeViewCompany('${e.company.id}')">Xem công ty tương tự</button></li>`).join("");
+    h += `<div class="dedupe-alert dedupe-alert-similar" role="alert"><strong>Có công ty tương tự</strong><ul class="dedupe-list">${items}</ul><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="dedupeContinueNewCompany('${scope}')">Tiếp tục nhập công ty mới</button></div></div>`;
+  }
+  return h;
+}
+function refreshCompanyDedupeWarning(scope) {
+  const ctx = companyDedupeCtx[scope]; if (!ctx) return { exact: [], similar: [] };
+  const box = document.getElementById(scope === "profile" ? "cp_dedupe_warn" : "e_company_dedupe_warn");
+  const { candidate, result } = dedupeCompute(scope);
+  ctx.last = result;
+  ctx.sig = JSON.stringify([candidate.name || "", candidate.website || "", candidate.linkedinUrl || candidate.linkedin || "", result.exact.map(e => e.company.id), result.similar.map(e => e.company.id)]);
+  if (box) box.innerHTML = companyDedupeWarningHTML(scope, result, ctx.sig);
+  return result;
+}
+function scheduleCompanyDedupeCheck(scope) {
+  const ctx = companyDedupeCtx[scope]; if (!ctx) return;
+  if (ctx.timer) clearTimeout(ctx.timer);
+  ctx.timer = setTimeout(() => { ctx.timer = null; refreshCompanyDedupeWarning(scope); }, 400);
+}
+function dedupeContinueNewCompany(scope) {
+  const ctx = companyDedupeCtx[scope]; if (!ctx) return;
+  ctx.dismissedSig = ctx.sig;
+  const box = document.getElementById(scope === "profile" ? "cp_dedupe_warn" : "e_company_dedupe_warn");
+  if (box) box.innerHTML = companyDedupeWarningHTML(scope, ctx.last, ctx.sig);
+}
+function dedupeViewCompany(id) {
+  const c = S.companies.find(x => String(x.id) === String(id)); if (!c) { toast("Không tìm thấy công ty đó trong CRM"); return; }
+  /* Modal form (z-index cao hơn drawer) che drawer nên đóng form trước
+     để drawer công ty đích hiện rõ; đóng form = huỷ thao tác nhập dở.
+     Ở scope profile không có modal nào mở — closeEdit() là no-op vô hại. */
+  closeEdit();
+  openCompany(c.id);
+}
+/* Chốt kiểm tra khi bấm Lưu: chạy lại từ giá trị hiện tại (không dùng kết
+   quả debounce cũ). Có exact -> confirm một lần; user từ chối -> KHÔNG lưu. */
+function companyDedupeConfirmOnSave(scope) {
+  const result = refreshCompanyDedupeWarning(scope);
+  if (!result.exact.length) return true;
+  const lines = result.exact.map(e => `- ${e.company.name || ""} (${dedupeReasonText(e.reasons)})`).join("\n");
+  return confirm(`⚠️ Đã có công ty này trong CRM:\n${lines}\n\nThông tin bạn nhập trùng với (các) công ty trên. Vẫn lưu công ty này như một công ty riêng?`);
+}
+
 /* --- Công ty --- */
 const ROLE_OPTS_BY_LINE = { game_studio: ["Publisher"], publishing: ["Game studio", "Indie dev"], ai: ["Khách hàng"], metaverse: ["Khách hàng"] };
 function editCompany(id) {
@@ -4681,9 +4851,11 @@ function editCompany(id) {
   const rolesHtml = Object.entries(LINES).map(([k, L]) => `
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_role_on_${k}" style="width:auto" ${c.roles && c.roles[k] ? "checked" : ""}> Có vai trò ở mảng ${L.name}</label>
     ${selLegacy("e_role_" + k, ROLE_OPTS_BY_LINE[k] || [L.target], (c.roles && c.roles[k]) || (ROLE_OPTS_BY_LINE[k] || [L.target])[0])}`).join("");
+  dedupeSetContext("form", id || null, { name: c.name || "", website: c.website || "", linkedinUrl: c.linkedinUrl || "" });
   openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa công ty" : "🏢 Thêm công ty"}</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("company")}</div>
-    ${field("Tên công ty", txt("e_cname", c.name))}
+    <div id="e_company_dedupe_warn" class="dedupe-sticky"></div>
+    ${field("Tên công ty", `<input id="e_cname" value="${esc(c.name ?? "")}" oninput="scheduleCompanyDedupeCheck('form')">`)}
     ${field("Loại hình", selLegacy("e_ctype", ["Publisher", "Game studio", "Indie dev", "Doanh nghiệp", "Khác"], c.type || "", "— Chưa chọn —"))}
     <div class="mut" style="margin-top:12px">Người liên hệ của công ty là các <b>Lead</b> thuộc công ty này (một nguồn sự thật duy nhất) — thêm/sửa người liên hệ ở mục Lead, không còn trường đầu mối riêng ở công ty.</div>
     <div class="mut" style="margin-top:12px">Vai trò theo mảng — bật mảng nào thì công ty hiện trong mảng đó:</div>
@@ -4692,12 +4864,16 @@ function editCompany(id) {
     <div class="mut" style="margin-top:4px">Bộ thông tin hồ sơ (địa điểm, quy mô, tín hiệu mua…) — để trống field nào thì field đó không được ghi vào hồ sơ.</div>
     ${companyProfileFormFieldsHTML(c)}
     ${formFoot("saveCompany", id ? `'${id}'` : "null")}`);
+  refreshCompanyDedupeWarning("form");
 }
 function saveCompany(id) {
   const v = i => (document.getElementById(i)?.value || "").trim();
   const name = v("e_cname"); if (!name) { toast("Tên công ty không được để trống"); return; }
-  /* S8: chặn trùng tên công ty (đã trim, không phân biệt hoa/thường; khi sửa thì trừ chính công ty đó). */
-  if (S.companies.some(x => x.id !== id && (x.name || "").trim().toLowerCase() === name.toLowerCase())) { toast("Tên công ty đã tồn tại: " + name + " — hãy mở hồ sơ công ty đó thay vì tạo/lưu trùng tên"); return; }
+  /* Phần 2 (thay luật chặn cứng trùng tên S8): chốt kiểm tra trùng MỘT
+     lần nữa ngay khi bấm Lưu — trùng EXACT (website/LinkedIn/nameKey qua
+     SavaDedupe) thì hỏi xác nhận, người dùng từ chối là KHÔNG lưu; trùng
+     tương tự (similar) đã hiện cảnh báo trong form, không chặn ở đây. */
+  if (!companyDedupeConfirmOnSave("form")) return;
   const roles = {};
   Object.keys(LINES).forEach(k => { if (document.getElementById("e_role_on_" + k).checked) roles[k] = v("e_role_" + k) || LINES[k].target; });
   /* C8 (đợt 3): sửa công ty làm mất tư cách studio Publishing (isStudioCompany

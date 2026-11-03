@@ -275,6 +275,22 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .imp-result {border-color:#bbf7d0;background:#f0fdf4}
 @media(max-width:900px){.imp-kpis{grid-template-columns:repeat(2,1fr)}.imp-settings{grid-template-columns:1fr}}
 
+/* ===== Cảnh báo trùng công ty trong form (tiền tố dedupe-) =====
+   Phần 2: vùng cảnh báo của form công ty (index.html editCompany) + khối
+   hồ sơ trong drawer. EXACT dùng tông đỏ của .btn.danger / .imp-result
+   đối nghịch (nền #fff3f3, viền #efdadb, chữ #b33e49); SIMILAR dùng tông
+   hổ phách nhẹ để phân cấp dưới exact. .dedupe-sticky giữ vùng cảnh báo
+   của form dài (17 field hồ sơ) luôn trong tầm mắt khi cuộn trong modal. */
+.dedupe-sticky {position:sticky;top:0;z-index:2}
+.dedupe-alert {border:1px solid;border-radius:11px;padding:10px 12px;margin:10px 0;font-size:13px;line-height:1.55}
+.dedupe-alert strong {display:block;font-size:13.5px;margin-bottom:2px}
+.dedupe-alert-exact {background:#fff3f3;border-color:#efdadb;color:#7f1d1d}
+.dedupe-alert-exact strong {color:#b33e49}
+.dedupe-alert-similar {background:#fffbeb;border-color:#fde68a;color:#78350f}
+.dedupe-alert-similar strong {color:#92400e}
+.dedupe-list {margin:6px 0 6px 18px;padding:0;line-height:1.7}
+.dedupe-list .btn {margin-left:6px}
+
 /* Việc 6 — sort + STT danh sách: hàng điều khiển sort (sortBarHTML), tiêu đề
    cột bấm-để-sort (sortThHTML) và chỉ số thứ tự hiển thị (.list-stt). */
 .sort-bar {display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 12px}

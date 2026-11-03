@@ -1536,6 +1536,126 @@ const SavaImport = (() => {
     }
     return out;
   }
+  /* === Khớp trùng công ty cho Import (Phần 2 — dùng SavaDedupe Phần 1) ===
+     Thứ tự khớp ĐÃ CHỐT: (1) website đã chuẩn hoá, (2) nameKey tuyệt đối,
+     (3) tên giống > SIMILARITY_THRESHOLD — trong đó (1)+(2) CỘNG trùng
+     LinkedIn đã chuẩn hoá là khớp EXACT (công ty có sẵn, KHÔNG tạo trùng;
+     khi nhiều công ty cùng exact thì ưu tiên công ty khớp theo website
+     trước); tên giống (3) chỉ là CẢNH BÁO nêu trong xem
+     trước, công ty vẫn nằm ở nhóm sắp tạo để người dùng tự quyết khi nạp.
+     Nguồn khớp chính là SavaDedupe.matchCompanies (Phần 1); candidate lấy
+     website / LinkedIn CÔNG TY từ profile của nhóm dòng import
+     (profile.website / profile.linkedinUrl — đúng 2 key trong
+     COMPANY_PROFILE_FIELDS, vốn lưu phẳng trên object công ty), tên từ tên
+     nhóm. Khi SavaDedupe chưa/không nạp được, fallback tối thiểu ngay dưới
+     đây giữ nguyên hành vi cũ (khớp tên theo impFold) CỘNG khớp website
+     theo domain gốc — không tự chế thêm thuật toán mờ nào khác ngoài một
+     phép giống tên bigram đơn giản cho cảnh báo similar. */
+  function dedupeApi() {
+    try {
+      if (typeof SavaDedupe !== "undefined" && SavaDedupe && typeof SavaDedupe.matchCompanies === "function") return SavaDedupe;
+    } catch (e) {}
+    try {
+      if (typeof window !== "undefined" && window.SavaDedupe && typeof window.SavaDedupe.matchCompanies === "function") return window.SavaDedupe;
+    } catch (e) {}
+    return null;
+  }
+  function fallbackWebsiteKey(raw) {
+    let s = String(raw || "").trim().toLowerCase();
+    if (!s) return "";
+    s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^\/\//, "");
+    s = s.split(/[/?#]/)[0].replace(/^www\./, "").replace(/:\d+$/, "").replace(/\.+$/, "");
+    return s.includes(".") ? s : "";
+  }
+  function fallbackLinkedinKey(raw) {
+    const s = String(raw || "").trim().toLowerCase();
+    if (!s) return "";
+    const m = /linkedin\.com\/(?:company|school)\/([^/?#]+)/.exec(s);
+    if (m) return m[1].replace(/\/+$/, "");
+    return s.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^www\./, "").split(/[/?#]/).filter(Boolean).pop() || "";
+  }
+  function fallbackNameSimilarity(a, b) {
+    const x = impFold(a), y = impFold(b);
+    if (!x || !y) return 0;
+    if (x === y) return 1;
+    const grams = t => { const g = new Map(); const p = " " + t + " "; for (let i = 0; i + 2 <= p.length; i++) { const k = p.slice(i, i + 2); g.set(k, (g.get(k) || 0) + 1); } return g; };
+    const gx = grams(x), gy = grams(y);
+    let hit = 0, nx = 0, ny = 0;
+    gx.forEach(v => { nx += v; }); gy.forEach(v => { ny += v; });
+    gx.forEach((v, k) => { hit += Math.min(v, gy.get(k) || 0); });
+    return nx + ny ? (2 * hit) / (nx + ny) : 0;
+  }
+  /* Chuẩn hoá 1 mục kết quả matchCompanies về {company, score, reasons}
+     (chấp cả dạng {company,...} lẫn dạng bản ghi công ty trần). */
+  function dedupeEntryNorm(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    const company = entry.company && typeof entry.company === "object" ? entry.company : entry;
+    if (!company || !company.id) return null;
+    /* reasons của SavaDedupe là [{kind:'website'|'linkedin'|'nameKey'|'nameSimilarity', value}] */
+    const reasons = Array.isArray(entry.reasons) ? entry.reasons.map(r => String(r && typeof r === "object" ? (r.kind || r.code || r.type || r.label || "") : r)).filter(Boolean) : [];
+    const score = typeof entry.score === "number" && Number.isFinite(entry.score) ? entry.score : null;
+    const percent = typeof entry.percent === "number" && Number.isFinite(entry.percent) ? entry.percent : (score !== null ? Math.round(score * 100) : null);
+    return { company, score, percent, reasons };
+  }
+  function dedupeReasonRank(reasons) {
+    const rs = (reasons || []).map(r => String(r).toLowerCase());
+    if (rs.some(r => r.includes("website") || r.includes("domain"))) return 0;
+    if (rs.some(r => r.includes("linkedin"))) return 1;
+    if (rs.some(r => r.includes("name"))) return 2;
+    return 3;
+  }
+  /* matchCompanyForImport(candidate, companies) ->
+     { exact: [{company, score, reasons}], similar: [{company, score, reasons}] }
+     exact đã sắp theo ưu tiên website -> LinkedIn -> tên. */
+  function matchCompanyForImport(candidate, companies) {
+    const cand = candidate || {};
+    const list = Array.isArray(companies) ? companies.filter(c => c && c.id) : [];
+    const api = dedupeApi();
+    if (api) {
+      const fullCandidate = {
+        name: String(cand.name || ""),
+        website: String(cand.website || ""),
+        linkedin: String(cand.linkedin || cand.linkedinUrl || ""),
+        linkedinUrl: String(cand.linkedinUrl || cand.linkedin || ""),
+      };
+      if (cand.excludeId) fullCandidate.excludeId = cand.excludeId;
+      const mapped = list.map(c => Object.assign({}, c, {
+        linkedin: String(c.linkedin || c.linkedinUrl || ""),
+        linkedinUrl: String(c.linkedinUrl || c.linkedin || ""),
+      }));
+      let res = null;
+      try { res = api.matchCompanies(fullCandidate, mapped); } catch (e) { res = null; }
+      if (res && typeof res === "object") {
+        const byId = new Map(list.map(c => [String(c.id), c]));
+        const normList = arr => (Array.isArray(arr) ? arr : []).map(dedupeEntryNorm).filter(Boolean)
+          .map(e => ({ company: byId.get(String(e.company.id)) || e.company, score: e.score, percent: e.percent, reasons: e.reasons }));
+        const exact = normList(res.exact).sort((a, b) => dedupeReasonRank(a.reasons) - dedupeReasonRank(b.reasons));
+        const exactIds = new Set(exact.map(e => String(e.company.id)));
+        const similar = normList(res.similar).filter(e => !exactIds.has(String(e.company.id)));
+        return { exact, similar };
+      }
+    }
+    /* Fallback khi chưa có SavaDedupe (hoặc matchCompanies lỗi): website
+       -> LinkedIn -> tên (impFold); ngưỡng similar lấy từ hằng của module
+       nếu đọc được, mặc định 0.70 (= SavaDedupe.SIMILARITY_THRESHOLD). */
+    const threshold = api && typeof api.SIMILARITY_THRESHOLD === "number" ? api.SIMILARITY_THRESHOLD : 0.70;
+    const exact = [], similar = [];
+    const wKey = fallbackWebsiteKey(cand.website);
+    const lKey = fallbackLinkedinKey(cand.linkedin || cand.linkedinUrl);
+    const nKey = impFold(cand.name);
+    list.forEach(c => {
+      if (cand.excludeId && String(c.id) === String(cand.excludeId)) return;
+      const reasons = [];
+      if (wKey && fallbackWebsiteKey(c.website) === wKey) reasons.push("website");
+      if (lKey && fallbackLinkedinKey(c.linkedinUrl || c.linkedin) === lKey) reasons.push("linkedin");
+      if (nKey && impFold(c.name) === nKey) reasons.push("name");
+      if (reasons.length) { exact.push({ company: c, score: 1, percent: 100, reasons }); return; }
+      const sim = fallbackNameSimilarity(cand.name, c.name);
+      if (sim > threshold) similar.push({ company: c, score: sim, percent: Math.round(sim * 100), reasons: ["nameSimilarity"] });
+    });
+    exact.sort((a, b) => dedupeReasonRank(a.reasons) - dedupeReasonRank(b.reasons));
+    return { exact, similar };
+  }
   function planImport(state, records, opts) {
     const s = state || {};
     const o = opts || {};
@@ -1545,8 +1665,6 @@ const SavaImport = (() => {
     const companies = Array.isArray(s.companies) ? s.companies : [];
     const leads = Array.isArray(s.leads) ? s.leads : [];
     const compById = new Map(companies.filter(c => c && c.id).map(c => [String(c.id), c]));
-    const existingCompanyByNorm = new Map();
-    companies.forEach(c => { if (c && c.name) { const k = impFold(c.name); if (k && !existingCompanyByNorm.has(k)) existingCompanyByNorm.set(k, c); } });
     const companyNameOfLead = l => { const c = l && l.company ? compById.get(String(l.company)) : null; return c ? String(c.name || "") : ""; };
     const existingLeadKeys = new Set(leads.filter(Boolean).map(l => impFold(companyNameOfLead(l)) + "|" + impFold(l.name)));
     const existingMainCompanyIds = new Set(leads.filter(l => l && l.mainContact && l.company).map(l => String(l.company)));
@@ -1583,7 +1701,12 @@ const SavaImport = (() => {
     groups.forEach(g => {
       let name = g.firstName, best = -1;
       g.nameCounts.forEach((cnt, raw) => { if (cnt > best) { best = cnt; name = raw; } });
-      const existing = existingCompanyByNorm.get(g.key) || null;
+      /* Khớp công ty có sẵn theo thứ tự website -> LinkedIn -> nameKey
+         (matchCompanyForImport ở trên): exact = công ty có sẵn; similar
+         (>70%) KHÔNG tự gộp — chỉ gắn cảnh báo vào công ty sắp tạo để bản
+         xem trước nêu rõ ứng viên + % + lý do. */
+      const dedupe = matchCompanyForImport({ name, website: g.profile.website || "", linkedinUrl: g.profile.linkedinUrl || "" }, companies);
+      const existing = dedupe.exact.length ? dedupe.exact[0].company : null;
       let companyId = null, mainTaken = false;
       if (existing) {
         companyId = String(existing.id);
@@ -1592,14 +1715,15 @@ const SavaImport = (() => {
           const cur = existing[k];
           if ((cur === undefined || cur === null || String(cur).trim() === "") && g.profile[k]) fill[k] = g.profile[k];
         });
-        companiesMatched.push({ id: companyId, name: String(existing.name || name), fill });
+        companiesMatched.push({ id: companyId, name: String(existing.name || name), fill, matchKind: "exact", matchReasons: dedupe.exact[0].reasons.slice(), matchScore: dedupe.exact[0].score });
         mainTaken = existingMainCompanyIds.has(companyId);
       } else {
         const profile = {};
         Object.keys(g.profile).forEach(k => { profile[k] = g.profile[k]; });
         if (!profile.vertical && o.vertical) profile.vertical = String(o.vertical);
         const L = (typeof LINES !== "undefined" && LINES[line]) ? LINES[line] : null;
-        companiesToCreate.push({ key: g.key, name, profile, type: L ? L.target : "Doanh nghiệp", roles: L ? { [line]: L.target } : {}, importBatch: batch });
+        companiesToCreate.push({ key: g.key, name, profile, type: L ? L.target : "Doanh nghiệp", roles: L ? { [line]: L.target } : {}, importBatch: batch,
+          dedupeWarnings: dedupe.similar.map(w => ({ id: String(w.company.id), name: String(w.company.name || ""), score: w.score, percent: w.percent, reasons: w.reasons.slice() })) });
       }
       g.leads.forEach((entry, idx) => {
         const rec = entry.rec;
@@ -1662,6 +1786,6 @@ const SavaImport = (() => {
     });
     return { batch: b, leadsToDelete, companiesToDelete, companiesToKeep, stats: { leads: leadsToDelete.length, companiesDeleted: companiesToDelete.length, companiesKept: companiesToKeep.length } };
   }
-  return { impFold, impCellStr, DESTINATIONS, HEADER_ALIASES, guessMapping, findHeaderRow, extractPhone, parseEmailPhone, mapStatus, normalizeNumericProfile, normalizeWhen, rowsToRecords, planImport, listBatches, planRemoveBatch };
+  return { impFold, impCellStr, DESTINATIONS, HEADER_ALIASES, guessMapping, findHeaderRow, extractPhone, parseEmailPhone, mapStatus, normalizeNumericProfile, normalizeWhen, rowsToRecords, planImport, listBatches, planRemoveBatch, matchCompanyForImport };
 })();
 if (typeof window !== "undefined") { window.SavaImport = SavaImport; }
