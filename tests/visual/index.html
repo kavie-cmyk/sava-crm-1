@@ -643,11 +643,11 @@ function detachLeadFromDeal(leadId, dealId) {
   const d = S.deals.find(x => x.id === dealId); if (!d) return;
   const l = S.leads.find(x => x.id === leadId);
   /* FIX-C1 B3: gỡ liên kết phải qua confirm; lead converted mà đây là deal
-     cuối của nó thì nêu rõ trạng thái sẽ hồi về "qualified" (revertLeadIfOrphaned). */
+     cuối của nó thì nêu rõ trạng thái sẽ hồi về "contacted" (revertLeadIfOrphaned). */
   const willRevert = !!(l && l.status === "converted" && dealsForLead(leadId).length === 1);
-  if (!confirm(`Gỡ lead "${l ? leadDisplayName(l) : leadId}" khỏi deal "${d.title}"?` + (willRevert ? `\n\nLead đang ở trạng thái Đã chuyển đổi và đây là deal cuối cùng của lead — gỡ xong, trạng thái lead sẽ hồi về "qualified" (Đạt chuẩn).` : ""))) return;
+  if (!confirm(`Gỡ lead "${l ? leadDisplayName(l) : leadId}" khỏi deal "${d.title}"?` + (willRevert ? `\n\nLead đang ở trạng thái Đã chuyển đổi và đây là deal cuối cùng của lead — gỡ xong, trạng thái lead sẽ hồi về "contacted" (Đã liên hệ).` : ""))) return;
   d.leads = (Array.isArray(d.leads) ? d.leads : []).filter(x => x !== leadId);
-  revertLeadIfOrphaned(leadId); /* C2: gỡ hết deal -> lead converted tự hồi "qualified" */
+  revertLeadIfOrphaned(leadId); /* C2: gỡ hết deal -> lead converted tự hồi "contacted" */
   save(); render(); refreshDrawer();
   toast("Đã gỡ lead khỏi deal: " + d.title);
 }
@@ -746,7 +746,7 @@ function sanitizeNewCrossCompanyLeads() {
 }
 /* ===== P2: bất biến status lead theo deal — helper TRUNG TÂM duy nhất =====
    lead nằm trong deal.leads của ≥1 deal còn tồn tại -> "converted"; không còn
-   deal nào -> lead đang "converted" hồi "qualified". Mọi đường gắn/gỡ/xoá
+   deal nào -> lead đang "converted" hồi "contacted". Mọi đường gắn/gỡ/xoá
    deal/sửa form deal/convertLead đều gọi helper này cho các lead bị ảnh
    hưởng, mutate state TRƯỚC save() của thao tác chính để MỘT lần lưu ghi cả
    thay đổi deal lẫn status lead (stamp + audit diff sinh như sửa tay bình
@@ -763,7 +763,7 @@ function syncLeadDealStatus(leadId, opts) {
      (có deal -> "converted"), KHÔNG tự hồi chiều xuống. Mọi đường khác
      (gắn/gỡ/xoá deal, sửa form deal, convert...) gọi không opts và giữ
      nguyên bất biến hai chiều như cũ. */
-  else if (!(opts && opts.preserveManualConverted) && l.status === "converted") l.status = "qualified";
+  else if (!(opts && opts.preserveManualConverted) && l.status === "converted") l.status = "contacted";
 }
 function syncLeadDealStatuses(leadIds, opts) { [...new Set(leadIds || [])].forEach(id => syncLeadDealStatus(id, opts)); }
 /* ===== B4 (đợt 3): hiển thị điểm legacy (khung workbook cũ) =====
@@ -798,14 +798,15 @@ function legacyThresholdNote(v) {
    EVAL UI bên dưới, cạnh nơi dùng) trả "—" cho % không phải số hữu hạn; deal
    thiếu amount hiện "—" cho giá trị có trọng số ở openDeal. */
 /* ===== C2 (đợt 3): lead "converted" mất hết deal liên kết -> tự hồi trạng thái =====
-   Trạng thái hồi đã chọn: "qualified" (Đạt chuẩn) — lead đã từng đủ chuẩn để
-   chuyển thành deal, nên khi liên kết deal biến mất (xóa deal / gỡ lead khỏi
-   deal) nó quay về Đạt chuẩn để BD xử lý tiếp, không giả vờ là lead mới tinh
-   và cũng không kẹt ở "converted" khi chẳng còn deal nào. */
+   Trạng thái hồi đã chọn: "contacted" (Đã liên hệ) — từ 2026-11-03 stage
+   "qualified" (Đạt chuẩn) đã bỏ khỏi Lead; khi liên kết deal biến mất (xóa
+   deal / gỡ lead khỏi deal) lead quay về Đã liên hệ để BD xử lý tiếp, không
+   giả vờ là lead mới tinh và cũng không kẹt ở "converted" khi chẳng còn
+   deal nào. */
 function revertLeadIfOrphaned(leadId) {
   /* P2: tên cũ giữ cho các call site sẵn có (gỡ lead / xoá deal) — nay uỷ
      quyền helper trung tâm syncLeadDealStatus: mất deal cuối -> hồi
-     "qualified" như cũ; chiều ngược lại (còn deal) cũng được helper giữ
+     "contacted"; chiều ngược lại (còn deal) cũng được helper giữ
      ở "converted" cho nhất quán bất biến. */
   syncLeadDealStatus(leadId);
 }
@@ -1100,7 +1101,7 @@ function dashAnalyticsHTML() {
   const dropDef = leadStatusDef(funnel.dropped.key) || { label: funnel.dropped.key, color: "#94a3b8" };
   const fExit = `<div class="dash-funnel-exit"><div class="dash-funnel-row dash-funnel-exit-row" role="button" tabindex="0" onclick="dashOpenLeadStatus('${funnel.dropped.key}')" onkeydown="if(event.key==='Enter')dashOpenLeadStatus('${funnel.dropped.key}')" title="Bấm để mở view Lead — trạng thái ${esc(dropDef.label)}"><div class="dash-funnel-nm">${esc(dropDef.label)}<span class="dash-funnel-exit-sub">tạm dừng — chưa có nhu cầu</span></div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? funnel.dropped.count / funnel.total * 100 : 0).toFixed(1)}%;background:#cbd5e1"></i></div><div class="dash-funnel-num">${funnel.dropped.count} lead · ${dashPctIntTxt(funnel.dropped.pct)} trên tổng ban đầu</div></div></div>`;
   const fSummary = funnel.total
-    ? `<div class="dash-funnel-summary">Trong ${funnel.total} lead: ${funnel.summary.qualifiedPlus} lead đã tới bước Đạt chuẩn trở lên (${dashPctIntTxt(funnel.summary.qualifiedPlusPct)}) · ${funnel.summary.converted} lead đã chuyển thành deal (${dashPctIntTxt(funnel.summary.convertedPct)})</div>`
+    ? `<div class="dash-funnel-summary">Trong ${funnel.total} lead: ${funnel.summary.reachedContactedPlus} lead đã tới bước Đã liên hệ trở lên (${dashPctIntTxt(funnel.summary.reachedContactedPlusPct)}) · ${funnel.summary.converted} lead đã chuyển thành deal (${dashPctIntTxt(funnel.summary.convertedPct)})</div>`
     : `<div class="dash-funnel-summary">Chưa có lead nào trong phạm vi này.</div>`;
   const funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">ảnh chụp hiện tại</span></h3><div class="dash-ctl"><select class="dash-select" onchange="setDashFunnelLine(this.value)" aria-label="Lọc phễu theo mảng">${fLineOpts}</select><select class="dash-select" onchange="setDashFunnelOwner(this.value)" aria-label="Lọc phễu theo người phụ trách">${fOwnerOpts}</select></div></div>
   <p class="dash-note">Số % lớn trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % nhỏ có mũi tên ↓ ngay dưới % lớn: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.</p>
@@ -1314,7 +1315,9 @@ function vGames() {
    leadStatusDef), thẻ leadMini / dealLeadMiniHTML (qua leadStatusText),
    hàng leadRowHTML (pill qua leadStatusDef), convertLead (đặt
    "converted") và syncLeadDealStatus / revertLeadIfOrphaned (hồi về
-   "qualified"). KHÔNG nơi nào được giữ danh sách trạng thái cứng riêng.
+   "contacted" — stage "qualified/Đạt chuẩn" đã BỎ từ 2026-11-03, lead
+   qualified cũ đã di trú sang contacted trên server). KHÔNG nơi nào
+   được giữ danh sách trạng thái cứng riêng.
    Thứ tự = tiến trình tiếp cận rồi mới tới vòng đời deal:
      new                  "Mới"                — lead vừa vào, chưa xử lý
      sent_connect         "Sent connect"       — đã gửi lời mời kết nối
@@ -1325,17 +1328,18 @@ function vGames() {
      in_reply             "In reply"           — lead đã trả lời
      discovery_meeting    "Discovery meeting"  — đã/đang họp discovery
      contacted            "Đã liên hệ"         — đã liên hệ với đầu mối
-     qualified            "Đạt chuẩn"          — đã đủ chuẩn để chuyển thành deal
      converted            "Đã chuyển đổi"      — đã chuyển thành deal trong pipeline
      not_yet_have_demand  "Not yet have demand" — chưa có nhu cầu (đặt CUỐI,
                                                   sau converted, theo hợp đồng)
    Nhãn 8 trạng thái tiếp cận giữ NGUYÊN VĂN tiếng Anh như hợp đồng.
-   Lead có status ngoài 12 key này (dữ liệu lạ thật sự, hoặc thiếu
+   Lead có status ngoài 11 key này (dữ liệu lạ thật sự, hoặc thiếu
    status) KHÔNG bị ẩn: vLeads gom chúng vào block "Khác / Chưa rõ
    trạng thái" ở cuối và pill trong hàng hiện nguyên giá trị đã lưu
    (hoặc "—" khi thiếu). Phía máy chủ: CHECK status của bảng leads
-   phải nới đủ 12 key này — xem supabase/lead-status-expand.sql (điều
-   kiện tiên quyết trước payload nạp Metaverse v2). */
+   phải nới đủ các key này — xem supabase/lead-status-expand.sql (điều
+   kiện tiên quyết trước payload nạp Metaverse v2); CHECK phía server
+   vẫn giữ key "qualified" cũ là vô hại (không sửa SQL ở đợt bỏ stage
+   2026-11-03 — dữ liệu qualified đã di trú hết sang contacted). */
 const LEAD_STATUSES = [
   { key: "new", label: "Mới", color: "#f59e0b" },
   { key: "sent_connect", label: "Sent connect", color: "#8b5cf6" },
@@ -1346,7 +1350,6 @@ const LEAD_STATUSES = [
   { key: "in_reply", label: "In reply", color: "#14b8a6" },
   { key: "discovery_meeting", label: "Discovery meeting", color: "#db2777" },
   { key: "contacted", label: "Đã liên hệ", color: "#38bdf8" },
-  { key: "qualified", label: "Đạt chuẩn", color: "#22c55e" },
   { key: "converted", label: "Đã chuyển đổi", color: "#64748b" },
   { key: "not_yet_have_demand", label: "Not yet have demand", color: "#94a3b8" },
 ];
@@ -1527,10 +1530,19 @@ function vLeads() {
    huỷ = không mutate, không save, board dựng lại nguyên trạng) và đường
    lưu save() chuẩn (đóng dấu thời gian + audit như sửa tay). Khác deal:
    cột = trạng thái lead theo đúng thứ tự LEAD_STATUSES; danh tính kéo-thả
-   nằm ở leadDragId RIÊNG (không đụng dragId của deal); đổi trạng thái còn
-   qua syncLeadDealStatus với preserveManualConverted — CÙNG quy tắc của
-   form sửa lead (saveLead): lead đang gắn ≥1 deal thì trạng thái cuối
-   vẫn là "converted", lead không deal đặt tay "converted" được giữ.
+   nằm ở leadDragId RIÊNG (không đụng dragId của deal). Riêng cột
+   converted có hành vi riêng (SPEC CUỐI v3, chốt của Zac 2026-11-03,
+   thay cơ chế CHẶN của bản aea39e4 — chi tiết ở comment trong
+   dropLead): kéo VÀO converted khi lead CHƯA có deal nào thì MỞ FORM
+   tạo deal mới qua entry DÙNG CHUNG openDealFormForLead — cùng entry
+   với nút "Chuyển thành deal" (không tự tạo deal, không đổi status lúc
+   thả — lưu form qua saveDeal mới tạo deal và chuyển lead sang
+   converted; đóng form không lưu thì lead quay về trạng thái trước);
+   kéo NGƯỢC từ converted về
+   stage trước và mọi lần kéo thường khác đều lưu ĐÚNG stage đích —
+   đường dropLead không gọi syncLeadDealStatus nên thao tác kéo tay
+   không bị snap-back trong chính lần lưu đó, deal và liên kết của lead
+   giữ nguyên.
    HIỆU NĂNG: mỗi cột chỉ dựng tối đa LEAD_BOARD_PAGE_SIZE thẻ đầu tiên
    của tập ĐÃ LỌC + nút "Hiển thị thêm" tăng dần theo trang (cột Sent
    connect thật có 632 lead — không dựng 600+ node DOM ngay từ đầu); số
@@ -1550,10 +1562,43 @@ function dropLead(e, statusKey) {
   /* Thả về ĐÚNG cột cũ: không hỏi, không mutate, không save — chỉ dựng lại board. */
   if (l.status === statusKey) { render(); return; }
   const newDef = leadStatusDef(statusKey); if (!newDef) return;
+  /* ===== Kéo VÀO cột "converted" (Đã chuyển đổi) — SPEC CUỐI v3,
+     chốt của Zac 2026-11-03, THAY toàn bộ cơ chế chặn của aea39e4 =====
+     - Lead CHƯA có deal nào: KHÔNG tự tạo deal, KHÔNG hỏi
+       confirmStageChange — mở form tạo deal qua ENTRY DÙNG CHUNG
+       openDealFormForLead, CHÍNH entry mà nút "Chuyển thành deal"
+       (convertLead) gọi: prefill mảng của lead + công ty của lead (nếu
+       có) + tiêu đề gợi ý + lead tick gắn sẵn (pendingDealLeads).
+       Lead CHƯA có công ty cũng VẪN mở form (không prefill công ty,
+       không tự tạo công ty, không chặn). Trong lúc form mở, status
+       lead KHÔNG đổi và dropLead không mutate/ghi gì — thẻ đứng ở cột
+       cũ khi board dựng lại. Bấm Lưu ở form -> deal tạo qua saveDeal
+       thường, lead tự thành "converted" qua syncLeadDealStatuses (cơ
+       chế pendingDealLeads sẵn có), GIỐNG HỆT luồng nút bấm. Đóng
+       form/Huỷ không lưu (closeAdd) -> không deal mới, không đổi
+       status, không ghi.
+     - Lead ĐÃ có ≥1 deal nhưng status chưa phải converted: KHÔNG mở
+       form, KHÔNG tạo deal mới — rơi xuống đường confirm đổi stage
+       thường ở dưới, chỉ đặt lại status = "converted" và lưu thật. */
+  if (statusKey === "converted" && dealsForLead(l.id).length === 0) {
+    render(); /* thẻ quay về cột cũ trong lúc form mở — status chưa đổi */
+    openDealFormForLead(l);
+    return;
+  }
+  /* ===== Mọi lần kéo còn lại (gồm kéo NGƯỢC từ converted về stage
+     trước, kéo lead đã-có-deal vào lại converted, và kéo thường giữa
+     các cột): hỏi qua confirmStageChange DÙNG CHUNG; Huỷ = không
+     mutate/không save, board dựng lại nguyên trạng. Sau confirm, stage
+     đích là kết quả CUỐI CÙNG được lưu: đường này CỐ Ý không gọi
+     helper syncLeadDealStatus sau khi set status (bỏ cơ chế của
+     aea39e4) — tránh snap-back kéo ngược lead còn-deal về "converted"
+     trong chính lần lưu này. Deal đã gắn và liên kết lead↔deal GIỮ
+     NGUYÊN khi kéo ngược (không tự xoá deal, không gỡ gắn). Các đường
+     khác KHÔNG đổi: gắn/gỡ lead↔deal qua drawer deal, saveDeal,
+     convertLead và saveLead vẫn áp syncLeadDealStatus như trước. ===== */
   const oldDef = leadStatusDef(l.status);
   if (!confirmStageChange(l, oldDef ? oldDef.label : String(l.status || "—"), newDef.label)) { render(); return; }
   l.status = statusKey;
-  syncLeadDealStatus(l.id, { preserveManualConverted: true });
   save(); render();
   toast("Đã chuyển trạng thái lead: " + leadDisplayName(l) + " → " + leadStatusText(l.status));
 }
@@ -2015,45 +2060,50 @@ function unlinkEntityFromAllEvents(field, entityId) {
   eventsList().forEach(ev => { if (Array.isArray(ev[field])) ev[field] = ev[field].filter(x => x !== entityId); });
 }
 
+/* ===== Chuyển lead thành deal — ENTRY DUY NHẤT mở form tạo deal (SPEC CUỐI v3, chốt của Zac 2026-11-03) =====
+   openDealFormForLead(l) là entry point DUY NHẤT mở form tạo deal điền
+   sẵn cho một lead, dùng lại openAdd + cơ chế pendingDealLeads sẵn có.
+   CẢ nút "Chuyển thành deal" (convertLead, mọi nơi gọi nó) VÀ dropLead
+   khi thả vào cột "converted" với lead chưa có deal đều gọi entry này —
+   KHÔNG còn bất kỳ nhánh nào tạo deal ngay không qua form, ở cả 2 trigger:
+   - Prefill: line = line của lead; công ty = công ty của lead nếu có;
+     tiêu đề gợi ý "<Tên công ty> — cơ hội mới" khi có công ty (tên lấy
+     LIVE từ hồ sơ công ty); lead được tick gắn sẵn — openAdd seed vào
+     dealFormLeadSelByCompany + pendingDealLeads, tôn trọng cơ chế nhớ
+     lựa chọn tick lead theo công ty (lead này là tick mặc định, user bỏ
+     tick trong form thì tôn trọng khi lưu).
+   - Publishing: công ty có đúng 1 game partner -> chọn sẵn game đó
+     trong form (gameId prefill, VẪN hiện form); 0 hoặc ≥2 game -> form
+     mở để user chọn/tạo game như cơ chế form hiện tại (fillDealGames).
+   - Lead CHƯA có công ty: VẪN mở form — không điền sẵn công ty (user tự
+     chọn/tạo công ty trong form), KHÔNG tự tạo công ty từ tên lead,
+     KHÔNG chặn bằng toast.
+   - Trong lúc form mở: status lead KHÔNG đổi. Lưu ở form -> deal tạo
+     qua saveDeal thường, lead thành "converted" qua
+     syncLeadDealStatuses (cơ chế pendingDealLeads) — kết quả 2 trigger
+     giống hệt nhau. Đóng form/Huỷ không lưu (closeAdd) -> 0 deal mới,
+     status nguyên vẹn, không ghi byte nào — ở cả 2 trigger. */
+function openDealFormForLead(l) {
+  if (!l) return;
+  const lc = leadCompany(l);
+  let pubGameId = "";
+  if (l.line === "publishing" && lc) {
+    const pgs = S.games.filter(g => g.own === "partner" && g.company === lc.id);
+    if (pgs.length === 1) pubGameId = pgs[0].id;
+  }
+  const prefill = { line: l.line, leads: [l.id],
+    ...(lc ? { companyId: lc.id, title: lc.name + " — cơ hội mới" } : {}),
+    ...(pubGameId ? { gameId: pubGameId } : {}) };
+  openAdd(prefill);
+}
+
 function convertLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
-  const firstStage = LINES[l.line].stages[0][0];
-  // Deal mới lấy company từ chính lead; chỉ khi lead chưa gắn công ty hợp lệ mới tạo công ty từ tên lead.
-  let companyId = leadCompany(l) ? l.company : null;
-  if (!companyId) {
-    const nc = { id:"c"+Date.now(), name:l.name, type:LINES[l.line].target, roles:{ [l.line]:LINES[l.line].target }, last:"Vừa tạo" };
-    S.companies.push(nc); companyId = nc.id; l.company = nc.id;
-  }
-  /* Tên công ty hiển thị LUÔN lấy live từ hồ sơ công ty (M4), không dùng l.name. */
-  const companyName = (leadCompany(l) || {}).name || l.name;
-  /* Publishing (S4): deal Publishing KHÔNG được tồn tại mà không có game.
-     - Công ty có đúng 1 game partner -> gán luôn game đó.
-     - 0 hoặc >=2 game -> KHÔNG tạo deal vội: mở form tạo deal với prefill
-       (mảng Publishing, công ty, leads=[lead này], tiêu đề gợi ý) để người dùng
-       chọn đúng 1 game hoặc tạo nhanh game trong form (cơ chế fillDealGames).
-       Lead chỉ chuyển trạng thái "converted" khi deal thật được lưu qua
-       saveDeal (pendingDealLeads) — hủy form thì lead vẫn chưa chuyển đổi. */
-  let assignedGame = "";
-  if (l.line === "publishing") {
-    const pgs = S.games.filter(g => g.own === "partner" && g.company === companyId);
-    if (pgs.length === 1) { assignedGame = pgs[0].id; }
-    else {
-      save(); /* lưu công ty vừa tạo (nếu có) để form tra được game của công ty */
-      openAdd({ line: "publishing", companyId, title: companyName + " — cơ hội mới", leads: [l.id] });
-      toast(pgs.length === 0
-        ? "Công ty này chưa có game đối tác — hãy tạo nhanh game trong form (mục “＋ Tạo game mới…”) rồi mới lưu deal Publishing"
-        : "Công ty này có " + pgs.length + " game đối tác — chọn đúng 1 game trong form để tạo deal Publishing");
-      return;
-    }
-  }
-  const nd = { id:"d"+Date.now(), line:l.line, title:companyName+" — cơ hội mới", company:companyId, leads:[l.id], stage:firstStage, owner:defaultOwnerId(), due:"", idle:0, custom:{} };
-  if (assignedGame) nd.game = assignedGame;
-  if (GAME_LINES.includes(l.line)) { nd.term = { rev_share:"Chưa đề xuất", advance:"—", territories:"", duration:"", exclusivity:"", marketing:"", payment:"" }; nd.contract = { status:"Chưa có HĐ", no:"", signed:"", url:"" }; }
-  else { nd.amount = 0; nd.cur = "VND"; }
-  S.deals.push(nd);
-  syncLeadDealStatus(l.id); /* P2: deal của chính công ty lead vừa tạo -> lead "converted" qua helper trung tâm, cùng lần save() */
-  save();
-  toast("Đã chuyển lead " + companyName + " thành deal ở stage đầu của mảng " + LINES[l.line].name); setView("board"); if (curLine==="all") curLine = l.line; render();
+  /* Nút "Chuyển thành deal": CHỈ mở form qua entry dùng chung
+     openDealFormForLead (SPEC CUỐI v3) — không tạo deal tức thì, không
+     tự tạo công ty, kể cả nhánh Publishing-1-game cũng chỉ chọn sẵn
+     game trong form. Deal chỉ sinh ra khi user Lưu form (saveDeal). */
+  openDealFormForLead(l);
 }
 
 function vTasks() {
@@ -4631,7 +4681,7 @@ let dealDraftId = null;
 let dealDraftGame = "";
 /* P2: danh sách lead của deal tại thời điểm MỞ form sửa — mốc "trước" để
    saveEditDeal diff cũ/mới (lead vào thêm -> converted; lead bị bỏ ra và
-   không còn deal nào -> qualified), cùng mẫu dealDraft* sẵn có. */
+   không còn deal nào -> contacted), cùng mẫu dealDraft* sẵn có. */
 let dealDraftLeadIds = null;
 function editDeal(id) {
   const d = S.deals.find(x => x.id === id); if (!d) return;
@@ -4810,7 +4860,7 @@ function saveEditDeal(id) {
   /* P2: danh sách lead TRƯỚC phiên sửa = bản chụp lúc mở form (dealDraftLeadIds,
      chỉ tin khi đúng deal đang sửa) — diff với danh sách sau sửa ở cuối hàm:
      lead mới vào deal -> "converted"; lead bị bỏ ra và không còn deal nào
-     khác -> hồi "qualified" (qua helper trung tâm, trước save()). */
+     khác -> hồi "contacted" (qua helper trung tâm, trước save()). */
   const oldDealLeadIds = (dealDraftId === id && Array.isArray(dealDraftLeadIds)) ? [...dealDraftLeadIds] : (Array.isArray(d.leads) ? [...d.leads] : []);
   const v = i => (document.getElementById(i)?.value || "").trim();
   const title = v("e_title"); if (!title) { toast("Tên deal không được để trống"); return; }
@@ -4963,7 +5013,7 @@ function performDeleteDeal(id) {
   const linkedLeadIds = Array.isArray(d.leads) ? [...d.leads] : [];
   S.deals = S.deals.filter(x => x.id !== id);
   unlinkEntityFromAllEvents("deals", id); /* sự kiện giữ nguyên, chỉ gỡ liên kết tới deal đã xoá */
-  linkedLeadIds.forEach(revertLeadIfOrphaned); /* C2: xóa deal -> lead converted mồ côi tự hồi "qualified" */
+  linkedLeadIds.forEach(revertLeadIfOrphaned); /* C2: xóa deal -> lead converted mồ côi tự hồi "contacted" */
   S.activities = S.activities.filter(a => a.deal !== id);
   S.tasks.forEach(t => { if (t.deal === id) delete t.deal; });
   save(); closeDrawer(); render(); toast("Đã xóa deal: " + d.title);
@@ -5677,7 +5727,9 @@ function editLead(id, presetCompanyId) {
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_lmain" style="width:auto" ${l.mainContact ? "checked" : ""}> Đầu mối chính của công ty (mỗi công ty chỉ có một — tick lead này sẽ tự bỏ tick lead đang là đầu mối chính của cùng công ty)</label>
     ${leadLineField}
     ${field("Nguồn", selLegacy("e_lsource", ["Form savameta.com", "Giới thiệu", "Facebook", "Cộng đồng dev", "Sự kiện", "Chủ động tiếp cận", "Khác"], l.source || "", "— Chưa chọn —"))}
-    ${field("Trạng thái", sel("e_lstatus", LEAD_STATUSES.map(s => [s.key, s.label]), l.status) + (l.status === "converted" ? `<div class="mut" style="margin-top:4px">Lead đang ở trạng thái Đã chuyển đổi — đổi về Đạt chuẩn / Đã liên hệ tại đây để khôi phục tay nếu lead không còn deal liên kết (C2; bình thường hệ thống tự hồi về Đạt chuẩn khi deal bị xóa / lead bị gỡ khỏi deal).</div>` : ""))}
+    ${field("Trạng thái", l.status === "converted"
+      ? `<span class="pill" style="background:${(leadStatusDef("converted") || {}).color || "#64748b"}">Đã chuyển đổi</span> <span class="mut">— tự động theo deal</span><input type="hidden" id="e_lstatus" value="converted"><div class="mut" style="margin-top:4px">Trạng thái này tự động theo deal, không chọn tay được: lead đang gắn deal thì là Đã chuyển đổi; gỡ lead khỏi mọi deal (hoặc xoá deal) thì hệ thống tự hồi về Đã liên hệ.</div>`
+      : sel("e_lstatus", LEAD_STATUSES.filter(s => s.key !== "converted").map(s => [s.key, s.label]), l.status) + `<div class="mut" style="margin-top:4px">“Đã chuyển đổi” không chọn tay được — lead chỉ sang trạng thái đó khi được chuyển thành deal / gắn vào deal.</div>`)}
     ${field("Thời gian", `<input id="e_lwhen" type="date" value="${esc(isValidDateStr(l.when) ? l.when : "")}">` + (l.when && !isValidDateStr(l.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(l.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Ghi chú", `<textarea id="e_lnote">${esc(l.note || "")}</textarea>`)}
     ${formFoot("saveLead", id ? `'${id}'` : "null")}`);

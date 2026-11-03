@@ -220,9 +220,19 @@ test('P2: form SỬA deal — diff cũ/mới: lead bị bỏ ra khỏi deal tron
   assert.equal(leadStatus(b.run, 'lB'), 'converted', 'lead mới vào deal qua phiên sửa -> converted');
 });
 
-test('P2: convertLead tạo deal của chính công ty lead -> lead converted; nút "Chuyển thành deal" key theo status nên tự ẩn', () => {
+test('P2: convertLead (SPEC CUỐI v3) CHỈ mở form qua entry chung — lưu form mới tạo deal của chính công ty lead -> lead converted; nút "Chuyển thành deal" key theo status nên tự ẩn', () => {
   const { run, getEl } = loadIndex();
+  const dealsBefore = run("S.deals.length");
   run("convertLead('lB')");
+  assert.equal(leadStatus(run, 'lB'), 'contacted', 'bấm nút chỉ mở form: status chưa đổi, chưa tạo deal');
+  assert.equal(run("S.deals.length"), dealsBefore, 'bấm nút: chưa có deal mới cho tới khi lưu form');
+  assert.deepEqual([...run("pendingDealLeads")], ['lB'], 'form prefill tick sẵn lead qua pendingDealLeads');
+  assert.equal(getEl('f_company').value, 'c1', 'form điền sẵn công ty của lead');
+  assert.equal(getEl('f_line').value, 'publishing', 'form điền sẵn mảng của lead');
+  assert.equal(getEl('f_game').value, 'g1', 'Publishing đúng 1 game partner -> game được chọn sẵn trong form');
+  /* Lưu form (giữ nguyên thông tin prefill, stage đầu do fillStages chọn trong trình duyệt thật) */
+  getEl('f_stage').value = 'sourcing'; getEl('f_amount').value = '';
+  run('saveDeal()');
   assert.equal(leadStatus(run, 'lB'), 'converted');
   const nd = run("S.deals.find(d=>Array.isArray(d.leads) && d.leads.includes('lB'))");
   assert.ok(nd && nd.company === 'c1', 'deal convert phải thuộc đúng công ty của lead (P1 nhất quán)');

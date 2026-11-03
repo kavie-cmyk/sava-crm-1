@@ -6,8 +6,13 @@
      Position (field person), chip ★ Đầu mối chính, chip mảng.
    - Kéo-thả đổi trạng thái đi qua helper confirm DÙNG CHUNG
      confirmStageChange + đường lưu save() chuẩn; thả về đúng cột cũ =
-     không hỏi/không ghi; huỷ = không mutate/không save; lead đang gắn
-     deal giữ bất biến "converted" như form sửa lead (F1/P2).
+     không hỏi/không ghi; huỷ = không mutate/không save. Flow chốt cuối
+     (2026-11-03): kéo lead CHƯA có deal VÀO cột converted -> mở form
+     tạo deal prefill (openAdd + pendingDealLeads, không tự tạo deal,
+     không đổi status cho tới khi lưu form); kéo NGƯỢC converted ra
+     stage trước / kéo thường -> lưu ĐÚNG stage đích, đường dropLead
+     KHÔNG gọi syncLeadDealStatus (không snap-back), liên kết deal của
+     lead giữ nguyên.
    - Lead trạng thái lạ KHÔNG có cột trên board: không hiện + ghi chú số
      lượng bị ẩn + nút quay về view Block.
    - Đếm đầu cột = số SAU lọc (tìm kiếm + tab mảng áp y hệt view Block);
@@ -100,14 +105,24 @@ test('tĩnh: không tạo trạng thái/field mới — LEAD_STATUSES đúng 11 
   assert.ok(html.includes('const LEAD_BOARD_PAGE_SIZE = 50;'), 'cap dựng thẻ mỗi cột phải là 50');
 });
 
-test('tĩnh: dropLead đi qua confirmStageChange DÙNG CHUNG + syncLeadDealStatus + save(); confirmStageChange xử cả deal lẫn lead', () => {
+test('tĩnh: dropLead + convertLead dùng CHUNG entry openDealFormForLead (mở form, lưu mới tạo deal); kéo thường qua confirmStageChange DÙNG CHUNG + save(), KHÔNG gọi syncLeadDealStatus (không snap-back); confirmStageChange xử cả deal lẫn lead', () => {
   const drop = html.slice(html.indexOf('function dropLead('), html.indexOf('function leadCardHTML('));
   assert.ok(drop.includes('confirmStageChange(l,'), 'dropLead phải hỏi qua helper confirm dùng chung như drop() của deal');
-  assert.ok(drop.includes('statusKey === "converted"'), 'thả VÀO cột converted phải bị chặn (converted chỉ sinh ra từ tạo deal)');
-  assert.ok(drop.includes('Chuyển thành deal'), 'toast chặn thả vào converted phải hướng dẫn dùng nút Chuyển thành deal');
-  assert.ok(drop.includes('dealsForLead(l.id)') && drop.includes('gỡ lead khỏi mọi deal trước'), 'lead đang gắn deal kéo ra cột khác phải bị chặn + toast hướng dẫn gỡ deal trước');
-  assert.ok(drop.includes('syncLeadDealStatus(l.id);'), 'đổi trạng thái ở board phải qua helper trung tâm (không opts preserve — converted mồ côi tự chữa theo thực tế deal)');
+  assert.ok(drop.includes('statusKey === "converted" && dealsForLead(l.id).length === 0'), 'nhánh riêng chỉ cho kéo VÀO cột converted khi lead CHƯA có deal');
+  assert.ok(drop.includes('openDealFormForLead(l)'), 'kéo vào converted (chưa có deal) phải mở form qua entry DÙNG CHUNG openDealFormForLead');
+  assert.ok(!drop.includes('gỡ lead khỏi mọi deal trước'), 'không còn cơ chế chặn kéo lead còn-deal ra cột khác');
+  assert.ok(!/syncLeadDealStatus\w*\(l\.id\)/.test(drop) && !/syncLeadDealStatuses\(/.test(drop), 'đường dropLead KHÔNG được gọi syncLeadDealStatus (kéo tay thắng, tránh snap-back trong chính lần lưu) — chữ trong comment không tính');
   assert.ok(drop.includes('save();'), 'đổi trạng thái ở board phải qua đường lưu save() chuẩn');
+  /* Entry dùng chung + convertLead chỉ mở form (SPEC CUỐI v3) */
+  const entry = html.slice(html.indexOf('function openDealFormForLead('), html.indexOf('function vTasks('));
+  assert.ok(entry.includes('openAdd(prefill)'), 'entry phải mở form qua openAdd');
+  assert.ok(entry.includes('leads: [l.id]'), 'entry prefill phải tick gắn sẵn lead (pendingDealLeads qua openAdd)');
+  assert.ok(entry.includes('title: lc.name + " — cơ hội mới"'), 'entry prefill tiêu đề gợi ý theo tên công ty live');
+  assert.ok(entry.includes('companyId: lc.id') && entry.includes('gameId: pubGameId'), 'entry prefill công ty của lead + game Publishing-1-game chọn sẵn qua prefill gameId của openAdd (không phải field liên kết trên deal)');
+  const conv = html.slice(html.indexOf('function convertLead('), html.indexOf('function vTasks('));
+  assert.ok(conv.includes('openDealFormForLead(l)'), 'nút Chuyển thành deal phải gọi ĐÚNG entry dùng chung');
+  assert.ok(!conv.includes('S.deals.push'), 'convertLead KHÔNG còn nhánh tạo deal tức thì');
+  assert.ok(!conv.includes('S.companies.push'), 'convertLead KHÔNG còn tự tạo công ty từ tên lead');
   const csc = html.slice(html.indexOf('function confirmStageChange('), html.indexOf('function confirmMoveStage'));
   assert.ok(csc.includes('ent.title') && csc.includes('Chuyển stage của deal'), 'nhánh deal của helper phải giữ nguyên câu chữ cũ');
   assert.ok(csc.includes('Chuyển trạng thái của lead'), 'nhánh lead của helper phải có câu chữ cho lead');
@@ -199,16 +214,19 @@ test('dropLead: huỷ confirm -> trạng thái KHÔNG đổi + KHÔNG lưu; th�
   assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'thả về đúng cột cũ -> không được ghi');
 });
 
-test('dropLead: lead đang gắn deal kéo sang cột khác -> BỊ CHẶN (không confirm, không mutate, không save), status giữ "converted"', () => {
+test('dropLead: lead đang gắn deal kéo sang cột khác -> ĐƯỢC kéo: status đích lưu thật (không snap-back), liên kết deal còn nguyên', () => {
   const h = loadIndex();
   openBoard(h);
-  const before = h.ls.getItem('sava_crm_shared_v1');
   h.setConfirm(true);
   h.run("dragLead(null, 'lconv')");
   h.run("dropLead({ preventDefault() {} }, 'contacted')");
-  assert.equal(h.run("S.leads.find(l=>l.id==='lconv').status"), 'converted', 'lead còn gắn deal thì status vẫn là converted');
-  assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'bị chặn -> KHÔNG được ghi xuống kho (không save)');
-  assert.equal(h.confirmMsgs.length, 0, 'bị chặn TRƯỚC confirm — không hỏi xác nhận cho thao tác không thể thực hiện');
+  assert.equal(h.run("S.leads.find(l=>l.id==='lconv').status"), 'contacted', 'kéo ngược khỏi converted: status phải là stage đích, không bị kéo về converted');
+  const saved = JSON.parse(h.ls.getItem('sava_crm_shared_v1'));
+  assert.equal(saved.leads.find(l => l.id === 'lconv').status, 'contacted', 'status đích phải được lưu thật xuống kho');
+  assert.deepEqual([...h.run("S.deals.find(d=>d.id==='drel').leads")], ['lconv'], 'deal đã gắn giữ nguyên liên kết với lead (không tự gỡ)');
+  assert.equal(h.confirmMsgs.length, 1, 'kéo thường phải hỏi đúng 1 confirm đổi stage');
+  const byKey = Object.fromEntries(cols(h.getEl('view').innerHTML).map(c => [c.key, c.html]));
+  assert.ok(byKey.contacted.includes('Lead Converted One') && !byKey.converted.includes('Lead Converted One'), 'board hiện thẻ ở cột đích ngay sau khi kéo');
 });
 
 /* ---------- Lọc / nhất quán ---------- */

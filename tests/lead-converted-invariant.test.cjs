@@ -1,11 +1,22 @@
-/* Đợt 2026-11-03 — Việc 2 (bất biến converted ⟺ ≥1 deal) + Việc 3
-   (kịch bản video BD Yến: 2 deal TRÙNG TÊN "Karofi Global — cơ hội mới"
-   cùng công ty ở Pipeline Metaverse, lead Daniel gắn 1 trong 2 deal):
-   - Board Lead: thả VÀO cột converted -> chặn + toast hướng dẫn nút
-     "Chuyển thành deal" (không confirm, không mutate, không save).
-   - Board Lead: kéo lead converted CÒN deal ra cột khác -> chặn + toast
-     (phải gỡ khỏi deal trước); converted MỒ CÔI (0 deal, lệch cũ) ->
-     kéo được, trạng thái sau thao tác khớp cột đích (tự chữa).
+/* Đợt 2026-11-03 — Việc 2 + Việc 3 (kịch bản video BD Yến: 2 deal
+   TRÙNG TÊN "Karofi Global — cơ hội mới" cùng công ty ở Pipeline
+   Metaverse, lead Daniel gắn 1 trong 2 deal) + FLOW CHỐT CUỐI của Zac
+   cho kéo-thả vào cột converted (thay cơ chế CHẶN của bản aea39e4):
+   - Board Lead + nút "Chuyển thành deal" dùng CHUNG entry
+     openDealFormForLead (SPEC CUỐI v3): kéo lead CHƯA có deal vào cột
+     converted / bấm nút -> MỞ FORM tạo deal prefill (công ty + mảng
+     của lead, tiêu đề gợi ý, lead tick sẵn, pendingDealLeads) — không
+     tự tạo deal, không confirm, không đổi status; đóng form không lưu
+     -> 0 deal mới + storage không đổi; Lưu form (saveDeal) -> đúng 1
+     deal theo thông tin đã nhập, lead thành converted, 2 trigger cho
+     kết quả GIỐNG HỆT nhau (parity). Lead CHƯA có công ty: cả 2
+     trigger đều VẪN mở form (không prefill công ty), không tự tạo
+     công ty, huỷ -> không thay đổi gì.
+   - Board Lead: lead ĐÃ có deal, status khác converted, kéo vào lại
+     converted -> KHÔNG mở form/không deal mới, chỉ set converted qua
+     confirm thường. Kéo NGƯỢC converted (còn deal) ra stage trước ->
+     ĐƯỢC kéo, status đích lưu thật (không snap-back), deal + liên kết
+     giữ nguyên; converted MỒ CÔI (0 deal) kéo ra cũng khớp cột đích.
    - Form Lead: converted không chọn tay được — lead converted hiện
      nhãn cố định + chú thích "tự động theo deal"; lead chưa converted
      không có option converted (và không còn option qualified).
@@ -73,34 +84,158 @@ function cols(view) {
 }
 const openLeadBoard = h => { h.run('curView = "leads"; curLine = "all"; query = ""; setLeadViewMode("pipeline");'); };
 
-/* ---------- Việc 2: chặn kéo-thả 2 chiều ---------- */
-test('board: thả lead KHÔNG deal vào cột converted -> chặn + toast hướng dẫn nút Chuyển thành deal, không confirm/mutate/save', () => {
+/* ---------- Flow chốt cuối: kéo vào/ra cột converted ---------- */
+test('(a) board: kéo lead CHƯA có deal (có công ty) vào converted -> form tạo deal MỞ prefill đúng (công ty + mảng + tiêu đề gợi ý + lead tick sẵn + pendingDealLeads); đóng form không lưu -> 0 deal mới, status nguyên, storage không đổi byte', () => {
   const h = loadIndex(); openLeadBoard(h);
   const before = h.ls.getItem('sava_crm_shared_v1');
+  const dealsBefore = h.run("S.deals.length");
   h.setConfirm(true);
   h.run("dragLead(null, 'lFree')");
   h.run("dropLead({ preventDefault() {} }, 'converted')");
-  assert.equal(h.run("S.leads.find(l=>l.id==='lFree').status"), 'in_response', 'trạng thái không đổi khi bị chặn');
-  assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'không ghi dữ kiện khi bị chặn');
-  assert.equal(h.confirmMsgs.length, 0, 'chặn trước confirm');
-  assert.ok(h.lastToast().includes('Chuyển thành deal'), 'toast phải hướng dẫn dùng nút Chuyển thành deal: ' + h.lastToast());
+  assert.equal(h.confirmMsgs.length, 0, 'ca mở form KHÔNG hỏi confirmStageChange');
+  assert.equal(h.run("S.leads.find(l=>l.id==='lFree').status"), 'in_response', 'status KHÔNG đổi trong lúc form mở');
+  assert.equal(h.run("S.deals.length"), dealsBefore, 'chưa lưu form -> chưa có deal mới');
+  /* Trạng thái form/prefill: đúng luồng openAdd của nút Chuyển thành deal */
+  assert.equal(h.getEl('f_company').value, 'cK', 'form điền sẵn công ty của lead');
+  assert.equal(h.getEl('f_line').value, 'metaverse', 'form điền sẵn mảng của lead');
+  assert.equal(h.getEl('f_title').value, 'Karofi Global — cơ hội mới', 'form điền sẵn tiêu đề gợi ý "<Tên công ty> — cơ hội mới"');
+  assert.deepEqual([...h.run("pendingDealLeads")], ['lFree'], 'pendingDealLeads phải chứa đúng lead bị kéo');
+  assert.deepEqual([...h.run("dealFormLeadSelection('cK')")], ['lFree'], 'lead bị kéo được tick gắn sẵn trong ô chọn lead của form');
+  assert.ok(/toggleDealFormLead\('lFree', this\.checked\)" checked/.test(h.getEl('f_leadsBox').innerHTML), 'checkbox của lead bị kéo hiện tick trong form');
+  /* Board phía sau form: thẻ vẫn ở cột cũ */
+  const byKey = cols(h.getEl('view').innerHTML);
+  assert.ok(byKey.in_response.includes('Free Lead') && !byKey.converted.includes('Free Lead'), 'thẻ đứng ở cột cũ khi form đang mở');
+  /* Đóng form không lưu (= closeAdd như nút đóng/Huỷ) */
+  h.run("closeAdd()");
+  assert.equal(h.run("pendingDealLeads"), null, 'đóng form -> pendingDealLeads được dọn');
+  assert.equal(h.run("S.deals.length"), dealsBefore, 'đóng form không lưu -> 0 deal mới');
+  assert.equal(h.run("S.leads.find(l=>l.id==='lFree').status"), 'in_response', 'đóng form không lưu -> status lead nguyên vẹn');
+  assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'toàn bộ ca kéo + đóng form KHÔNG ghi byte nào xuống kho');
 });
 
-test('board: kéo lead converted CÒN deal ra cột khác -> chặn + toast phải gỡ khỏi deal trước, không confirm/mutate/save', () => {
+test('(b) board: từ form mở do kéo vào converted, Lưu với thông tin nhập tay -> đúng 1 deal mới theo thông tin đã nhập, gắn đúng lead, lead = converted, deal hiện ở board Pipeline Deal ở stage đầu của mảng đã nhập', () => {
   const h = loadIndex(); openLeadBoard(h);
-  const before = h.ls.getItem('sava_crm_shared_v1');
+  const dealsBefore = h.run("S.deals.length");
+  h.run("dragLead(null, 'lFree')");
+  h.run("dropLead({ preventDefault() {} }, 'converted')");
+  /* Người dùng nhập tay: đổi tên deal (giữ mảng metaverse của lead để
+     lead khớp mảng/công ty như cơ chế pendingDealLeads), stage đầu của
+     mảng do fillStages chọn sẵn trong trình duyệt thật — harness mô
+     phỏng bằng cách đặt f_stage = stage đầu. */
+  h.getEl('f_title').value = 'Deal Nhap Tay Tu Keo Tha';
+  h.getEl('f_stage').value = h.run("LINES.metaverse.stages[0][0]");
+  h.getEl('f_cur').value = 'VND';
+  h.getEl('f_amount').value = '';
+  h.run("saveDeal()");
+  assert.equal(h.run("S.deals.length"), dealsBefore + 1, 'lưu form -> đúng 1 deal mới');
+  const nd = h.run("S.deals.find(d=>d.title==='Deal Nhap Tay Tu Keo Tha')");
+  assert.ok(nd, 'deal mới phải mang tên do người dùng nhập');
+  assert.equal(nd.line, 'metaverse', 'deal theo mảng đã nhập/để nguyên trong form');
+  assert.equal(nd.company, 'cK', 'deal thuộc đúng công ty của lead');
+  assert.equal(nd.stage, h.run("LINES.metaverse.stages[0][0]"), 'deal ở stage đầu của mảng đã nhập');
+  assert.deepEqual([...nd.leads], ['lFree'], 'deal gắn đúng lead bị kéo');
+  assert.equal(h.run("S.leads.find(l=>l.id==='lFree').status"), 'converted', 'lưu form -> lead tự thành converted qua cơ chế sẵn có');
+  const saved = JSON.parse(h.ls.getItem('sava_crm_shared_v1'));
+  assert.equal(saved.leads.find(l => l.id === 'lFree').status, 'converted', 'bản đã lưu: lead converted');
+  assert.ok(saved.deals.some(d => d.title === 'Deal Nhap Tay Tu Keo Tha'), 'bản đã lưu có deal mới');
+  /* saveDeal chuyển sang board Pipeline Deal: deal mới hiện ở đó */
+  assert.equal(h.run("curView"), 'board', 'sau lưu, app ở board Pipeline Deal như luồng nút');
+  assert.ok(h.getEl('view').innerHTML.includes('Deal Nhap Tay Tu Keo Tha'), 'deal mới xuất hiện ở board Pipeline Deal');
+});
+
+test('(c) board: lead ĐÃ có deal, status khác converted, kéo vào lại converted -> KHÔNG mở form, không deal mới, status = converted sau confirm thường', () => {
+  const h = loadIndex(); openLeadBoard(h);
+  h.run("S.leads.find(l=>l.id==='lDaniel').status = 'contacted'"); /* có deal d1 nhưng status đang khác converted */
+  const dealsBefore = h.run("S.deals.length");
+  h.getEl('f_title').value = 'FORM_MARKER';
+  h.setConfirm(true);
+  h.run("dragLead(null, 'lDaniel')");
+  h.run("dropLead({ preventDefault() {} }, 'converted')");
+  assert.equal(h.getEl('f_title').value, 'FORM_MARKER', 'form tạo deal KHÔNG được mở (f_title giữ marker)');
+  assert.equal(h.run("pendingDealLeads"), null, 'không có prefill nào được đặt');
+  assert.equal(h.run("S.deals.length"), dealsBefore, 'không tạo deal mới');
+  assert.ok(h.confirmMsgs.some(m => m.includes('Đã chuyển đổi')), 'phải hỏi qua confirmStageChange thường: ' + h.confirmMsgs.join(' | '));
+  assert.equal(h.run("S.leads.find(l=>l.id==='lDaniel').status"), 'converted', 'status về converted sau confirm');
+  const saved = JSON.parse(h.ls.getItem('sava_crm_shared_v1'));
+  assert.equal(saved.leads.find(l => l.id === 'lDaniel').status, 'converted', 'status converted được lưu thật');
+});
+
+test('(d) board: kéo NGƯỢC lead converted CÒN deal về stage trước -> status đích lưu thật (không snap-back), deal + liên kết còn nguyên', () => {
+  const h = loadIndex(); openLeadBoard(h);
   h.setConfirm(true);
   h.run("dragLead(null, 'lDaniel')");
   h.run("dropLead({ preventDefault() {} }, 'contacted')");
-  assert.equal(h.run("S.leads.find(l=>l.id==='lDaniel').status"), 'converted');
-  assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, 'không ghi dữ kiện khi bị chặn');
-  assert.equal(h.confirmMsgs.length, 0, 'chặn trước confirm');
-  assert.ok(h.lastToast().includes('gỡ lead khỏi mọi deal trước'), 'toast phải nêu phải gỡ khỏi deal trước: ' + h.lastToast());
+  assert.equal(h.run("S.leads.find(l=>l.id==='lDaniel').status"), 'contacted', 'kéo ngược: status = stage đích, không bị kéo về converted');
+  const saved = JSON.parse(h.ls.getItem('sava_crm_shared_v1'));
+  assert.equal(saved.leads.find(l => l.id === 'lDaniel').status, 'contacted', 'bản đã lưu cũng là stage đích');
+  assert.deepEqual([...h.run("S.deals.find(d=>d.id==='d1').leads")], ['lDaniel'], 'liên kết lead↔deal giữ nguyên khi kéo ngược');
+  assert.equal(h.run("S.deals.length"), 2, 'không deal nào bị xoá/thêm');
   const byKey = cols(h.getEl('view').innerHTML);
-  assert.ok(byKey.converted.includes('Daniel Tien-Duc NGUYEN'), 'thẻ về chỗ cũ ở cột converted sau khi bị chặn');
+  assert.ok(byKey.contacted.includes('Daniel Tien-Duc NGUYEN') && !byKey.converted.includes('Daniel Tien-Duc NGUYEN'), 'board hiện thẻ ở cột đích ngay');
 });
 
-test('board: lead converted MỒ CÔI (0 deal) kéo ra cột khác -> ĐƯỢC kéo, trạng thái khớp cột đích ngay (tự chữa)', () => {
+test('(e) PARITY nút bấm ↔ kéo thả: 2 lead tương đương cho prefill + kết quả lưu GIỐNG HỆT nhau; huỷ từ form mở bằng NÚT BẤM -> lead không đổi, 0 deal mới (ngang ca huỷ đường kéo ở (a))', () => {
+  const snapshotForm = h => ({ company: h.getEl('f_company').value, line: h.getEl('f_line').value, title: h.getEl('f_title').value, pending: [...h.run("pendingDealLeads")], selection: [...h.run("dealFormLeadSelection('cK')")] });
+  const saveFromForm = h => {
+    h.getEl('f_title').value = 'Deal Parity Chung';
+    h.getEl('f_stage').value = h.run("LINES.metaverse.stages[0][0]");
+    h.getEl('f_cur').value = 'VND'; h.getEl('f_amount').value = '';
+    h.run("saveDeal()");
+    const nd = h.run("S.deals.find(d=>d.title==='Deal Parity Chung')");
+    return { line: nd.line, company: nd.company, stage: nd.stage, leads: [...nd.leads], leadStatus: h.run("S.leads.find(l=>l.id==='lFree').status") };
+  };
+  /* Đường KÉO THẢ */
+  const hDrag = loadIndex(); openLeadBoard(hDrag);
+  hDrag.run("dragLead(null, 'lFree')");
+  hDrag.run("dropLead({ preventDefault() {} }, 'converted')");
+  const formDrag = snapshotForm(hDrag);
+  const resDrag = saveFromForm(hDrag);
+  /* Đường NÚT BẤM */
+  const hBtn = loadIndex();
+  hBtn.run("convertLead('lFree')");
+  const formBtn = snapshotForm(hBtn);
+  const resBtn = saveFromForm(hBtn);
+  assert.deepEqual(formBtn, formDrag, 'prefill form từ nút bấm phải giống hệt từ kéo thả: ' + JSON.stringify(formBtn) + ' vs ' + JSON.stringify(formDrag));
+  assert.deepEqual(resBtn, resDrag, 'kết quả lưu từ nút bấm phải giống hệt từ kéo thả');
+  assert.deepEqual(resDrag, { line: 'metaverse', company: 'cK', stage: 'prospect', leads: ['lFree'], leadStatus: 'converted' }, 'kết quả chung: deal đúng mảng/công ty/stage đầu, gắn đúng lead, lead converted');
+  /* Huỷ từ form mở bằng NÚT BẤM */
+  const hCancel = loadIndex();
+  const beforeCancel = hCancel.ls.getItem('sava_crm_shared_v1');
+  const dealsBeforeCancel = hCancel.run("S.deals.length");
+  hCancel.run("convertLead('lFree')");
+  assert.deepEqual([...hCancel.run("pendingDealLeads")], ['lFree'], 'nút bấm cũng đặt prefill qua entry chung');
+  hCancel.run("closeAdd()");
+  assert.equal(hCancel.run("S.deals.length"), dealsBeforeCancel, 'huỷ form từ nút bấm -> 0 deal mới');
+  assert.equal(hCancel.run("S.leads.find(l=>l.id==='lFree').status"), 'in_response', 'huỷ form từ nút bấm -> lead không đổi');
+  assert.equal(hCancel.ls.getItem('sava_crm_shared_v1'), beforeCancel, 'huỷ form từ nút bấm -> storage không đổi byte');
+});
+
+test('(f) lead CHƯA có công ty: CẢ kéo thả VÀ nút bấm đều mở form (không prefill công ty), không tự tạo công ty; huỷ -> không thay đổi gì', () => {
+  const pushNoComp = h => h.run("S.leads.push({ id:'lNoComp', name:'No Company Lead', company:'', person:'', line:'metaverse', source:'', status:'new', note:'', when:'2026-10-20' })");
+  for (const trigger of ['drag', 'button']) {
+    const h = loadIndex(); if (trigger === 'drag') openLeadBoard(h);
+    pushNoComp(h);
+    const before = h.ls.getItem('sava_crm_shared_v1');
+    const companiesBefore = h.run("S.companies.length");
+    const dealsBefore = h.run("S.deals.length");
+    h.getEl('f_company').value = ''; /* mặc định của ô chọn công ty khi form chưa mở */
+    if (trigger === 'drag') { h.run("dragLead(null, 'lNoComp')"); h.run("dropLead({ preventDefault() {} }, 'converted')"); }
+    else h.run("convertLead('lNoComp')");
+    assert.equal(h.getEl('f_company').value, '', trigger + ': form mở với công ty KHÔNG điền sẵn (entry không gán công ty nào — user tự chọn/tạo trong form; trình duyệt thật cũng về option placeholder khi openAdd dựng lại ô chọn mà prefill không có companyId)');
+    assert.equal(h.getEl('f_line').value, 'metaverse', trigger + ': form vẫn điền sẵn mảng của lead');
+    assert.deepEqual([...h.run("pendingDealLeads")], ['lNoComp'], trigger + ': lead vẫn được tick gắn sẵn qua pendingDealLeads');
+    assert.equal(h.run("S.companies.length"), companiesBefore, trigger + ': KHÔNG tự tạo công ty từ tên lead');
+    assert.equal(h.run("S.leads.find(l=>l.id==='lNoComp').company"), '', trigger + ': lead không bị tự gắn công ty');
+    assert.equal(h.run("S.leads.find(l=>l.id==='lNoComp').status"), 'new', trigger + ': status không đổi khi form mở');
+    h.run("closeAdd()");
+    assert.equal(h.run("S.deals.length"), dealsBefore, trigger + ': huỷ -> 0 deal mới');
+    assert.equal(h.run("S.companies.length"), companiesBefore, trigger + ': huỷ -> không thêm công ty');
+    assert.equal(h.run("S.leads.find(l=>l.id==='lNoComp').status"), 'new', trigger + ': huỷ -> status nguyên vẹn');
+    assert.equal(h.ls.getItem('sava_crm_shared_v1'), before, trigger + ': huỷ -> storage không đổi byte');
+  }
+});
+
+test('board: lead converted MỒ CÔI (0 deal) kéo ra cột khác -> ĐƯỢC kéo, trạng thái khớp cột đích ngay', () => {
   const h = loadIndex(); openLeadBoard(h);
   h.setConfirm(true);
   h.run("dragLead(null, 'lOrphan')");
