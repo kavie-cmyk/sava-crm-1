@@ -86,7 +86,7 @@ test('nav: cả desktop lẫn mobile đều có nút Sự kiện (data-view=even
   assert.equal(h.getEl('viewTitle').textContent, 'Sự kiện');
   const view = h.getEl('view').innerHTML;
   assert.ok(view.includes('Triển lãm Game 2026') && view.includes("openEvent('ev1')"), 'mục sự kiện bấm mở drawer được');
-  assert.ok(view.includes('2026-10-15') && view.includes('SECC, TP.HCM'), 'ngày + địa điểm');
+  assert.ok(view.includes('15-10-2026') && view.includes('SECC, TP.HCM'), 'ngày (dd-mm-yyyy) + địa điểm');
   assert.ok(view.includes('Zac') && view.includes('Linh'), 'tên người tham dự');
   assert.ok(view.includes('1 công ty') && view.includes('0 lead') && view.includes('1 deal'), '3 chip đếm từ 3 mảng liên kết');
   assert.ok(view.includes('openEventForm()'), 'nút + Thêm sự kiện mở form tạo sự kiện');
@@ -120,7 +120,7 @@ test('saveEvent: tạo sự kiện mới qua form -> đủ field + 3 mảng liê
   h.run('saveEvent(null)');
   assert.equal(h.run('S.events.length'), 1, 'tên rỗng -> không tạo sự kiện');
   h.getEl('e_evname').value = 'Expo Game 2026';
-  h.getEl('e_evdate').value = '2026-11-20';
+  h.getEl('e_evdate').value = '20-11-2026';
   h.getEl('e_evlocation').value = 'GEM Center';
   h.getEl('e_evnote').value = 'Mang theo namecard';
   h.getEl('e_evatt_zac').checked = true;
@@ -128,7 +128,7 @@ test('saveEvent: tạo sự kiện mới qua form -> đủ field + 3 mảng liê
   h.run('saveEvent(null)');
   const ev = h.run('S.events[S.events.length-1]');
   assert.equal(ev.name, 'Expo Game 2026');
-  assert.equal(ev.date, '2026-11-20', 'ngày lưu raw đúng chuỗi đã nhập');
+  assert.equal(ev.date, '2026-11-20', 'ngày nhập dd-mm-yyyy được parse về ISO khi lưu (định dạng lưu không đổi)');
   assert.equal(ev.location, 'GEM Center');
   assert.equal(ev.note, 'Mang theo namecard');
   assert.deepEqual([...ev.attendees], ['zac', 'linh']);

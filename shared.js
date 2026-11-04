@@ -389,13 +389,51 @@ function updatedByLabel(state, ent) {
   if (m && m.name) return m.name;
   return "thành viên đã xoá (" + String(id).slice(0, 8) + ")";
 }
+/* Định dạng ngày dd-mm-yyyy (chuẩn Zac chốt 4/11/2026): MỌI ngày hiển thị
+   trong CRM/Publishing đều qua các helper này. Ngày thuần yyyy-mm-dd được
+   đổi TRỰC TIẾP từ thành phần (không qua Date nên không lệch múi giờ);
+   mốc thời gian (ISO datetime) lấy thành phần ngày/giờ theo
+   Asia/Ho_Chi_Minh. Giờ giữ dạng hh:mm phía sau ngày. */
+function fmtDateDMY(v) {
+  if (!v) return "";
+  const s = String(v);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) return m[3] + "-" + m[2] + "-" + m[1];
+  const dt = new Date(v);
+  if (Number.isNaN(dt.getTime())) return "";
+  const o = {};
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
+  return o.day + "-" + o.month + "-" + o.year;
+}
+function isoToDMY(v) { return fmtDateDMY(v); }
+/* Parse chuỗi người dùng nhập dd-mm-yyyy -> ISO yyyy-mm-dd để LƯU.
+   Trả { ok:true, iso:"" } khi để trống; { ok:false } khi sai định dạng
+   hoặc ngày không tồn tại (vd 31-02-2026) — caller phải chặn lưu. */
+function parseDMYtoISO(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (!s) return { ok: true, iso: "" };
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+  if (!m) return { ok: false, iso: "" };
+  const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return { ok: false, iso: "" };
+  return { ok: true, iso: m[3] + "-" + m[2] + "-" + m[1] };
+}
 function fmtSysTime(v) {
   if (!v) return "—";
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) { const dmy = fmtDateDMY(s); return dmy || String(v); }
   const dt = new Date(v);
-  return Number.isNaN(dt.getTime()) ? String(v) : dt.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+  if (Number.isNaN(dt.getTime())) return String(v);
+  const date = fmtDateDMY(v);
+  if (!date) return String(v);
+  if (!/[T ]\d{2}:\d{2}/.test(s)) return date;
+  const o = {};
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
+  return date + " " + o.hour + ":" + o.minute;
 }
 if (typeof window !== "undefined") {
-  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, updatedByLabel, fmtSysTime, cloneForDiff };
+  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, updatedByLabel, fmtSysTime, fmtDateDMY, isoToDMY, parseDMYtoISO, cloneForDiff };
 }
 /* === Sắp xếp danh sách (Việc 6) — window.SavaSort: logic THUẦN dùng chung ===
    Một cơ chế sort DUY NHẤT cho mọi danh sách của app BD (index.html) và
@@ -1185,12 +1223,12 @@ function dashTrend(sets, days, now) {
       pushWeeks(dashMondayStart(earliest), nowD);
     }
   }
-  const fmtDM = d => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0");
+  const fmtDM = d => String(d.getDate()).padStart(2, "0") + "-" + String(d.getMonth() + 1).padStart(2, "0");
   const buckets = starts.map((s, i) => {
     let label;
     if (gran === "day") label = fmtDM(s);
     else if (gran === "week") { const e = new Date(starts[i + 1] || new Date(s.getTime() + 7 * 86400000)); e.setDate(e.getDate() - 1); label = fmtDM(s) + "–" + fmtDM(e > nowD && days !== null && days !== undefined ? nowD : e); }
-    else label = String(s.getMonth() + 1).padStart(2, "0") + "/" + s.getFullYear();
+    else label = String(s.getMonth() + 1).padStart(2, "0") + "-" + s.getFullYear();
     return { label, company: 0, lead: 0, deal: 0 };
   });
   const bucketIdx = d => {

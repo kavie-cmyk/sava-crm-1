@@ -30,6 +30,8 @@ function iso(offsetDays) {
   const d = new Date(); d.setDate(d.getDate() + offsetDays);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
+/* dd-mm-yyyy: định dạng HIỂN THỊ + NHẬP mới (Zac chốt 4/11/2026); dữ liệu lưu vẫn ISO (iso()). */
+function dmy(offsetDays) { return iso(offsetDays).split('-').reverse().join('-'); }
 function fixtureState() {
   return {
     members: [
@@ -100,8 +102,8 @@ test('eventStatusKey: có status thì dùng status; chưa có thì suy theo ngà
 
 test('eventDateRangeText + eventDaysInfo: khoảng ngày, Hôm nay / còn X ngày / quá hạn', () => {
   const h = loadIndex();
-  assert.equal(h.run("eventDateRangeText(S.events.find(e=>e.id==='evNear'))"), iso(2) + ' – ' + iso(4));
-  assert.equal(h.run("eventDateRangeText(S.events.find(e=>e.id==='evToday'))"), iso(0), 'không có endDate -> chỉ hiện ngày bắt đầu');
+  assert.equal(h.run("eventDateRangeText(S.events.find(e=>e.id==='evNear'))"), dmy(2) + ' – ' + dmy(4));
+  assert.equal(h.run("eventDateRangeText(S.events.find(e=>e.id==='evToday'))"), dmy(0), 'không có endDate -> chỉ hiện ngày bắt đầu');
   assert.equal(h.run("eventDaysInfo(S.events.find(e=>e.id==='evToday')).label"), 'Hôm nay');
   assert.equal(h.run("eventDaysInfo(S.events.find(e=>e.id==='evNear')).label"), 'còn 2 ngày');
   const od = h.run("eventDaysInfo(S.events.find(e=>e.id==='evOverdue'))");
@@ -120,7 +122,7 @@ test('vEvents: 3 nhóm vòng đời — Sắp tới xếp ngày tăng dần + nh
   assert.ok(pos('Expo Đã Đi Gần') < pos('Expo Đã Đi Xa') && pos('Expo Đã Đi Xa') < pos('Expo Cũ Đã Qua'), 'nhóm Đã tham dự: mới nhất trước, sự kiện cũ suy attended nằm cùng nhóm');
   assert.ok(view.includes('còn 2 ngày') && view.includes('Hôm nay'), 'nhãn đếm ngày ở nhóm Sắp tới');
   assert.ok(view.includes('đã qua ngày — cập nhật trạng thái?'), 'planned đã qua ngày hiện gợi ý cập nhật trạng thái');
-  assert.ok(view.includes(iso(2) + ' – ' + iso(4)), 'thẻ hiện khoảng ngày bắt đầu – kết thúc');
+  assert.ok(view.includes(dmy(2) + ' – ' + dmy(4)), 'thẻ hiện khoảng ngày bắt đầu – kết thúc');
   assert.ok(view.includes('1 công ty'), 'thẻ hiện số liên kết');
   const cancelPos = view.indexOf('data-event-status="cancelled"');
   const cancelTag = view.slice(view.lastIndexOf('<section', cancelPos), view.indexOf('>', cancelPos) + 1);
@@ -148,7 +150,7 @@ test('openEventForm/saveEvent: trạng thái + ngày kết thúc (mặc định 
   assert.ok(/<option value="planned" selected>/.test(form), 'tạo mới mặc định trạng thái Sắp tới');
   h.getEl('e_evname').value = 'Expo Mới';
   h.getEl('e_evstatus').value = 'planned';
-  h.getEl('e_evdate').value = iso(7);
+  h.getEl('e_evdate').value = dmy(7);
   h.getEl('e_evenddate').value = '';
   h.getEl('e_evlocation').value = 'SECC';
   h.getEl('e_evurl').value = 'https://expo.example.com';
@@ -165,7 +167,7 @@ test('openEventForm/saveEvent: trạng thái + ngày kết thúc (mặc định 
   form = h.getEl('editBox').innerHTML;
   assert.ok(/<option value="attended" selected>/.test(form), 'sự kiện cũ đã qua ngày: form chọn sẵn Đã tham dự');
   h.getEl('e_evstatus').value = 'attended';
-  h.getEl('e_evenddate').value = iso(-28);
+  h.getEl('e_evenddate').value = dmy(-28);
   h.run("saveEvent('evLegacyPast')");
   assert.equal(evById(h, 'evLegacyPast').status, 'attended', 'lần sửa đầu ghi status thật vào bản ghi cũ');
   assert.equal(evById(h, 'evLegacyPast').endDate, iso(-28));

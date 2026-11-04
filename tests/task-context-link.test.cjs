@@ -92,7 +92,7 @@ function loadIndex(state) {
 function fillTaskForm(getEl, linkVal) {
   getEl('e_ttitle').value = 'Việc mới từ ngữ cảnh';
   getEl('e_tassignee').value = 'linh';
-  getEl('e_tdueDate').value = '2026-11-05';
+  getEl('e_tdueDate').value = '05-11-2026';
   getEl('e_tlink').value = linkVal;
   getEl('e_tdone').checked = false;
 }

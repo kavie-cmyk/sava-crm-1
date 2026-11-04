@@ -179,7 +179,7 @@ test("LG-UI-5: sửa hoạt động — đổi chủ deal -> lead -> game luôn 
   assert.ok(mw.includes('id="ea_deal"'), "form sửa giữ ô chọn chủ ea_deal");
   assert.ok(mw.includes('value="lead:lSolo"') && mw.includes('value="game:gSolo"'), "ô chọn chủ có cả lead + game");
   ["ea_type", "ea_who", "ea_when", "ea_text", "ea_url", "ea_deal"].forEach(id => doc._els.set(id, El(id)));
-  const fill = ref => { setField("ea_type", "Call"); setField("ea_who", "zac"); setField("ea_when", "2026-11-03"); setField("ea_text", "Đã sửa chủ"); setField("ea_url", ""); setField("ea_deal", ref); };
+  const fill = ref => { setField("ea_type", "Call"); setField("ea_who", "zac"); setField("ea_when", "03-11-2026"); setField("ea_text", "Đã sửa chủ"); setField("ea_url", ""); setField("ea_deal", ref); };
   fill("lead:l1"); sb.saveActivity("aDeal");
   let a = state().activities.find(x => x.id === "aDeal");
   assert.ok(a.lead === "l1" && a.deal === undefined && a.game === undefined, "đổi sang lead: đúng 1 chủ lead");
@@ -314,7 +314,7 @@ test("LG-STAMP-3: SỬA activity (giữ nguyên chủ lead) -> lead đổi dấu
   const { sb, doc, setField, state, captured } = loadApp();
   sb.editActivity("aLead");
   ["ea_type", "ea_who", "ea_when", "ea_text", "ea_url", "ea_deal"].forEach(id => doc._els.set(id, El(id)));
-  setField("ea_type", "Zalo"); setField("ea_who", "zac"); setField("ea_when", "2026-11-03");
+  setField("ea_type", "Zalo"); setField("ea_who", "zac"); setField("ea_when", "03-11-2026");
   setField("ea_text", "Đã nhắn lại, chờ phản hồi"); setField("ea_url", ""); setField("ea_deal", "lead:lSolo");
   sb.saveActivity("aLead");
   assertFreshStamp(state().leads.find(x => x.id === "lSolo"), "lead chủ");
@@ -347,7 +347,7 @@ test("LG-STAMP-5: SỬA activity ĐỔI CHỦ deal -> lead -> CẢ chủ cũ l�
   const { sb, doc, setField, state, captured } = loadApp();
   sb.editActivity("aDeal");
   ["ea_type", "ea_who", "ea_when", "ea_text", "ea_url", "ea_deal"].forEach(id => doc._els.set(id, El(id)));
-  setField("ea_type", "Call"); setField("ea_who", "zac"); setField("ea_when", "2026-11-03");
+  setField("ea_type", "Call"); setField("ea_who", "zac"); setField("ea_when", "03-11-2026");
   setField("ea_text", "Hoạt động qua deal cũ"); setField("ea_url", ""); setField("ea_deal", "lead:lSolo");
   sb.saveActivity("aDeal");
   const a = state().activities.find(x => x.id === "aDeal");
@@ -378,7 +378,7 @@ test("LG-STAMP-6: thao tác BỊ CHẶN (chủ rỗng / chủ mồ côi / nội 
   assertOldStamp(state().leads.find(x => x.id === "lSolo"), "lead sau create bị chặn + save()");
   sb.editActivity("aLead");
   ["ea_type", "ea_who", "ea_when", "ea_text", "ea_url", "ea_deal"].forEach(id => doc._els.set(id, El(id)));
-  setField("ea_type", "Zalo"); setField("ea_who", "zac"); setField("ea_when", "2026-11-03");
+  setField("ea_type", "Zalo"); setField("ea_who", "zac"); setField("ea_when", "03-11-2026");
   setField("ea_text", "Không được ghi vì chủ rỗng"); setField("ea_url", ""); setField("ea_deal", "");
   sb.saveActivity("aLead");
   setField("ea_deal", "lead:lDaXoa");

@@ -24,9 +24,21 @@
   function fmtTime(v) {
     const S = sysApi();
     if (S && typeof S.fmtSysTime === 'function') return S.fmtSysTime(v);
+    /* Dự phòng khi shared.js chưa nạp: cùng định dạng dd-mm-yyyy hh:mm
+       (Asia/Ho_Chi_Minh) như fmtSysTime — không quay về gạch chéo. */
     if (!v) return '—';
+    const s = String(v);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (m) return m[3] + '-' + m[2] + '-' + m[1];
     const dt = new Date(v);
-    return Number.isNaN(dt.getTime()) ? String(v) : dt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    if (Number.isNaN(dt.getTime())) return String(v);
+    const o = {};
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
+    const date = o.day + '-' + o.month + '-' + o.year;
+    if (!/[T ]\d{2}:\d{2}/.test(s)) return date;
+    const tp = {};
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(dt).forEach(x => { tp[x.type] = x.value; });
+    return date + ' ' + tp.hour + ':' + tp.minute;
   }
   /* Tên người sửa: resolve theo members của state CRM truyền vào; member
      đã bị xoá -> nhãn dự phòng "thành viên đã xoá (…)" — không lỗi. */

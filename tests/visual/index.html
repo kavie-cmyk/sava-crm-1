@@ -504,11 +504,53 @@ function stampCrmAndAudit() {
 function sysMetaHTML(ent) { try { return window.SavaAuditUI ? SavaAuditUI.metaLineHTML(S, ent) : ""; } catch (e) { return ""; } }
 function auditSectionHTML(type, id) { try { return window.SavaAuditUI ? SavaAuditUI.sectionHTML(type, id) : ""; } catch (e) { return ""; } }
 function loadDrawerAudit(rootEl, type, id) { try { if (window.SavaAuditUI) SavaAuditUI.loadInto(rootEl, S, type, id); } catch (e) {} }
-function sysShortDate(v) { if (!v) return ""; const dt = new Date(v); return Number.isNaN(dt.getTime()) ? "" : dt.toLocaleDateString("vi-VN"); }
+/* Định dạng ngày dd-mm-yyyy (chuẩn Zac chốt 4/11/2026): ngày thuần
+   yyyy-mm-dd đổi TRỰC TIẾP từ thành phần (không lệch múi giờ); mốc thời
+   gian lấy thành phần theo Asia/Ho_Chi_Minh. parseDMYtoISO là chiều
+   ngược cho Ô NHẬP: người dùng gõ dd-mm-yyyy, dữ liệu LƯU vẫn ISO. */
+function fmtDateDMY(v) {
+  if (!v) return "";
+  const s = String(v);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) return m[3] + "-" + m[2] + "-" + m[1];
+  const dt = new Date(v);
+  if (Number.isNaN(dt.getTime())) return "";
+  const o = {};
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
+  return o.day + "-" + o.month + "-" + o.year;
+}
+function isoToDMY(v) { return fmtDateDMY(v); }
+function parseDMYtoISO(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (!s) return { ok: true, iso: "" };
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+  if (!m) return { ok: false, iso: "" };
+  const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return { ok: false, iso: "" };
+  return { ok: true, iso: m[3] + "-" + m[2] + "-" + m[1] };
+}
+/* Đọc 1 ô nhập ngày dạng text dd-mm-yyyy trong form: trống -> "" (caller
+   giữ hành vi cũ theo từng field); giá trị GIỮ NGUYÊN so với dữ liệu đã
+   lưu (existingRaw, vd chữ tự do cũ) -> giữ nguyên; còn lại bắt buộc là
+   dd-mm-yyyy hợp lệ, sai thì toast rõ ràng + { ok:false } để caller
+   CHẶN lưu trước khi mutate. */
+function readDateInput(elId, existingRaw, label) {
+  const raw = (document.getElementById(elId)?.value || "").trim();
+  if (!raw) return { ok: true, value: "" };
+  if (existingRaw && raw === String(existingRaw)) return { ok: true, value: raw };
+  const pr = parseDMYtoISO(raw);
+  if (!pr.ok) { toast(label + " phải theo định dạng dd-mm-yyyy (vd 05-11-2026) và là ngày có thật — hãy kiểm tra lại"); return { ok: false, value: "" }; }
+  return { ok: true, value: pr.iso };
+}
+/* Giá trị HIỂN THỊ cho ô nhập ngày: ISO hợp lệ -> dd-mm-yyyy; chữ cũ
+   giữ nguyên văn để cơ chế (dữ liệu cũ) không bị phá. */
+function dateInputDisplay(v) { return isValidDateStr(v) ? isoToDMY(v) : (v || ""); }
+function sysShortDate(v) { return fmtDateDMY(v); }
 /* Chỉ dấu "cập nhật lần cuối" DÙNG CHUNG cho mọi danh sách/thẻ (Việc 4 bổ
    sung, 3/11/2026): MỘT nguồn duy nhất là ent.updatedAt (dấu hệ thống do
    save() đóng, đi qua legacy_extra) + MỘT định dạng duy nhất là
-   sysShortDate (dd/mm/yyyy) kèm biểu tượng 🕘 — cùng mẫu thẻ pipeline
+   sysShortDate (dd-mm-yyyy) kèm biểu tượng 🕘 — cùng mẫu thẻ pipeline
    deal đã có từ trước. Hai biến thể theo ngữ cảnh bảng/thẻ:
    - sysUpdatedSpan(ent): chèn vào dòng meta của thẻ — entity chưa có dấu
      thì KHÔNG hiện gì (như thẻ deal hiện hành, tránh nhiễu "—" trên thẻ).
@@ -1202,7 +1244,7 @@ function tasksForLink(type, id) { return S.tasks.filter(t => t && t[type] === id
    hoặc nút sửa đều mở ĐÚNG form sửa việc sẵn có (editTask). */
 function relatedTaskRow(t) {
   const od = isOverdue(t);
-  const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
+  const dueLabel = t.dueDate ? fmtWhen(t.dueDate) : (t.due || "—");
   return `<div class="task ${t.done ? "done" : ""}"><input type="checkbox" ${t.done ? "checked" : ""} onchange="toggleTask('${t.id}')"><div><div class="tt" style="cursor:pointer" onclick="editTask('${t.id}')" title="Bấm để sửa việc">${esc(t.title)}</div><div class="mut">${memberLinkHTML(t.assignee)} · Hạn: <span class="${od ? "overdue" : ""}">${esc(dueLabel)}</span> · ${t.done ? "Đã xong" : "Chưa xong"}${od ? ' · <span class="overdue">Quá hạn</span>' : ""}${sysShortDate(t.updatedAt) ? " · " + sysUpdatedSpan(t) : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
 /* Mục "Việc liên quan" dùng chung cho drawer Company / Lead / Deal / Game:
@@ -1221,7 +1263,7 @@ function relatedTasksHTML(type, id) {
 function taskRow(t, stt) {
   const d = S.deals.find(x => x.id === t.deal);
   const od = isOverdue(t);
-  const dueLabel = t.dueDate ? t.dueDate : (t.due || "—");
+  const dueLabel = t.dueDate ? fmtWhen(t.dueDate) : (t.due || "—");
   const chip = taskLinkChipHTML(t);
   return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')">${stt === undefined || stt === null ? "" : `<span class="list-stt mut">#${stt}</span>`}<div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span>${sysShortDate(t.updatedAt) ? " · " + sysUpdatedSpan(t) : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
@@ -1239,7 +1281,7 @@ function vBoard() {
     const cards = sds.map((d, di) => { const gt = dealVisibleGame(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t"><span class="list-stt">#${di + 1}</span> ${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
-      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysUpdatedSpan(d)}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
+      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(fmtWhen(d.due || "") || "—")}</span>${sysUpdatedSpan(d)}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
     /* Khung cuộn pipeline (workspace-design.css .board.pipeline-board):
        h4 + .sum nằm NGOÀI vùng cuộn .col-cards nên header cột luôn cố định
        ở đầu cột; chỉ danh sách thẻ cuộn dọc trong .col-cards. Handler
@@ -1697,8 +1739,8 @@ function eventStatusKey(ev) {
 }
 function eventStatusChipHTML(ev) { const def = eventStatusDef(eventStatusKey(ev)) || EVENT_STATUSES[0]; return `<span class="chip" style="background:${def.color}">${esc(def.label)}</span>`; }
 function eventDateRangeText(ev) {
-  const start = String((ev && ev.date) || "");
-  const end = String((ev && ev.endDate) || "");
+  const start = fmtWhen(String((ev && ev.date) || ""));
+  const end = fmtWhen(String((ev && ev.endDate) || ""));
   if (!start && !end) return "—";
   if (!end || end === start) return start || end;
   if (!start) return end;
@@ -1743,7 +1785,7 @@ function vEvents() {
   const all = eventsList();
   const filtered = all.filter(ev => {
     if (!query) return true;
-    const hay = [ev.name || "", ev.date || "", ev.endDate || "", ev.location || "", ev.note || "", (eventStatusDef(eventStatusKey(ev)) || {}).label || "", ev.line ? lineName(ev.line) : "", eventAttendeeNames(ev).join(" ")].join(" ").toLowerCase();
+    const hay = [ev.name || "", ev.date || "", ev.endDate || "", fmtWhen(ev.date || ""), fmtWhen(ev.endDate || ""), ev.location || "", ev.note || "", (eventStatusDef(eventStatusKey(ev)) || {}).label || "", ev.line ? lineName(ev.line) : "", eventAttendeeNames(ev).join(" ")].join(" ").toLowerCase();
     return hay.includes(query);
   });
   /* Phân trang TRONG TỪNG NHÓM như mẫu Lead Block (Việc 8): key trang
@@ -1965,8 +2007,8 @@ function openEvent(id) {
     <div class="kv">
       <div class="k">Tên sự kiện</div><div>${esc(ev.name || "—")}</div>
       <div class="k">Trạng thái</div><div>${eventStatusChipHTML(ev)}${phase === "planned" && eventDaysInfo(ev).overdue ? ' <span style="color:#b45309;font-weight:600">⚠️ đã qua ngày — cập nhật trạng thái?</span>' : ""}${phase === "planned" && eventDaysInfo(ev).label ? ` <span class="mut">⏳ ${esc(eventDaysInfo(ev).label)}</span>` : ""}</div>
-      <div class="k">Ngày bắt đầu</div><div>${esc(ev.date || "—")}</div>
-      <div class="k">Ngày kết thúc</div><div>${esc(ev.endDate || ev.date || "—")}</div>
+      <div class="k">Ngày bắt đầu</div><div>${esc(fmtWhen(ev.date || "") || "—")}</div>
+      <div class="k">Ngày kết thúc</div><div>${esc(fmtWhen(ev.endDate || ev.date || "") || "—")}</div>
       <div class="k">Địa điểm</div><div>${esc(ev.location || "—")}</div>
       <div class="k">Link sự kiện</div><div>${ev.eventUrl ? extLinkHTML(ev.eventUrl) : "—"}</div>
       <div class="k">Mảng liên quan</div><div>${ev.line ? `<span class="chip" style="background:${lineColor(ev.line)}">${esc(lineName(ev.line))}</span>` : "—"}</div>
@@ -2005,8 +2047,8 @@ function openEventForm(id) {
     <div style="margin-bottom:8px">${typeBadgeHTML("event")}</div>
     ${field("Tên sự kiện", txt("e_evname", ev ? ev.name : ""))}
     ${field("Trạng thái", statusSel)}
-    ${field("Ngày bắt đầu", txt("e_evdate", ev ? ev.date : "", "VD: 2026-11-15"))}
-    ${field("Ngày kết thúc", txt("e_evenddate", ev ? (ev.endDate || ev.date || "") : "", "Để trống = cùng ngày bắt đầu"))}
+    ${field("Ngày bắt đầu", txt("e_evdate", ev ? dateInputDisplay(ev.date) : "", "VD: 15-11-2026"))}
+    ${field("Ngày kết thúc", txt("e_evenddate", ev ? dateInputDisplay(ev.endDate || ev.date || "") : "", "Để trống = cùng ngày bắt đầu"))}
     ${field("Địa điểm", txt("e_evlocation", ev ? ev.location : ""))}
     ${field("Link sự kiện", txt("e_evurl", ev ? (ev.eventUrl || "") : "", "https://…"))}
     ${field("Mảng liên quan (không bắt buộc)", lineSel)}
@@ -2019,11 +2061,19 @@ function saveEvent(id) {
   const v = i => (document.getElementById(i)?.value || "").trim();
   const name = v("e_evname"); if (!name) { toast("Tên sự kiện không được để trống"); return; }
   const attendees = memberList(S).filter(m => m.active).filter(m => { const el = document.getElementById("e_evatt_" + m.id); return !!(el && el.checked); }).map(m => m.id);
-  const date = v("e_evdate");
-  const statusRaw = v("e_evstatus");
   const existing = id ? eventById(id) : null;
+  /* Ngày sự kiện: ô text dd-mm-yyyy -> lưu ISO như cũ; sai định dạng /
+     ngày không có thật thì chặn lưu. Giá trị cũ dạng chữ tự do GIỮ
+     NGUYÊN khi người dùng không sửa ô ngày (readDateInput đối chiếu
+     existingRaw) — không phá dữ kiện sự kiện cũ. */
+  const dateR = readDateInput("e_evdate", existing ? (existing.date || "") : "", "Ngày bắt đầu");
+  if (!dateR.ok) return;
+  const endR = readDateInput("e_evenddate", existing ? (existing.endDate || existing.date || "") : "", "Ngày kết thúc");
+  if (!endR.ok) return;
+  const date = dateR.value;
+  const statusRaw = v("e_evstatus");
   const status = eventStatusDef(statusRaw) ? statusRaw : (existing ? eventStatusKey(existing) : "planned");
-  const data = { name, date, endDate: v("e_evenddate") || date, location: v("e_evlocation"), note: v("e_evnote"), attendees, status, eventUrl: v("e_evurl"), line: v("e_evline") };
+  const data = { name, date, endDate: endR.value || date, location: v("e_evlocation"), note: v("e_evnote"), attendees, status, eventUrl: v("e_evurl"), line: v("e_evline") };
   let ev;
   if (id) { ev = existing; if (!ev) return; Object.assign(ev, data); }
   else { ev = { id: "ev" + Date.now(), ...data, companies: [], leads: [], deals: [] }; ensureEvents().push(ev); }
@@ -2302,7 +2352,7 @@ function vImport() {
        giá trị đã chọn mà sự kiện đã bị xoá thì giữ 1 option "(sự kiện đã
        xoá)" để không lặng lẽ đổi lựa chọn của người dùng. */
     const evOpts = [`<option value="" ${!impSettings.eventId ? "selected" : ""}>— Không gắn —</option>`]
-      .concat(eventsList().map(ev => `<option value="${esc(ev.id)}" ${impSettings.eventId === ev.id ? "selected" : ""}>${esc(ev.name || "—")}${ev.date ? " · " + esc(ev.date) : ""}</option>`))
+      .concat(eventsList().map(ev => `<option value="${esc(ev.id)}" ${impSettings.eventId === ev.id ? "selected" : ""}>${esc(ev.name || "—")}${ev.date ? " · " + esc(fmtWhen(ev.date)) : ""}</option>`))
       .concat(impSettings.eventId && !eventById(impSettings.eventId) ? [`<option value="${esc(impSettings.eventId)}" selected>(sự kiện đã xoá) ${esc(impSettings.eventId)}</option>`] : [])
       .join("");
     h += `<section class="panel"><div class="panel-title"><h3>3 · Thiết lập lô</h3></div>
@@ -3114,7 +3164,7 @@ function openDeal(id) {
     <div class="kv">
       <div class="k">Trạng thái</div><div>${esc(ct.status || "—")}</div>
       <div class="k">Số HĐ</div><div>${esc(ct.no || "—")}</div>
-      <div class="k">Ngày ký</div><div>${esc(ct.signed || "—")}</div>
+      <div class="k">Ngày ký</div><div>${esc(fmtWhen(ct.signed || "") || "—")}</div>
       <div class="k">Link HĐ</div><div>${ct.url ? esc(ct.url) + `<div style="margin-top:5px"><a href="#" onclick="toast('Bản mẫu: link này sẽ mở file HĐ trên Drive ở bản thật'); return false">📂 Mở hợp đồng ↗</a></div>` : "—"}</div>
     </div>
     <button class="btn" onclick="startTermEdit('${d.id}')">✏️ Sửa term + hợp đồng</button>`;
@@ -3134,7 +3184,7 @@ function openDeal(id) {
     <div class="kv">
       <div class="k">Trạng thái HĐ</div><div>${selLegacy("c_status", ["Chưa có HĐ", "Đang soạn draft", "Đã gửi draft", "Đang đàm phán", "Đã ký"], ct.status || "", "— Chưa chọn —")}</div>
       <div class="k">Số HĐ</div><div><input id="c_no" style="width:100%" value="${esc(ct.no||'')}" placeholder="VD: HD-PUB-2026-015"></div>
-      <div class="k">Ngày ký</div><div><input id="c_signed" type="date" style="width:100%" value="${esc(ct.signed||'')}"></div>
+      <div class="k">Ngày ký</div><div><input id="c_signed" type="text" placeholder="dd-mm-yyyy" style="width:100%" value="${esc(dateInputDisplay(ct.signed))}"></div>
       <div class="k">Link HĐ</div><div><input id="c_url" style="width:100%" value="${esc(ct.url||'')}" placeholder="Dán link Google Drive của HĐ / term sheet">${ct.url?`<div style="margin-top:5px"><a href="#" onclick="toast('Bản mẫu: link này sẽ mở file HĐ trên Drive ở bản thật'); return false">📂 Mở hợp đồng ↗</a></div>`:""}</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="saveTermContract('${d.id}')">💾 Lưu term + hợp đồng</button><button class="btn ghost" onclick="cancelTermEdit('${d.id}')">Hủy</button></div>`;
@@ -3155,7 +3205,7 @@ function openDeal(id) {
     <div class="kv">
       ${valueRows}
       <div class="k">Người phụ trách</div><div>${memberLinkHTML(d.owner)}</div>
-      <div class="k">Ngày dự kiến chốt</div><div>${esc(d.due || "—")}</div>
+      <div class="k">Ngày dự kiến chốt</div><div>${esc(fmtWhen(d.due || "") || "—")}</div>
       <div class="k">Đầu mối phía đối tác (đã gắn vào deal)</div><div>${attachedLeads.length ? attachedLeads.map(dealLeadContactLineHTML).join("<br>") : '<span class="mut">Chưa gắn lead nào vào deal này — gắn ở khối “Đầu mối phía đối tác” bên dưới</span>'}</div>
       ${d.line === "metaverse" ? `<div class="k">Phân khúc ngành</div><div>${esc(dealVerticalLabel(d))}</div>` : ""}
       ${fields}
@@ -3213,6 +3263,10 @@ function confirmMoveStage(id, selEl) {
 function saveTermContract(id) {
   const d = S.deals.find(x=>x.id===id); if (!d) return;
   const v = i => (document.getElementById(i)?.value || "").trim();
+  /* Ngày ký: ô text dd-mm-yyyy -> lưu ISO; sai định dạng/ngày không có
+     thật thì chặn lưu TRƯỚC khi mutate term/contract. */
+  const signedR = readDateInput("c_signed", (d.contract || {}).signed || "", "Ngày ký hợp đồng");
+  if (!signedR.ok) return;
   /* Rev share: chỉ ghi đè khi điền ĐỦ cả 2 ô % (Sava + Partner); thiếu 1 ô thì
      giữ nguyên chuỗi rev_share cũ (kể cả chuỗi chữ không parse được).
      Nếu cặp % nhập bằng cặp parse từ chuỗi gốc thì giữ NGUYÊN chuỗi gốc
@@ -3243,7 +3297,7 @@ function saveTermContract(id) {
   if (advNum !== "") { term.advance_num = advNum; term.advance_cur = v("t_adv_cur") || "VND"; term.advance = advNum + " " + term.advance_cur; }
   else { term.advance = v("t_adv_old") || oldTerm.advance || ""; }
   d.term = term;
-  d.contract = { status:v("c_status"), no:v("c_no"), signed:v("c_signed"), url:v("c_url") };
+  d.contract = { status:v("c_status"), no:v("c_no"), signed:signedR.value, url:v("c_url") };
   /* Lưu THÀNH CÔNG mới thoát chế độ sửa -> quay về dạng xem ngay. Mọi đường
      validate ở trên đều return sớm TRƯỚC điểm này nên khi bị chặn, termEditDealId
      vẫn giữ nguyên và form sửa vẫn mở để user sửa tiếp. */
@@ -3256,7 +3310,7 @@ function dealMini(d) {
   return `<div class="dcard" onclick="openDeal('${d.id}')"><div class="t">${esc(d.title)}</div>
     <div class="c"><span class="chip" style="background:${lineColor(d.line)}">${esc(lineName(d.line))}</span> Stage: ${esc(stagePairSafe(d.line, d.stage)[1])}</div>${d.line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
     <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") : money(d.amount, d.cur)}</div>
-    <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(d.due || "—")}</span>${sysUpdatedSpan(d)}</div></div>`;
+    <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(fmtWhen(d.due || "") || "—")}</span>${sysUpdatedSpan(d)}</div></div>`;
 }
 /* === PARTNER EVAL LOGIC START === */
 /* Khung điểm PARTNER (file 2 — Publishing Partner Selection).
@@ -4576,16 +4630,19 @@ function readMulti(id) {
   const box = document.getElementById(id); if (!box) return "";
   return [...box.querySelectorAll('input[type=checkbox]:checked')].map(x => x.value).join(", ");
 }
-/* Hiển thị thời gian: giá trị ISO (yyyy-mm-dd) -> dd/mm/yyyy; chữ cũ hiện nguyên văn. */
+/* Hiển thị thời gian: giá trị ISO (yyyy-mm-dd) -> dd-mm-yyyy; chữ cũ hiện nguyên văn. */
 function fmtWhen(v) {
-  if (isValidDateStr(v)) { const [y, m, d] = v.split("-"); return `${d}/${m}/${y}`; }
+  if (isValidDateStr(v)) { const [y, m, d] = v.split("-"); return `${d}-${m}-${y}`; }
+  if (v && /^\d{4}-\d{2}-\d{2}T/.test(String(v))) return fmtDateDMY(v);
   return v || "";
 }
 function fmtStamp(v) {
   if (!v) return "—";
   if (isValidDateStr(v)) return fmtWhen(v);
   const dt = new Date(v);
-  return Number.isNaN(dt.getTime()) ? String(v) : dt.toLocaleString("vi-VN");
+  if (Number.isNaN(dt.getTime())) return String(v);
+  try { if (window.SavaSys && typeof SavaSys.fmtSysTime === "function") return SavaSys.fmtSysTime(v); } catch (e) {}
+  return fmtDateDMY(v);
 }
 function fmtNum1(n) { return (n === null || n === undefined || !Number.isFinite(Number(n))) ? "—" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 1 }); }
 const GEO_OPTS = ["VN", "SEA", "Hàn Quốc", "Nhật Bản", "Trung Quốc", "NA (Bắc Mỹ)", "EU", "Global"];
@@ -4696,7 +4753,7 @@ function editDeal(id) {
     ${field("Mảng", sel("e_line", Object.entries(LINES).map(([k, v]) => [k, v.name]), d.line))}
     <div id="e_lineFields"></div>
     ${field("Người phụ trách", ownerSel("e_owner", d.owner))}
-    ${field("Ngày dự kiến chốt", `<input id="e_due" type="date" value="${esc(d.due || "")}"><div class="mut" style="margin-top:4px">Để trống khi lưu = xóa ngày chốt đã đặt (C10).</div>`)}
+    ${field("Ngày dự kiến chốt", `<input id="e_due" type="text" placeholder="dd-mm-yyyy" value="${esc(dateInputDisplay(d.due))}"><div class="mut" style="margin-top:4px">Nhập theo định dạng dd-mm-yyyy. Để trống khi lưu = xóa ngày chốt đã đặt (C10).</div>`)}
     ${formFoot("saveEditDeal", `'${d.id}'`)}`);
   document.getElementById("e_line").addEventListener("change", e => { dealDraftLine = e.target.value; fillDealLineFields(d); });
   fillDealLineFields(d);
@@ -4915,7 +4972,9 @@ function saveEditDeal(id) {
   /* 3) Đọc nốt các giá trị form còn lại (đọc DOM không phải mutate). */
   const stageVal = document.getElementById("e_stage").value;
   const ownerVal = document.getElementById("e_owner").value;
-  const dueVal = document.getElementById("e_due").value;
+  const dueR = readDateInput("e_due", d.due || "", "Ngày dự kiến chốt");
+  if (!dueR.ok) return;
+  const dueVal = dueR.value;
   const oldCustom = d.custom || {};
   const origLine = d.line;
   /* Custom fields: GỘP vào custom cũ thay vì thay trắng (bản cũ dựng
@@ -5730,13 +5789,17 @@ function editLead(id, presetCompanyId) {
     ${field("Trạng thái", l.status === "converted"
       ? `<span class="pill" style="background:${(leadStatusDef("converted") || {}).color || "#64748b"}">Đã chuyển đổi</span> <span class="mut">— tự động theo deal</span><input type="hidden" id="e_lstatus" value="converted"><div class="mut" style="margin-top:4px">Trạng thái này tự động theo deal, không chọn tay được: lead đang gắn deal thì là Đã chuyển đổi; gỡ lead khỏi mọi deal (hoặc xoá deal) thì hệ thống tự hồi về Đã liên hệ.</div>`
       : sel("e_lstatus", LEAD_STATUSES.filter(s => s.key !== "converted").map(s => [s.key, s.label]), l.status) + `<div class="mut" style="margin-top:4px">“Đã chuyển đổi” không chọn tay được — lead chỉ sang trạng thái đó khi được chuyển thành deal / gắn vào deal.</div>`)}
-    ${field("Thời gian", `<input id="e_lwhen" type="date" value="${esc(isValidDateStr(l.when) ? l.when : "")}">` + (l.when && !isValidDateStr(l.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(l.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
+    ${field("Thời gian", `<input id="e_lwhen" type="text" placeholder="dd-mm-yyyy" value="${esc(isValidDateStr(l.when) ? isoToDMY(l.when) : "")}">` + (l.when && !isValidDateStr(l.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(l.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Ghi chú", `<textarea id="e_lnote">${esc(l.note || "")}</textarea>`)}
     ${formFoot("saveLead", id ? `'${id}'` : "null")}`);
 }
 function saveLead(id) {
   const v = i => (document.getElementById(i)?.value || "").trim();
   const name = v("e_lname"); if (!name) { toast("Tên lead không được để trống"); return; }
+  /* Thời gian lead: ô text dd-mm-yyyy -> ISO; validate TRƯỚC mọi mutate
+     (tạo công ty mới ở dưới) để lưu bị chặn không để lại dữ kiện rác. */
+  const whenR = readDateInput("e_lwhen", "", "Thời gian lead");
+  if (!whenR.ok) return;
   const statusEl = document.getElementById("e_lstatus");
   const existing = id ? S.leads.find(x => x.id === id) : null;
   const line = document.getElementById("e_lline").value;
@@ -5768,9 +5831,10 @@ function saveLead(id) {
     const dup = S.leads.find(x => (x.name || "").trim().toLowerCase() === name.toLowerCase() && (x.company || "") === companyId && (x.person || "").trim().toLowerCase() === personKey);
     if (dup) { toast(`Lead "${name}" với cùng công ty và người đầu mối đã tồn tại — hãy mở lead đó thay vì tạo trùng`); return; }
   }
-  /* Thời gian: input date -> lưu ISO; để trống khi sửa thì giữ nguyên giá trị cũ
-     (kể cả chữ cũ); lead mới để trống -> hôm nay (ISO). */
-  const whenVal = v("e_lwhen");
+  /* Thời gian: đã parse dd-mm-yyyy -> ISO ở đầu hàm (whenR); để trống khi
+     sửa thì giữ nguyên giá trị cũ (kể cả chữ cũ); lead mới để trống ->
+     hôm nay (ISO). */
+  const whenVal = whenR.value;
   const mainEl = document.getElementById("e_lmain");
   const ownerEl = document.getElementById("e_lowner");
   const data = { name, company: companyId, person: v("e_lperson"), phone: v("e_lphone"), email: v("e_lemail"), linkedinUrl: v("e_llinkedin"), ownerId: ownerEl ? ownerEl.value : (existing ? (existing.ownerId || "") : ""), mainContact: !!(mainEl && mainEl.checked), line, source: v("e_lsource"), status: statusEl ? statusEl.value : (existing ? existing.status : "new"), when: whenVal || (existing ? (existing.when || todayStr()) : todayStr()), note: v("e_lnote") };
@@ -5860,7 +5924,7 @@ function editTask(id, linkType, linkId) {
     ${chipLine}
     ${field("Nội dung việc", txt("e_ttitle", t.title))}
     ${field("Người làm", ownerSel("e_tassignee", t.assignee, id ? undefined : { placeholder: "— Chọn người phụ trách —" }))}
-    ${field("Hạn ngày (để tính quá hạn tự động)", `<input id="e_tdueDate" type="date" value="${esc(t.dueDate || "")}">`)}
+    ${field("Hạn ngày (để tính quá hạn tự động)", `<input id="e_tdueDate" type="text" placeholder="dd-mm-yyyy" value="${esc(dateInputDisplay(t.dueDate))}">`)}
     ${field("Gắn với đối tượng", taskLinkSelectHTML(curVal))}
     <label style="display:flex;align-items:center;gap:8px;color:var(--txt);font-size:13.5px"><input type="checkbox" id="e_tdone" style="width:auto" ${t.done ? "checked" : ""}> Đã xong</label>
     ${id ? sysMetaHTML(t) + auditSectionHTML("task", t.id) : ""}
@@ -5874,7 +5938,9 @@ function saveTask(id) {
   /* Ô hạn dạng chữ đã bỏ khỏi form: field task.due giữ nguyên giá trị cũ khi sửa
      (chỉ còn là fallback hiển thị sau dueDate), việc mới để trống. */
   const existingTask = id ? S.tasks.find(x => x.id === id) : null;
-  const data = { title, assignee: document.getElementById("e_tassignee").value, due: existingTask ? (existingTask.due || "") : "", dueDate: v("e_tdueDate"), done, overdue: false };
+  const dueDateR = readDateInput("e_tdueDate", existingTask ? (existingTask.dueDate || "") : "", "Hạn việc");
+  if (!dueDateR.ok) return;
+  const data = { title, assignee: document.getElementById("e_tassignee").value, due: existingTask ? (existingTask.due || "") : "", dueDate: dueDateR.value, done, overdue: false };
   /* Liên kết nguồn: đọc "<type>:<id>" từ ô chọn, chuẩn hoá về ĐÚNG 1 khoá
      (deal/company/lead/game) — xoá cả 4 khoá cũ trước khi đặt khoá mới, nên
      sửa việc giữ nguyên liên kết khi ô chọn không đổi và đổi/gỡ sạch khi
@@ -6101,7 +6167,7 @@ function editActivity(id) {
     ${field("Loại", sel("ea_type", [["Note", "Note"], ["Call", "Call"], ["Email", "Email"], ["Meeting", "Meeting"], ["Demo", "Demo"], ["Zalo", "Zalo"], ["Messenger", "Messenger"]], a.type))}
     ${field("Chủ của hoạt động (deal / lead / game)", comboSelectHTML("ea_deal", ownerOpts, { label: ownerLabel, placeholder: "Gõ tên deal / lead / game để tìm…" }))}
     ${field("Người thực hiện", ownerSel("ea_who", a.who))}
-    ${field("Thời gian", `<input id="ea_when" type="date" value="${esc(isValidDateStr(a.when) ? a.when : "")}">` + (a.when && !isValidDateStr(a.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(a.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
+    ${field("Thời gian", `<input id="ea_when" type="text" placeholder="dd-mm-yyyy" value="${esc(isValidDateStr(a.when) ? isoToDMY(a.when) : "")}">` + (a.when && !isValidDateStr(a.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(a.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Nội dung", `<textarea id="ea_text">${esc(a.text || "")}</textarea>`)}
     ${field("Link đúng cuộc hội thoại / tài liệu đó", txt("ea_url", a.url || "", "Dán link thread Gmail / chat Messenger / file Drive"))}
     ${activityLinkHintHTML()}
@@ -6115,6 +6181,10 @@ function saveActivity(id) {
   /* C9 (đợt 3): sửa activity cũng chặn nội dung rỗng như addActivity — kiểm
      TRƯỚC khi mutate bất kỳ field nào. */
   if (!v("ea_text")) { toast("Nội dung hoạt động không được để trống"); return; }
+  /* Thời gian hoạt động: ô text dd-mm-yyyy -> ISO, chặn lưu nếu sai
+     TRƯỚC khi mutate bất kỳ field nào của hoạt động. */
+  const actWhenR = readDateInput("ea_when", "", "Thời gian hoạt động");
+  if (!actWhenR.ok) return;
   /* Việc 7 + đợt Lead/Game: hoạt động BẮT BUỘC gắn đúng 1 chủ còn tồn
      tại (deal HOẶC lead HOẶC game; DB có CHECK exactly-one-owner + 3 FK)
      — chủ rỗng / chủ đã xoá bị chặn TRƯỚC khi mutate bất kỳ field nào,
@@ -6131,7 +6201,7 @@ function saveActivity(id) {
   delete a.deal; delete a.lead; delete a.game;
   a[newOwner.kind] = newOwner.id;
   a.who = document.getElementById("ea_who").value;
-  a.when = v("ea_when") || a.when;
+  a.when = actWhenR.value || a.when;
   a.text = v("ea_text");
   a.url = v("ea_url");
   const ctxType = drawerCtx ? drawerCtx.type : "";

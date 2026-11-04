@@ -273,7 +273,7 @@ test('validate: createActivity/addActivityScoped từ chối deal rỗng/không 
   assert.ok(!h.stored().activities.some(a => a.text === 'Không được lưu vì thiếu deal'), 'hoạt động thiếu deal không được vào bản lưu/đồng bộ');
   /* saveActivity: bỏ gắn deal -> chặn, bản ghi giữ nguyên 100% */
   run("editActivity('a1')");
-  getEl('ea_type').value = 'Call'; getEl('ea_who').value = 'zac'; getEl('ea_when').value = '2026-10-05';
+  getEl('ea_type').value = 'Call'; getEl('ea_who').value = 'zac'; getEl('ea_when').value = '05-10-2026';
   getEl('ea_text').value = 'Đổi nội dung này'; getEl('ea_url').value = ''; getEl('ea_deal').value = '';
   run("saveActivity('a1')");
   const a1 = run("S.activities.find(a=>a.id==='a1')");

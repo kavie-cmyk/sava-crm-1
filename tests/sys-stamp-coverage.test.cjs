@@ -171,7 +171,7 @@ test('Việc 4 bổ sung / hiển thị: mọi danh sách CRM có chỉ dấu C�
   assert.ok(row.includes('🕘 ' + dstr), 'hàng lead dạng Block hiện 🕘 + ngày updatedAt dù when rỗng: ' + row);
   const rowNo = h.run(`leadRowHTML(S.leads[1])`);
   assert.ok(rowNo.includes('<td>—</td>'), 'lead chưa có dấu: ô Cập nhật cuối hiện "—": ' + rowNo);
-  assert.ok(!rowNo.includes('01/10/2026'), 'ô Cập nhật cuối KHÔNG được lấy field when (01/10/2026) lấp vào: ' + rowNo);
+  assert.ok(!rowNo.includes('01-10-2026'), 'ô Cập nhật cuối KHÔNG được lấy field when (01-10-2026) lấp vào: ' + rowNo);
   assert.ok(h.run(`leadCardHTML(S.leads[0])`).includes('🕘 ' + dstr), 'thẻ lead trên pipeline hiện chỉ dấu');
   assert.ok(!h.run(`leadCardHTML(S.leads[1])`).includes('🕘'), 'thẻ lead chưa có dấu: không hiện chỉ dấu');
 
@@ -282,7 +282,7 @@ test('Việc 4 / Publishing: BD nộp revision chỉ đổi bdComment (chế đ�
 });
 
 test('Việc 4 bổ sung / Publishing hiển thị: thẻ request ở danh sách hiện 🕘 theo updatedAt; request chưa có dấu thì không hiện chỉ dấu', () => {
-  const expected = new Date(SEED_AT).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const expected = '01-11-2026'; /* dd-mm-yyyy của SEED_AT theo Asia/Ho_Chi_Minh (chuẩn Zac chốt 4/11/2026) */
   const h = loadPublishing('bd', { memberId: 'linh', role: 'bd' }, seedRequest('Chờ đánh giá'));
   h.dispatchClick({ hasAttribute: () => false, dataset: { tab: 'reviews' } });
   const html = h.run(`document.querySelector('#screen').innerHTML`);
