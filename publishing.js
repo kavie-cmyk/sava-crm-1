@@ -992,7 +992,18 @@
     const marketSlice = pubPageSlice(rows, category + '|' + query, marketPagerState);
     const pageRows = marketSlice.pageItems, marketPageInfo = marketSlice.info;
     const visuals=marketVisualsHTML(rows);
-    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Snapshot Puzzle · 15/08/2026</span><span class="badge">Snapshot Simulation · 25/08/2026</span><span class="badge">US · Google Play + iOS</span></div><button class="btn primary" data-action="market-new">+ Thêm quan sát thị trường</button></div>
+    /* Badge snapshot: ngày lấy từ DỮ LIỆU snapshot gốc thật (DATA.records —
+       ngày phổ biến nhất của từng nhóm, hoà thì lấy ngày mới nhất) và format
+       qua pubFmtDate (dd-mm-yyyy), KHÔNG hard-code. Dữ liệu gốc hiện tại:
+       Puzzle 2026-08-15, Simulation 2026-08-25. Chỉ khi dữ liệu không có
+       ngày của nhóm mới rơi về literal dd-mm-yyyy tương ứng. */
+    const snapDateFor = cat => {
+      const counts = {};
+      (DATA.records || []).forEach(r => { if (r && r.category === cat && r.date) { const d = String(r.date); counts[d] = (counts[d] || 0) + 1; } });
+      const ds = Object.keys(counts).sort((a, b) => (counts[b] - counts[a]) || (a < b ? 1 : -1));
+      return ds.length ? pubFmtDate(ds[0]) : (cat === 'Puzzle' ? '15-08-2026' : '25-08-2026');
+    };
+    $('#screen').innerHTML=`<div class="row"><div class="chips"><span class="badge">Snapshot Puzzle · ${esc(snapDateFor('Puzzle'))}</span><span class="badge">Snapshot Simulation · ${esc(snapDateFor('Simulation'))}</span><span class="badge">US · Google Play + iOS</span></div><button class="btn primary" data-action="market-new">+ Thêm quan sát thị trường</button></div>
     <div class="metrics"><div class="metric"><small>Mechanic / nhóm đang xem</small><strong>${rows.length}</strong><span>${category==='all'?'Hai snapshot khác phạm vi':esc(category)}</span></div><div class="metric"><small>Nhóm có benchmark CPI</small><strong>${rows.filter(r=>r.cpi?.median!=null).length}</strong><span>Android · paid installs · May–Jul 2026</span></div><div class="metric"><small>Quyền cập nhật nghiệp vụ</small><strong>BD + MKT</strong><span>Cùng thêm và bổ sung dữ liệu nguồn</span></div></div>
     ${visuals}<section class="panel"><div class="row"><h3>Quy mô, cạnh tranh & tín hiệu tăng trưởng</h3><span class="mut">Chọn mechanic để xem nguồn và benchmark</span></div><div class="tools"><input id="marketSearch" type="search" aria-label="Tìm mechanic" placeholder="Tìm mechanic…" value="${esc(query)}"><select id="category" aria-label="Nhóm thị trường">${options([['Puzzle','Puzzle'],['Simulation','Simulation'],['all','Tất cả nhóm']],category)}</select></div>
     <div class="table-scroll"><table><thead><tr><th>Mechanic / nhóm</th><th>Ngày / phạm vi</th><th class="numeric">DL / ngày</th><th class="numeric">Revenue / ngày</th><th class="numeric">Top 3 rev.</th><th class="numeric">Rev. growth 3M</th><th class="numeric">CPI median</th></tr></thead><tbody>${pageRows.map(r=>`<tr><td><button class="link-button" data-market="${esc(r.id)}">${esc(r.name)}</button><div class="mut">${esc(r.category)}</div></td><td>${esc(pubFmtDate(r.date))}<div class="mut">${esc(r.geo)}</div>${r.at&&pubShortDate(r.at)?`<div class="mut" title="Cập nhật lần cuối">🕘 ${esc(pubShortDate(r.at))}</div>`:''}</td><td class="numeric">${num(r.downloads)}</td><td class="numeric">${usd(r.revenue)}</td><td class="numeric">${pct(r.top3)}</td><td class="numeric">${pct(r.history?.revGrowth3)}</td><td class="numeric">${usd(r.cpi?.median)}</td></tr>`).join('')||'<tr><td colspan="7">Không có mechanic khớp bộ lọc.</td></tr>'}</tbody></table></div>${pubPagerHTML(marketPageInfo, 'mechanic', 'market-page')}

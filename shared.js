@@ -244,6 +244,36 @@ function auditDealStageLabel(entity, v) {
   for (const L of ordered) { const s = L.stages.find(x => x[0] === v); if (s) return s[1]; }
   return String(v);
 }
+/* === Tập field NGÀY cho audit (F2, chuẩn dd-mm-yyyy) ===
+   Tên field dùng chung cho mọi entity (audit ghi/hiển thị dùng chung cả 3
+   trang nên danh sách theo TÊN field, không theo entity):
+   - due: deal (Hạn chốt), request (Hạn đánh giá), task (Hạn — nhãn chữ tự
+     do như "Hôm nay"/"tuần sau": chỉ đổi khi giá trị ĐÚNG dạng ISO, chữ tự
+     do giữ nguyên văn — xem auditDateText);
+   - dueDate: task (Hạn); signed: deal.contract.signed (nằm lồng trong
+     object contract — xử lý ở auditObjectSummary) + field độc lập nếu có;
+   - when: lead + activity (Thời gian; dữ liệu cũ có thể là chữ tự do);
+   - date / endDate: event (Ngày diễn ra / Ngày kết thúc);
+   - requestedAt: request (mốc thời gian ISO datetime);
+   - reviewDate: company.partnerEval.reviewDate (lồng trong object
+     partnerEval — xử lý ở auditObjectSummary).
+   startDate / eventDate KHÔNG tồn tại trong code hiện tại — vẫn đưa vào
+   tập để field ngày tương lai mang đúng tên chuẩn thì được áp ngay. */
+const AUDIT_DATE_FIELDS = new Set(["due", "dueDate", "signed", "when", "date", "endDate", "startDate", "eventDate", "requestedAt", "reviewDate"]);
+/* Đổi 1 giá trị ngày ISO sang dd-mm-yyyy để GHI vào audit:
+   - yyyy-mm-dd -> dd-mm-yyyy; ISO datetime -> dd-mm-yyyy hh:mm
+     (qua fmtSysTime, Asia/Ho_Chi_Minh — 2 helper khai báo ở dưới, được
+     hoist nên gọi từ đây an toàn);
+   - giá trị ĐÃ là dd-mm-yyyy -> giữ nguyên (idempotent, không format 2 lần);
+   - không phải ngày ISO (chữ tự do, ngày không đọc được) -> null để caller
+     giữ nguyên văn. */
+function auditDateText(v) {
+  if (typeof v !== "string" || !v) return null;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(v)) return v;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { const dmy = fmtDateDMY(v); return dmy || null; }
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(v)) { const t = fmtSysTime(v); return (t && t !== "—" && t !== v) ? t : null; }
+  return null;
+}
 function auditPrimitiveText(v) { return typeof v === "boolean" ? (v ? "Có" : "Không") : String(v); }
 /* Object/array KHÔNG dump JSON nữa: tóm tắt dễ đọc — liệt kê các cặp
    key: giá trị ở mức NÔNG khi toàn giá trị nguyên thuỷ và đủ ngắn (vd term
@@ -262,7 +292,10 @@ function auditObjectSummary(field, v) {
   keys.forEach(k => {
     const val = v[k];
     if (val === null || val === "" || typeof val === "object") return;
-    parts.push(k + ": " + auditPrimitiveText(val));
+    /* Sub-key ngày lồng trong object (contract.signed, partnerEval.reviewDate)
+       cũng phải ghi dạng dd-mm-yyyy, không lộ ISO trong chuỗi tóm tắt. */
+    const dateTxt = AUDIT_DATE_FIELDS.has(k) ? auditDateText(val) : null;
+    parts.push(k + ": " + (dateTxt !== null ? dateTxt : auditPrimitiveText(val)));
   });
   const joined = parts.join("; ");
   if (parts.length && joined.length <= 120) return joined;
@@ -271,6 +304,12 @@ function auditObjectSummary(field, v) {
 function auditValue(state, entityType, entity, field, v) {
   if (v === undefined || v === null || v === "") return "";
   if (field === "expectations") return ""; /* chốt bảo mật C3: không đường nào ghi giá trị này vào audit */
+  /* F2 lớp ghi: field ngày ghi vào audit ở dạng dd-mm-yyyy ngay từ đầu để
+     mục audit MỚI nhất quán (mục cũ đã ghi ISO được lớp hiển thị ở audit.js
+     cứu khi render). Giá trị chữ tự do (vd task.due "Hôm nay", lead.when
+     dữ liệu cũ) không phải ISO -> auditDateText trả null -> rơi xuống
+     đường String(v) nguyên văn ở cuối như cũ. */
+  if (AUDIT_DATE_FIELDS.has(field)) { const d = auditDateText(v); if (d !== null) return d; }
   const refs = REF_FIELDS[entityType] || {};
   if (refs[field]) {
     if (Array.isArray(v)) return v.map(x => resolveRefLabel(state, refs[field], x, entityType, entity)).join(", ");
@@ -433,7 +472,7 @@ function fmtSysTime(v) {
   return date + " " + o.hour + ":" + o.minute;
 }
 if (typeof window !== "undefined") {
-  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, updatedByLabel, fmtSysTime, fmtDateDMY, isoToDMY, parseDMYtoISO, cloneForDiff };
+  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, auditDateFields: [...AUDIT_DATE_FIELDS], auditDateText, updatedByLabel, fmtSysTime, fmtDateDMY, isoToDMY, parseDMYtoISO, cloneForDiff };
 }
 /* === Sắp xếp danh sách (Việc 6) — window.SavaSort: logic THUẦN dùng chung ===
    Một cơ chế sort DUY NHẤT cho mọi danh sách của app BD (index.html) và

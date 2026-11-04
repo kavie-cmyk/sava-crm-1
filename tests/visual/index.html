@@ -2047,8 +2047,8 @@ function openEventForm(id) {
     <div style="margin-bottom:8px">${typeBadgeHTML("event")}</div>
     ${field("Tên sự kiện", txt("e_evname", ev ? ev.name : ""))}
     ${field("Trạng thái", statusSel)}
-    ${field("Ngày bắt đầu", txt("e_evdate", ev ? dateInputDisplay(ev.date) : "", "VD: 15-11-2026"))}
-    ${field("Ngày kết thúc", txt("e_evenddate", ev ? dateInputDisplay(ev.endDate || ev.date || "") : "", "Để trống = cùng ngày bắt đầu"))}
+    ${field("Ngày bắt đầu", txt("e_evdate", ev ? dateInputDisplay(ev.date) : "", "VD: 15-11-2026 (dd-mm-yyyy)"))}
+    ${field("Ngày kết thúc", txt("e_evenddate", ev ? dateInputDisplay(ev.endDate || ev.date || "") : "", "Để trống = cùng ngày bắt đầu (dd-mm-yyyy)"))}
     ${field("Địa điểm", txt("e_evlocation", ev ? ev.location : ""))}
     ${field("Link sự kiện", txt("e_evurl", ev ? (ev.eventUrl || "") : "", "https://…"))}
     ${field("Mảng liên quan (không bắt buộc)", lineSel)}

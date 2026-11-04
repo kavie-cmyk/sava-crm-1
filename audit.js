@@ -64,6 +64,42 @@
     return `<div class="sys-meta" style="color:var(--mut,#64748b);font-size:12.5px;margin:8px 0">Tạo: ${escHtml(created)} · Cập nhật lần cuối: ${escHtml(updated)} bởi ${escHtml(by)}</div>`;
   }
   const ACTION_LABELS = { create: 'Đã tạo mới', update: 'Đã cập nhật', delete: 'Đã xoá' };
+  /* === F2 lớp HIỂN THỊ: giá trị ngày trong mục lịch sử ===
+     Mục audit CŨ đã ghi trên server mang from/to dạng ISO (yyyy-mm-dd /
+     datetime ISO) — dữ liệu cũ KHÔNG sửa, lớp hiển thị này chuyển khi
+     render, áp cho cả drawer Lịch sử chỉnh sửa lẫn Lịch sử tổng (cả hai
+     dùng chung entryHTML này). Tập field ngày: ưu tiên danh sách dùng
+     chung từ shared.js (SavaSys.auditDateFields — nguồn sự thật duy
+     nhất); khi shared.js chưa nạp / chạy độc lập (test) thì dùng bản
+     dự phòng khớp hệt bên dưới. Idempotent: giá trị đã dd-mm-yyyy giữ
+     nguyên; chữ tự do / không phải ngày giữ nguyên văn. */
+  const AUDIT_DATE_FIELDS_FALLBACK = ['due', 'dueDate', 'signed', 'when', 'date', 'endDate', 'startDate', 'eventDate', 'requestedAt', 'reviewDate'];
+  function auditDateFieldSet() {
+    const S = sysApi();
+    if (S && Array.isArray(S.auditDateFields) && S.auditDateFields.length) return new Set(S.auditDateFields);
+    return new Set(AUDIT_DATE_FIELDS_FALLBACK);
+  }
+  /* Chuỗi nguyên là 1 ngày ISO (hoặc đã dd-mm-yyyy) -> dd-mm-yyyy
+     (+ hh:mm với datetime, qua fmtTime như mốc thời gian của mục);
+     không khớp trọn chuỗi -> null (giữ nguyên văn). */
+  function pureDateText(s) {
+    if (/^\d{2}-\d{2}-\d{4}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtTime(s);
+    if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s)) { const t = fmtTime(s); return t !== s ? t : null; }
+    return null;
+  }
+  function fmtAuditChangeValue(field, v) {
+    const s = String(v ?? '');
+    if (!s) return s;
+    const fields = auditDateFieldSet();
+    const base = String(field || '').split('.').pop();
+    if (fields.has(base)) { const d = pureDateText(s); return d !== null ? d : s; }
+    /* Chuỗi tóm tắt object CŨ (vd field contract ghi "signed: 2026-10-15; …"
+       / partnerEval ghi "reviewDate: …"): chỉ đổi đúng đoạn "<sub-key ngày>:
+       <ISO>" của các sub-key ngày đã biết, phần chữ còn lại giữ nguyên. */
+    return s.replace(/(^|[;,\n]\s*)([A-Za-z]+):\s*(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?)/g,
+      (m, pre, key, iso) => fields.has(key) ? pre + key + ': ' + (pureDateText(iso) ?? iso) : m);
+  }
   function truncVal(v, max) {
     const s = String(v ?? '');
     const m = max || 120;
@@ -74,7 +110,7 @@
   function entryHTML(state, row) {
     const changes = Array.isArray(row.changes) ? row.changes : [];
     const list = changes.length
-      ? `<ul style="margin:4px 0 0;padding-left:18px;font-size:12.5px">${changes.map(c => `<li>${escHtml(c.label || c.field || '')}: ${escHtml(truncVal(c.from) || '—')} → ${escHtml(truncVal(c.to) || '—')}</li>`).join('')}</ul>`
+      ? `<ul style="margin:4px 0 0;padding-left:18px;font-size:12.5px">${changes.map(c => `<li>${escHtml(c.label || c.field || '')}: ${escHtml(truncVal(fmtAuditChangeValue(c.field, c.from)) || '—')} → ${escHtml(truncVal(fmtAuditChangeValue(c.field, c.to)) || '—')}</li>`).join('')}</ul>`
       : '';
     return `<div class="audit-entry" style="border-left:2px solid var(--line,#e2e8f0);padding:2px 0 8px 10px;margin:0 0 6px 4px"><div style="font-size:13px"><b>${escHtml(ACTION_LABELS[row.action] || row.action || '')}</b> · ${escHtml(fmtTime(row.at))} · bởi ${escHtml(byLabel(state, row.byMemberId))}</div>${list}</div>`;
   }
@@ -136,7 +172,7 @@
       } catch (e2) {}
     }
   }
-  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, byLabel, ACTION_LABELS, goPage };
+  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, fmtAuditChangeValue, byLabel, ACTION_LABELS, goPage };
   if (typeof window !== 'undefined') window.SavaAuditUI = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
