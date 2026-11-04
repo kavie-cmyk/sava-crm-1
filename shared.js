@@ -446,17 +446,26 @@ function fmtDateDMY(v) {
 }
 function isoToDMY(v) { return fmtDateDMY(v); }
 /* Parse chuỗi người dùng nhập dd-mm-yyyy -> ISO yyyy-mm-dd để LƯU.
-   Trả { ok:true, iso:"" } khi để trống; { ok:false } khi sai định dạng
-   hoặc ngày không tồn tại (vd 31-02-2026) — caller phải chặn lưu. */
+   Chấp nhận THÊM dạng nhập nhanh ddmmyyyy (đúng 8 chữ số liền, vd
+   04112026 = 04-11-2026) — Zac chốt 4/11/2026. Trả { ok:true, iso:"" }
+   khi để trống; { ok:false } khi sai định dạng hoặc ngày không tồn
+   tại (vd 31-02-2026, 31022026, 29022026) — caller phải chặn lưu. */
 function parseDMYtoISO(v) {
   const s = String(v == null ? "" : v).trim();
   if (!s) return { ok: true, iso: "" };
-  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s) || /^(\d{2})(\d{2})(\d{4})$/.exec(s);
   if (!m) return { ok: false, iso: "" };
   const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
   const dt = new Date(y, mo - 1, d);
   if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return { ok: false, iso: "" };
   return { ok: true, iso: m[3] + "-" + m[2] + "-" + m[1] };
+}
+/* Chuẩn hoá HIỂN THỊ của 1 ô nhập ngày: giá trị hợp lệ (dd-mm-yyyy
+   hoặc ddmmyyyy) -> dd-mm-yyyy; trống / sai -> null (giữ nguyên văn
+   trong ô để người dùng sửa và để validation khi lưu báo lỗi). */
+function normalizeDMYInput(v) {
+  const pr = parseDMYtoISO(v);
+  return pr.ok && pr.iso ? isoToDMY(pr.iso) : null;
 }
 function fmtSysTime(v) {
   if (!v) return "—";
@@ -472,7 +481,7 @@ function fmtSysTime(v) {
   return date + " " + o.hour + ":" + o.minute;
 }
 if (typeof window !== "undefined") {
-  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, auditDateFields: [...AUDIT_DATE_FIELDS], auditDateText, updatedByLabel, fmtSysTime, fmtDateDMY, isoToDMY, parseDMYtoISO, cloneForDiff };
+  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, auditDateFields: [...AUDIT_DATE_FIELDS], auditDateText, updatedByLabel, fmtSysTime, fmtDateDMY, isoToDMY, parseDMYtoISO, normalizeDMYInput, cloneForDiff };
 }
 /* === Sắp xếp danh sách (Việc 6) — window.SavaSort: logic THUẦN dùng chung ===
    Một cơ chế sort DUY NHẤT cho mọi danh sách của app BD (index.html) và

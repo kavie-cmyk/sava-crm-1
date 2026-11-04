@@ -107,6 +107,47 @@ test('index helpers: sysShortDate / fmtWhen / fmtStamp / eventDateRangeText đ�
   assert.equal(h.run("isoToDMY('2026-11-05')"), '05-11-2026');
 });
 
+test('nhập nhanh ddmmyyyy: parser shared + index chấp nhận 8 số liền, validate ngày thật, normalize về dd-mm-yyyy', () => {
+  const S = loadShared();
+  assert.deepEqual({ ...S.parseDMYtoISO('04112026') }, { ok: true, iso: '2026-11-04' }, '04112026 = 04-11-2026');
+  assert.deepEqual({ ...S.parseDMYtoISO('29022028') }, { ok: true, iso: '2028-02-29' }, '29-02 năm nhuận dạng 8 số vẫn qua');
+  for (const bad of ['31022026', '29022026', '04132026', '00012026', '0411202', '041120266', '04-11/2026', '20261104']) {
+    assert.equal(S.parseDMYtoISO(bad).ok, false, 'phải chặn: ' + bad);
+  }
+  assert.equal(S.normalizeDMYInput('04112026'), '04-11-2026', 'normalize 8 số -> dd-mm-yyyy');
+  assert.equal(S.normalizeDMYInput('05-11-2026'), '05-11-2026', 'dd-mm-yyyy giữ nguyên (idempotent)');
+  assert.equal(S.normalizeDMYInput('31022026'), null, 'ngày không tồn tại -> không normalize');
+  assert.equal(S.normalizeDMYInput(''), null, 'trống -> không normalize');
+  const h = loadIndex();
+  assert.equal(h.run("parseDMYtoISO('04112026').iso"), '2026-11-04', 'index inline parser cùng kết quả shared');
+  assert.equal(h.run("parseDMYtoISO('31022026').ok"), false);
+  assert.equal(h.run("normalizeDMYInput('04112026')"), '04-11-2026');
+  assert.equal(h.run("(()=>{const el={tagName:'INPUT',placeholder:'dd-mm-yyyy',value:'04112026'};const r=normalizeDateInputEl(el);return r+':'+el.value})()"), 'true:04-11-2026', 'blur: ô 8 số hợp lệ tự về dd-mm-yyyy');
+  assert.equal(h.run("(()=>{const el={tagName:'INPUT',placeholder:'dd-mm-yyyy',value:'31022026'};const r=normalizeDateInputEl(el);return r+':'+el.value})()"), 'false:31022026', 'blur: ô sai giữ nguyên văn để sửa/báo lỗi khi lưu');
+  assert.equal(h.run("(()=>{const el={tagName:'INPUT',placeholder:'Tên',value:'04112026'};return normalizeDateInputEl(el)})()"), false, 'ô không phải ô ngày không bị đụng');
+  /* Tĩnh: blur dùng chung (delegation qua placeholder) ở cả 2 phía + publishing parser có nhánh 8 số */
+  const idx = read('index.html');
+  assert.ok(idx.includes('function initDateInputs()') && idx.includes('initDateInputs();'), 'index phải gắn initDateInputs ở boot');
+  assert.ok(idx.includes('addEventListener("focusout"') && idx.includes('normalizeDateInputEl(e.target)'), 'index phải chuẩn hoá ô ngày khi blur');
+  const pub = read('publishing.js');
+  assert.ok(/pubParseDMY[\s\S]{0,600}\^\(\\d\{2\}\)\(\\d\{2\}\)\(\\d\{4\}\)/.test(pub) || pub.includes('/^(\\d{2})(\\d{2})(\\d{4})$/'), 'publishing pubParseDMY phải có nhánh ddmmyyyy');
+  assert.ok(pub.includes('pubNormalizeDateInputEl') && pub.includes("'focusout'"), 'publishing phải chuẩn hoá ô ngày khi blur');
+});
+
+test('form việc: nhập 04112026 lưu ISO 2026-11-04 + ô tự về 04-11-2026; 8 số sai bị chặn', () => {
+  const h = loadIndex();
+  h.run("editTask('t1')");
+  const fill = due => { h.getEl('e_ttitle').value = 'Việc mới'; h.getEl('e_tassignee').value = 'zac'; h.getEl('e_tdueDate').value = due; h.getEl('e_tdone').checked = false; h.getEl('e_tlink').value = ''; };
+  for (const bad of ['31022026', '29022026', '04132026']) {
+    fill(bad); h.run('saveTask(null)');
+    assert.equal(h.run('S.tasks.length'), 1, 'phải chặn lưu: ' + bad);
+  }
+  fill('04112026'); h.run('saveTask(null)');
+  assert.equal(h.run('S.tasks.length'), 2, 'ddmmyyyy hợp lệ -> tạo việc');
+  assert.equal(h.run("S.tasks[S.tasks.length-1].dueDate"), '2026-11-04', 'dữ liệu LƯU vẫn ISO đúng ngày đã nhập');
+  assert.equal(h.getEl('e_tdueDate').value, '04-11-2026', 'trước khi lưu xong ô đã tự hiển thị lại dd-mm-yyyy (readDateInput chuẩn hoá)');
+});
+
 test('form việc: mở form hiện dd-mm-yyyy; nhập sai bị chặn không tạo việc; nhập đúng lưu ISO', () => {
   const h = loadIndex();
   h.run("editTask('t1')");

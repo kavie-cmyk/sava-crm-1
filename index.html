@@ -565,12 +565,30 @@ function isoToDMY(v) { return fmtDateDMY(v); }
 function parseDMYtoISO(v) {
   const s = String(v == null ? "" : v).trim();
   if (!s) return { ok: true, iso: "" };
-  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+  /* dd-mm-yyyy hoặc nhập nhanh ddmmyyyy (8 chữ số liền, vd 04112026) */
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s) || /^(\d{2})(\d{2})(\d{4})$/.exec(s);
   if (!m) return { ok: false, iso: "" };
   const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
   const dt = new Date(y, mo - 1, d);
   if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return { ok: false, iso: "" };
   return { ok: true, iso: m[3] + "-" + m[2] + "-" + m[1] };
+}
+/* Chuẩn hoá HIỂN THỊ của 1 ô nhập ngày: hợp lệ (dd-mm-yyyy hoặc
+   ddmmyyyy) -> dd-mm-yyyy; trống / sai -> null (giữ nguyên văn). */
+function normalizeDMYInput(v) {
+  const pr = parseDMYtoISO(v);
+  return pr.ok && pr.iso ? isoToDMY(pr.iso) : null;
+}
+/* Ô nhập ngày = input mà placeholder nhắc dd-mm-yyyy (mọi ô ngày của
+   CRM đều dựng theo chuẩn đó). Dùng cho blur dùng chung bên dưới. */
+function isDateInputEl(el) {
+  return !!(el && el.tagName === "INPUT" && String(el.placeholder || "").includes("dd-mm-yyyy"));
+}
+function normalizeDateInputEl(el) {
+  if (!isDateInputEl(el)) return false;
+  const n = normalizeDMYInput(el.value);
+  if (n !== null && n !== el.value) { el.value = n; return true; }
+  return false;
 }
 /* Đọc 1 ô nhập ngày dạng text dd-mm-yyyy trong form: trống -> "" (caller
    giữ hành vi cũ theo từng field); giá trị GIỮ NGUYÊN so với dữ liệu đã
@@ -578,12 +596,28 @@ function parseDMYtoISO(v) {
    dd-mm-yyyy hợp lệ, sai thì toast rõ ràng + { ok:false } để caller
    CHẶN lưu trước khi mutate. */
 function readDateInput(elId, existingRaw, label) {
-  const raw = (document.getElementById(elId)?.value || "").trim();
+  const el = document.getElementById(elId);
+  const raw = (el?.value || "").trim();
   if (!raw) return { ok: true, value: "" };
   if (existingRaw && raw === String(existingRaw)) return { ok: true, value: raw };
   const pr = parseDMYtoISO(raw);
   if (!pr.ok) { toast(label + " phải theo định dạng dd-mm-yyyy (vd 05-11-2026) và là ngày có thật — hãy kiểm tra lại"); return { ok: false, value: "" }; }
+  /* Trước khi lưu: ô tự trả về hiển thị dd-mm-yyyy (kể cả khi blur
+     chưa kịp chạy, vd bấm Enter) — giá trị LƯU vẫn là ISO ở dưới. */
+  try { if (el) { const n = isoToDMY(pr.iso); if (n && el.value !== n) el.value = n; } } catch (e) {}
   return { ok: true, value: pr.iso };
+}
+/* Blur dùng chung cho MỌI ô nhập ngày (nhận diện qua placeholder
+   dd-mm-yyyy): rời ô mà giá trị là ddmmyyyy hợp lệ -> tự hiển thị
+   lại thành dd-mm-yyyy. Đăng ký 1 lần bằng delegation nên sống qua
+   mọi lần dựng lại form; guard để harness test không có DOM thật
+   không bị ảnh hưởng. */
+function initDateInputs() {
+  try {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function" || document.__dateInputsReady) return;
+    document.__dateInputsReady = true;
+    document.addEventListener("focusout", e => { try { normalizeDateInputEl(e.target); } catch (err) {} });
+  } catch (e) {}
 }
 /* Giá trị HIỂN THỊ cho ô nhập ngày: ISO hợp lệ -> dd-mm-yyyy; chữ cũ
    giữ nguyên văn để cơ chế (dữ liệu cũ) không bị phá. */
@@ -6276,6 +6310,7 @@ function deleteActivity(id) {
 
 render();
 initCombos();
+initDateInputs();
 initTypeahead();
 /* Boot mở-nhanh (supabase-auth.js): khi kiểm chứng ngầm tải được dữ
    liệu MỚI từ Supabase về cache, auth gọi hook này để app nạp lại state

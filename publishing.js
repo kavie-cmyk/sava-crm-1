@@ -81,17 +81,39 @@
      chữ khác giữ nguyên văn (không phá dữ liệu nguồn). */
   const pubFmtDate = v => { if (!v) return ''; const dmy = pubDateDMY(v); return dmy || String(v); };
   /* Parse ô nhập dd-mm-yyyy -> ISO yyyy-mm-dd để lưu; trống -> '';
-     sai định dạng / ngày không tồn tại -> null (caller chặn lưu). */
+     sai định dạng / ngày không tồn tại -> null (caller chặn lưu).
+     Chấp nhận THÊM dạng nhập nhanh ddmmyyyy (đúng 8 chữ số liền, vd
+     04112026 = 04-11-2026) — Zac chốt 4/11/2026. */
   const pubParseDMY = v => {
     const s = String(v == null ? '' : v).trim();
     if (!s) return '';
-    const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+    const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s) || /^(\d{2})(\d{2})(\d{4})$/.exec(s);
     if (!m) return null;
     const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
     const dt = new Date(y, mo - 1, d);
     if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
     return m[3] + '-' + m[2] + '-' + m[1];
   };
+  /* Chuẩn hoá HIỂN THỊ của 1 ô nhập ngày: hợp lệ (dd-mm-yyyy hoặc
+     ddmmyyyy) -> dd-mm-yyyy; trống / sai -> giữ nguyên văn. Ô ngày ở
+     Publishing nhận diện qua placeholder dd-mm-yyyy (cả 3 ô đều có). */
+  const pubNormalizeDateInputEl = el => {
+    if (!el || el.tagName !== 'INPUT' || !String(el.placeholder || '').includes('dd-mm-yyyy')) return false;
+    const iso = pubParseDMY(el.value);
+    if (!iso) return false;
+    const n = pubFmtDate(iso);
+    if (n && el.value !== n) { el.value = n; return true; }
+    return false;
+  };
+  try {
+    document.addEventListener('focusout', e => { try { pubNormalizeDateInputEl(e.target); } catch (err) {} });
+    /* Capture submit: chạy TRƯỚC handler lưu (bubble) nên kể cả khi
+       bấm Enter không qua blur, ô ddmmyyyy vẫn về dd-mm-yyyy trước
+       khi FormData được đọc. */
+    document.addEventListener('submit', e => {
+      try { e.target.querySelectorAll?.('input[placeholder*="dd-mm-yyyy"]').forEach(pubNormalizeDateInputEl); } catch (err) {}
+    }, true);
+  } catch (e) {}
   const stamp = v => {
     if (!v) return '';
     const s = String(v);
