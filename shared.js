@@ -142,9 +142,17 @@ const COMPANY_PROFILE_FIELDS = [
   { key: "priority", label: "Mức ưu tiên (Priority)", type: "text" },
 ];
 if (typeof window !== "undefined") { window.COMPANY_PROFILE_FIELDS = COMPANY_PROFILE_FIELDS; window.CompanyProfileFields = COMPANY_PROFILE_FIELDS; }
+/* Đa-link LinkedIn công ty (đợt 2026-11-04, Zac chốt "giữ đủ link"): một số
+   công ty có NHIỀU trang LinkedIn công ty khác nhau. Mảng đầy đủ nằm ở key
+   phụ "linkedinUrls" trên object công ty (đi qua legacy_extra như các key
+   hồ sơ — KHÔNG nằm trong COMPANY_PROFILE_FIELDS và KHÔNG vào
+   COMPANY_KNOWN); "linkedinUrl" luôn = phần tử ĐẦU của mảng để mọi bề mặt
+   chỉ đọc 1 link (dedupe, typeahead, import) giữ nguyên hành vi. Khối hồ sơ
+   ở drawer (index.html) liệt kê + bấm được từng link khi mảng có >1 phần
+   tử; công ty chỉ có 1 link không có key này và hiển thị như cũ. */
 const FIELD_LABELS = {
   deal: { title: "Tiêu đề", line: "Mảng", stage: "Giai đoạn", owner: "Người phụ trách", company: "Công ty", game: "Game", due: "Hạn chốt", amount: "Giá trị", cur: "Tiền tệ", vertical: "Phân khúc ngành", leads: "Lead gắn kèm", custom: "Thông tin riêng theo mảng", term: "Điều khoản (Term)", contract: "Hợp đồng", idle: "Số ngày chưa cập nhật", activity: "Hoạt động" },
-  company: { name: "Tên công ty", type: "Loại hình", roles: "Vai trò theo mảng", last: "Tương tác cuối", partnerEval: "Đánh giá Partner (legacy)", partnerEvalMigrated: "Cờ chuyển dữ liệu Partner", location: "Địa điểm", establishedYear: "Năm thành lập", size: "Quy mô", employees: "Số nhân sự", industry: "Ngành", website: "Website", linkedinUrl: "LinkedIn công ty", parentCompany: "Công ty mẹ / Nhà đầu tư", parentWebsite: "Website công ty mẹ", suborgCount: "Số tổ chức con", suborgDomains: "Domain tổ chức con", suborgNames: "Tên tổ chức con", buyingSignals: "Tín hiệu mua (Buying Signals)", vertical: "Ngành dọc", savaOffering: "SAVA Offering", bizModel: "Mô hình kinh doanh (Biz Model)", priority: "Mức ưu tiên (Priority)" },
+  company: { name: "Tên công ty", type: "Loại hình", roles: "Vai trò theo mảng", last: "Tương tác cuối", partnerEval: "Đánh giá Partner (legacy)", partnerEvalMigrated: "Cờ chuyển dữ liệu Partner", location: "Địa điểm", establishedYear: "Năm thành lập", size: "Quy mô", employees: "Số nhân sự", industry: "Ngành", website: "Website", linkedinUrl: "LinkedIn công ty", linkedinUrls: "LinkedIn công ty (nhiều link)", parentCompany: "Công ty mẹ / Nhà đầu tư", parentWebsite: "Website công ty mẹ", suborgCount: "Số tổ chức con", suborgDomains: "Domain tổ chức con", suborgNames: "Tên tổ chức con", buyingSignals: "Tín hiệu mua (Buying Signals)", vertical: "Ngành dọc", savaOffering: "SAVA Offering", bizModel: "Mô hình kinh doanh (Biz Model)", priority: "Mức ưu tiên (Priority)" },
   lead: { name: "Tên lead", company: "Công ty", person: "Position", phone: "Điện thoại", email: "Email", linkedinUrl: "LinkedIn cá nhân", ownerId: "Người phụ trách", line: "Mảng", source: "Nguồn", status: "Trạng thái", note: "Ghi chú", when: "Thời điểm", mainContact: "Đầu mối chính", activity: "Hoạt động" },
   game: { title: "Tên game", own: "Loại game", company: "Studio sở hữu", genre: "Genre", platform: "Nền tảng", stage: "Giai đoạn phát triển", emoji: "Emoji", desc: "Mô tả", bdNote: "Ghi chú BD", buildUrl: "Link build", trailerUrl: "Link trailer", scores: "Điểm BD /10 (lưu trữ)", verdict: "Kết luận BD (lưu trữ)", mktEval: "Đánh giá MKT /10 (lưu trữ)", activity: "Hoạt động" },
   task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },

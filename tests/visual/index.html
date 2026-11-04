@@ -3580,7 +3580,12 @@ function companyProfileInputHTML(f, prefix, c) {
      dưới ô Website / LinkedIn hồ sơ; khối hồ sơ trong drawer (cp_) không có. */
   const taBox = prefix === "e_cp_" && f.key === "website" ? `<div class="ta-box" id="ta_company_website" data-ta-box="1"></div>`
     : prefix === "e_cp_" && f.key === "linkedinUrl" ? `<div class="ta-box" id="ta_company_linkedin" data-ta-box="1"></div>` : "";
-  return `<input id="${prefix}${f.key}" style="width:100%" value="${esc(val)}"${dedupeHook}>${taBox}`;
+  /* Đa-link LinkedIn: ô sửa chỉ chứa link CHÍNH (linkedinUrl = phần tử đầu
+     của linkedinUrls); báo rõ các link còn lại đang được giữ nguyên khi lưu
+     để người sửa không tưởng chúng bị mất (đồng bộ ở applyCompanyProfile). */
+  const multiNote = f.key === "linkedinUrl" && c && Array.isArray(c.linkedinUrls) && c.linkedinUrls.length > 1
+    ? `<div class="mut" style="margin-top:4px">Công ty có ${c.linkedinUrls.length} link LinkedIn — ô này là link chính; các link còn lại được giữ nguyên khi lưu: ${c.linkedinUrls.slice(1).map(u => esc(String(u))).join(", ")}</div>` : "";
+  return `<input id="${prefix}${f.key}" style="width:100%" value="${esc(val)}"${dedupeHook}>${taBox}${multiNote}`;
 }
 /* Mục "Hồ sơ công ty" trong FORM công ty (editCompany): cả 17 field,
    dựng từ cùng COMPANY_PROFILE_FIELDS + cùng helper ô nhập như drawer. */
@@ -3604,6 +3609,15 @@ function applyCompanyProfile(c, values) {
     const val = values[f.key] === undefined || values[f.key] === null ? "" : String(values[f.key]).trim();
     if (val) c[f.key] = val; else delete c[f.key];
   });
+  /* Đa-link LinkedIn (key phụ linkedinUrls qua legacy_extra — xem shared.js):
+     ô sửa chỉ mang link chính nên đồng bộ mảng theo link chính sau khi ghi —
+     link chính đổi -> thay phần tử đầu, các link phụ giữ nguyên (khử trùng);
+     xoá trắng link chính -> xoá cả mảng. Công ty không có mảng này (chỉ 1
+     link) không bị đụng. */
+  if (Array.isArray(c.linkedinUrls)) {
+    if (!c.linkedinUrl) delete c.linkedinUrls;
+    else c.linkedinUrls = [c.linkedinUrl].concat(c.linkedinUrls.slice(1).filter(u => String(u) !== c.linkedinUrl));
+  }
 }
 function companyProfileBlockHTML(c) {
   if (companyProfileEditId === c.id) {
@@ -3618,7 +3632,14 @@ function companyProfileBlockHTML(c) {
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="persistCompanyProfile('${c.id}')">💾 Lưu hồ sơ</button><button class="btn ghost" onclick="cancelCompanyProfileEdit('${c.id}')">Hủy</button></div>`;
   }
   const filled = COMPANY_PROFILE_FIELDS.filter(f => c[f.key] !== undefined && c[f.key] !== null && String(c[f.key]).trim() !== "");
-  const rows = filled.map(f => `<div class="k">${esc(f.label)}</div><div>${esc(String(c[f.key]))}</div>`).join("");
+  /* Đa-link LinkedIn: khi linkedinUrls có >1 phần tử, dòng "LinkedIn công ty"
+     liệt kê TỪNG link dạng bấm được (extLinkHTML như link build/trailer);
+     đúng 1 link (hoặc không có mảng) -> giữ nguyên hiển thị chữ như cũ. */
+  const rows = filled.map(f => {
+    if (f.key === "linkedinUrl" && Array.isArray(c.linkedinUrls) && c.linkedinUrls.length > 1)
+      return `<div class="k">${esc(f.label)}</div><div>${c.linkedinUrls.map(u => extLinkHTML(u)).join("<br>")}</div>`;
+    return `<div class="k">${esc(f.label)}</div><div>${esc(String(c[f.key]))}</div>`;
+  }).join("");
   return `<h3 style="margin:16px 0 4px">🏢 Hồ sơ công ty</h3>
     ${filled.length ? `<div class="kv">${rows}</div>` : '<div class="mut" style="margin-bottom:8px">Chưa có thông tin hồ sơ — bấm Sửa hồ sơ để bổ sung.</div>'}
     <button class="btn" onclick="startCompanyProfileEdit('${c.id}')">✏️ Sửa hồ sơ</button>`;
