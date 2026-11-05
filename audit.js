@@ -105,10 +105,34 @@
     const m = max || 120;
     return s.length > m ? s.slice(0, m) + '…' : s;
   }
+  /* === Mục TỔNG của lô (Import/Gỡ lô, gộp audit 05/11/2026) ===
+     Dòng tổng mang entityId = mã lô và changes là mảng 1 phần tử có cờ
+     batch:true + importBatch + count + ids (+ records đầy đủ khi là
+     dòng delete của gỡ lô — payload khôi phục, KHÔNG render ra đây).
+     Nhận diện + trích thông tin lô dùng chung cho entryHTML ở dưới và
+     tiêu đề dòng ở Lịch sử tổng (index.html tự đọc cùng cấu trúc). */
+  const BATCH_TYPE_LABELS = { deal: 'Deal', company: 'Công ty', lead: 'Lead', game: 'Game', task: 'Việc', member: 'Thành viên', activity: 'Hoạt động', event: 'Sự kiện', request: 'Yêu cầu đánh giá' };
+  function batchChangeOf(row) {
+    const changes = row && Array.isArray(row.changes) ? row.changes : [];
+    return changes.find(c => c && c.batch === true) || null;
+  }
+  function batchInfo(row) {
+    const c = batchChangeOf(row);
+    if (!c) return null;
+    return { marker: String(c.importBatch || c.batchMarker || (row && row.entityId) || ''), count: (typeof c.count === 'number' ? c.count : (Array.isArray(c.ids) ? c.ids.length : 0)), ids: Array.isArray(c.ids) ? c.ids.slice() : [], mode: c.mode || (row && row.action === 'delete' ? 'remove' : 'import') };
+  }
   /* 1 mục lịch sử: ai, lúc nào, hành động + từng thay đổi "nhãn: cũ → mới".
      KHÔNG có bất kỳ nút sửa/xoá nào trong mục lịch sử. */
   function entryHTML(state, row) {
     const changes = Array.isArray(row.changes) ? row.changes : [];
+    const batch = batchInfo(row);
+    if (batch) {
+      const typeLabel = BATCH_TYPE_LABELS[row.entityType] || row.entityType || '';
+      const txt = row.action === 'delete'
+        ? `Gỡ lô “${batch.marker}” — đã xoá ${batch.count} ${typeLabel} (nội dung đầy đủ của từng bản ghi đã lưu kèm trong mục này để khôi phục)`
+        : `Lô “${batch.marker}” — đã tạo ${batch.count} ${typeLabel}`;
+      return `<div class="audit-entry audit-entry--batch" style="border-left:2px solid var(--line,#e2e8f0);padding:2px 0 8px 10px;margin:0 0 6px 4px"><div style="font-size:13px"><b>${escHtml(ACTION_LABELS[row.action] || row.action || '')}</b> · ${escHtml(fmtTime(row.at))} · bởi ${escHtml(byLabel(state, row.byMemberId))}</div><div style="font-size:12.5px;margin-top:2px">📦 ${escHtml(txt)}</div></div>`;
+    }
     const list = changes.length
       ? `<ul style="margin:4px 0 0;padding-left:18px;font-size:12.5px">${changes.map(c => `<li>${escHtml(c.label || c.field || '')}: ${escHtml(truncVal(fmtAuditChangeValue(c.field, c.from)) || '—')} → ${escHtml(truncVal(fmtAuditChangeValue(c.field, c.to)) || '—')}</li>`).join('')}</ul>`
       : '';
@@ -172,7 +196,7 @@
       } catch (e2) {}
     }
   }
-  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, fmtAuditChangeValue, byLabel, ACTION_LABELS, goPage };
+  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, fmtAuditChangeValue, byLabel, ACTION_LABELS, goPage, batchInfo, batchChangeOf };
   if (typeof window !== 'undefined') window.SavaAuditUI = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

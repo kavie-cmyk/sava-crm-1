@@ -77,8 +77,14 @@ test('Việc 4 / gỡ lô: sự kiện mất cả liên kết công ty của lô
   assert.equal(evEntries.length, 1, 'đúng 1 mục audit cho sự kiện trong lần gỡ lô');
   assert.ok(evEntries[0].changes.some(c => c.field === 'companies'), 'audit sự kiện phải ghi thay đổi companies: ' + JSON.stringify(evEntries[0].changes));
   assert.ok(evEntries[0].changes.some(c => c.field === 'leads'), 'audit sự kiện phải ghi thay đổi leads');
-  assert.ok(captured.some(e => e.entityType === 'lead' && e.entityId === 'l9' && e.action === 'delete'), 'lead của lô phải có mục delete');
-  assert.ok(captured.some(e => e.entityType === 'company' && e.entityId === 'c9' && e.action === 'delete'), 'công ty của lô phải có mục delete');
+  /* Gộp audit hàng loạt (05/11/2026, thay kỳ vọng cũ "mục delete lẻ theo
+     id l9/c9"): gỡ lô B1 nay sinh mục TỔNG delete theo (entity_type) với
+     entityId = mã lô 'B1'; id + payload đầy đủ của l9/c9 nằm trong
+     changes[0].ids / changes[0].records — xem audit-batch-collapse. */
+  const leadDel = captured.find(e => e.entityType === 'lead' && e.action === 'delete');
+  assert.ok(leadDel && leadDel.entityId === 'B1' && leadDel.changes[0].batch === true && leadDel.changes[0].ids.includes('l9') && leadDel.changes[0].records.some(r => r.id === 'l9'), 'lead của lô phải nằm trong mục TỔNG delete của lô: ' + JSON.stringify(captured.filter(e => e.action === 'delete')));
+  const compDel = captured.find(e => e.entityType === 'company' && e.action === 'delete');
+  assert.ok(compDel && compDel.entityId === 'B1' && compDel.changes[0].batch === true && compDel.changes[0].ids.includes('c9') && compDel.changes[0].records.some(r => r.id === 'c9'), 'công ty của lô phải nằm trong mục TỔNG delete của lô');
 });
 
 test('Việc 4 / gỡ lô: việc gắn lead của lô được gỡ liên kết + đóng dấu/ghi lịch sử như xoá lead tay', () => {

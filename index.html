@@ -562,6 +562,54 @@ function crmActivityOwnerForced() {
   } catch (e) {}
   return maps;
 }
+/* === GỘP AUDIT CHO THAO TÁC HÀNG LOẠT (Import + Gỡ lô) — 05/11/2026 ===
+   CHỈ hai luồng vốn đã hàng loạt và có mã lô (importBatch) dùng cơ chế
+   này: impApply (nạp lô) và impRemoveBatch (gỡ lô). Chúng đặt
+   crmBatchAuditCtx NGAY TRƯỚC lần save() duy nhất của luồng rồi xoá
+   ngay sau save(); stampCrmAndAudit (điểm ghi audit duy nhất của kho
+   CRM) tiêu thụ context đó và GỘP các mục lẻ thuộc lô thành ĐÚNG 1 mục
+   TỔNG cho mỗi (entity_type, action) của lô:
+   - entityType giữ loại thật (company/lead), action giữ nguyên
+     (create cho import, delete cho gỡ lô), entityId = MÃ LÔ (marker),
+     byMemberId/at như mục lẻ.
+   - changes của mục tổng là mảng 1 phần tử mang cờ batch:true +
+     importBatch (marker) + count + ids (đủ danh sách id của lô) — với
+     GỠ LÔ còn có records: TOÀN BỘ object gốc của mọi bản ghi đã xoá
+     (chụp trước khi xoá, nguyên field — khôi phục lại được y hệt, mức
+     đầy đủ ngang/hơn mục delete lẻ vốn chỉ lưu diff dạng chữ).
+   Mọi mục KHÁC trong cùng lần save (vd công ty khớp sẵn chỉ điền hồ sơ,
+   sự kiện/việc/deal bị dọn liên kết khi gỡ lô) và MỌI thao tác đơn lẻ
+   giữ nguyên mục lẻ như cũ. Lỗi khi gộp -> giữ nguyên các mục lẻ (thà
+   thừa mục lẻ còn hơn mất lịch sử). Drawer của từng bản ghi thuộc lô
+   không còn mục riêng — đánh đổi đã được duyệt; mục tổng hiện ở Lịch
+   sử tổng (đúng entity_type nên RLS cũ tự áp: company/lead không lọt
+   sang MKT, không sửa policy/schema). */
+let crmBatchAuditCtx = null;
+function collapseBatchAuditEntries(entries, ctx) {
+  if (!ctx || !ctx.marker || !Array.isArray(entries) || !entries.length) return entries;
+  const wanted = ctx.mode === "remove"
+    ? { action: "delete", idsByType: ctx.deleteIds || {}, recordsByType: ctx.deleteRecords || {} }
+    : { action: "create", idsByType: ctx.createIds || {}, recordsByType: {} };
+  const out = [];
+  const groups = new Map(); /* entityType -> {ids:[], first} */
+  entries.forEach(e => {
+    const ids = e && wanted.idsByType[e.entityType];
+    const hit = !!(e && e.action === wanted.action && ids && typeof ids.has === "function" && ids.has(String(e.entityId)));
+    if (!hit) { out.push(e); return; }
+    if (!groups.has(e.entityType)) groups.set(e.entityType, { ids: [], first: e });
+    groups.get(e.entityType).ids.push(String(e.entityId));
+  });
+  if (!groups.size) return entries;
+  groups.forEach((g, type) => {
+    const recById = new Map();
+    (Array.isArray(wanted.recordsByType[type]) ? wanted.recordsByType[type] : []).forEach(r => { if (r && r.id !== undefined && r.id !== null) recById.set(String(r.id), r); });
+    const change = { field: "__batch", label: ctx.mode === "remove" ? "Gỡ lô" : "Lô import", batch: true, mode: ctx.mode, importBatch: String(ctx.marker), batchMarker: String(ctx.marker), count: g.ids.length, ids: g.ids.slice(), from: "", to: (ctx.mode === "remove" ? "Gỡ lô “" : "Lô “") + String(ctx.marker) + "” — " + g.ids.length + " bản ghi" };
+    /* Gỡ lô: payload khôi phục đầy đủ theo ĐÚNG thứ tự ids của lô. */
+    if (ctx.mode === "remove") change.records = g.ids.map(id => recById.get(id)).filter(Boolean);
+    out.push({ entityType: type, entityId: String(ctx.marker), at: g.first.at, byMemberId: g.first.byMemberId || "", action: wanted.action, changes: [change] });
+  });
+  return out;
+}
 function stampCrmAndAudit() {
   let entries = [];
   try {
@@ -574,6 +622,12 @@ function stampCrmAndAudit() {
       entries = entries.concat(SavaSys.stampCollection(S, S[key], crmPrevSnap[key], type, by, nowIso, forcedByType[type]));
     });
     crmPrevSnap = crmSnapshotOf(S);
+    /* Gộp audit hàng loạt (Import/Gỡ lô): context do chính hai luồng đó
+       đặt ngay trước save() — tiêu thụ tại đây, lỗi gộp thì giữ mục lẻ. */
+    if (crmBatchAuditCtx) {
+      const ctx = crmBatchAuditCtx; crmBatchAuditCtx = null;
+      try { entries = collapseBatchAuditEntries(entries, ctx); } catch (e) { /* giữ nguyên mục lẻ */ }
+    }
   } catch (e) { entries = []; }
   if (entries.length) {
     try {
@@ -2849,7 +2903,14 @@ function auditHistRowHTML(row) {
   const label = (AUDIT_HISTORY_TYPES.find(([k]) => k === type) || [type, type || "—"])[1];
   const badge = (typeof typeBadgeHTML === "function" && typeBadgeHTML(type)) || `<span class="chip" style="background:#64748b">${esc(label)}</span>`;
   let nameHTML;
-  if (type === "request") {
+  /* Mục TỔNG của lô (Import/Gỡ lô — changes có phần tử batch:true,
+     entityId = mã lô): hiện "N <Loại> — lô “…”" (gỡ lô: "— gỡ lô “…”")
+     thay cho tên đối tượng đơn lẻ; số lượng + marker phải thấy ngay. */
+  const batchCh = (Array.isArray(row.changes) ? row.changes : []).find(c => c && c.batch === true);
+  if (batchCh) {
+    const marker = batchCh.importBatch || batchCh.batchMarker || row.entityId || "";
+    nameHTML = `<span>${esc(String(batchCh.count !== undefined ? batchCh.count : "?"))} ${esc(label)} — ${row.action === "delete" ? "gỡ lô" : "lô"} “${esc(marker)}”</span>`;
+  } else if (type === "request") {
     nameHTML = `<span>Yêu cầu đánh giá ở module Publishing</span> <a href="publishing.html" title="Mở module Publishing">Mở Publishing →</a>`;
   } else {
     const target = auditHistEntity(type, row.entityId);
@@ -3099,7 +3160,12 @@ async function impApply() {
       appliedEventName = ev.name || "";
     }
   }
+  /* Audit gộp theo lô: đặt context ngay trước save() duy nhất của luồng
+     nạp — stampCrmAndAudit gộp create của đúng các id vừa tạo thành 1
+     mục tổng company/create + 1 mục tổng lead/create (entityId = mã lô). */
+  crmBatchAuditCtx = { mode: "import", marker: plan.batch, createIds: { company: new Set(createdCompanyIds.map(String)), lead: new Set(createdLeadIds.map(String)) }, deleteIds: { company: new Set(), lead: new Set() }, deleteRecords: { company: [], lead: [] } };
   save();
+  crmBatchAuditCtx = null;
   impResult = { batch: plan.batch, ...plan.stats, eventName: appliedEventName };
   impPlan = null;
   impBusyFlag = false;
@@ -3113,6 +3179,10 @@ function impRemoveBatch(idx) {
   const keepTxt = plan.companiesToKeep.length ? "\nGiữ lại " + plan.companiesToKeep.length + " công ty (còn lead/deal ngoài lô tham chiếu): " + plan.companiesToKeep.map(c => c.name).slice(0, 5).join(", ") : "";
   if (!confirm("Gỡ lô “" + item.batch + "”?\n- Xoá " + plan.leadsToDelete.length + " lead của lô\n- Xoá " + plan.companiesToDelete.length + " công ty do lô tạo và không còn được dùng" + keepTxt + "\nTiếp tục?")) return;
   const delLeads = new Set(plan.leadsToDelete), delComps = new Set(plan.companiesToDelete);
+  /* Audit gộp theo lô (gỡ lô): chụp TOÀN BỘ object gốc của mọi bản ghi
+     sắp xoá TRƯỚC khi mutate — payload này đi vào mục tổng delete của
+     lô (changes[].records) để khôi phục lại được y hệt từng bản ghi. */
+  const batchCtx = { mode: "remove", marker: item.batch, createIds: { company: new Set(), lead: new Set() }, deleteIds: { company: new Set([...delComps].map(String)), lead: new Set([...delLeads].map(String)) }, deleteRecords: { company: S.companies.filter(c => delComps.has(String(c.id))).map(c => window.SavaSys ? SavaSys.cloneForDiff(c) : JSON.parse(JSON.stringify(c))), lead: S.leads.filter(l => delLeads.has(String(l.id))).map(l => window.SavaSys ? SavaSys.cloneForDiff(l) : JSON.parse(JSON.stringify(l))) } };
   S.leads = S.leads.filter(l => !delLeads.has(String(l.id)));
   S.companies = S.companies.filter(c => !delComps.has(String(c.id)));
   S.deals.forEach(d => { if (Array.isArray(d.leads)) d.leads = d.leads.filter(id => !delLeads.has(String(id))); });
@@ -3139,7 +3209,13 @@ function impRemoveBatch(idx) {
     if (t.lead && delLeads.has(String(t.lead))) delete t.lead;
     if (t.company && delComps.has(String(t.company))) delete t.company;
   });
+  /* Audit gộp theo lô: context đã chụp payload ở đầu hàm — đặt ngay
+     trước save() duy nhất của luồng gỡ; stampCrmAndAudit gộp delete
+     của lô thành 1 mục tổng company/delete + 1 mục tổng lead/delete
+     (entityId = mã lô, changes mang đủ records để khôi phục). */
+  crmBatchAuditCtx = batchCtx;
   save();
+  crmBatchAuditCtx = null;
   impResult = null;
   render();
   toast("Đã gỡ lô “" + item.batch + "”: xoá " + plan.leadsToDelete.length + " lead, " + plan.companiesToDelete.length + " công ty; giữ " + plan.companiesToKeep.length + " công ty.");
