@@ -1,7 +1,8 @@
 /* SAVA workspace · Apple Design refinement. Presentation only. */
 :root {
-  --workspace-ink:#1d2b34; --workspace-muted:#64747f; --workspace-accent:#087f8c;
-  --workspace-bg:#f6f7f9; --workspace-border:#e2e7eb; --workspace-soft:#e7f2f3;
+  --sava-brand-blue: #007cd9; --sava-blue-ink: #075599; --sava-blue-hover: #055c9f;
+  --workspace-ink:#1d2b34; --workspace-muted:#64747f; --workspace-accent:var(--workspace-accent);
+  --workspace-bg:#f6f7f9; --workspace-border:#e2e7eb; --workspace-soft:#e4f1fc;
   --workspace-shadow:0 2px 6px #24374803,0 12px 30px #24374803;
   --sidebar:248px; --acc:var(--workspace-accent); --accent:var(--workspace-accent);
   --bg:var(--workspace-bg); --txt:var(--workspace-ink); --mut:var(--workspace-muted);
@@ -11,7 +12,7 @@ body.crm-shell,body.publishing-shell {background:var(--workspace-bg);color:var(-
 button,a,input,select,textarea {touch-action:manipulation}
 button,.btn {transition:background-color 120ms,border-color 120ms,box-shadow 120ms,transform 100ms}
 button:active,.btn:active {transform:scale(.98)}
-button:focus-visible,a:focus-visible,summary:focus-visible,[tabindex='0']:focus-visible {outline:3px solid #168a9c;outline-offset:3px}
+button:focus-visible,a:focus-visible,summary:focus-visible,[tabindex='0']:focus-visible {outline:3px solid var(--sava-brand-blue);outline-offset:3px}
 .btn,.crm-shell .btn {min-height:44px;border-radius:11px;font-size:13px;padding:10px 15px;font-weight:600;box-shadow:none}
 .btn.primary,.crm-shell .btn:not(.ghost):not(.danger) {background:var(--workspace-accent);border-color:transparent;color:white}
 .btn.ghost,.btn.quiet {background:white;border:1px solid #dbe3e8;color:#425664}
@@ -24,8 +25,8 @@ input,select,textarea {border-radius:10px;accent-color:var(--workspace-accent)}
 .workspace-switch strong {font-size:13px}.workspace-switch small {font-size:11px;margin-top:2px}
 .nav-heading {font-size:10px;letter-spacing:1.4px;padding-left:13px;color:#7e8c96}
 .nav {gap:4px}.nav button {min-height:46px;gap:11px;padding:10px 13px;font-size:13px;color:#647480;border-radius:10px}
-.nav button:hover {background:#ffffffb0;color:#284550}.nav button.on {background:white;color:#087b87;box-shadow:0 2px 6px #35506107}
-.nav button.on::before {display:none}.nav button.on svg {color:#087b87}
+.nav button:hover {background:#ffffffb0;color:#284550}.nav button.on {background:white;color:var(--workspace-accent);box-shadow:0 2px 6px #35506107}
+.nav button.on::before {display:none}.nav button.on svg {color:var(--workspace-accent)}
 .side-nav-cards {margin:24px 2px 0;gap:9px;padding-top:19px;border-top:1px solid #dde5ea}
 .nav-card {padding:12px 10px;gap:10px;border:1px solid #e0e7eb;background:#ffffff91;border-radius:12px}
 .nav-card-text strong {font-size:12px;line-height:1.5}.nav-card-text small {font-size:11px;line-height:1.55;margin-top:3px}
@@ -105,8 +106,8 @@ tbody tr:hover {background:#f8fbfc}tr[onclick]:focus-visible {outline-offset:-3p
 .scrim,.modal {background-color:#1b34483b;backdrop-filter:blur(5px)}
 /* Publishing uses the same tokens and sizing as CRM, with its existing structure. */
 .publishing-shell .topbar {height:80px;min-height:80px;padding:0 30px;gap:24px;background:#f8fafbeF;border-color:#e1e8ed;backdrop-filter:blur(22px) saturate(140%)}
-.publishing-shell .brand {font-size:16px;letter-spacing:-.3px;color:#2c4857}.publishing-shell .brand b {color:#087f8c;font-weight:650}.publishing-shell .brand small {font-size:9px;letter-spacing:1.4px;margin-top:5px;color:#7e919d}
-.publishing-shell .brand-mark {width:38px;height:40px;background:white;color:#087f8c;border:1px solid #dce7ec;font-size:24px}
+.publishing-shell .brand {font-size:16px;letter-spacing:-.3px;color:#2c4857}.publishing-shell .brand b {color:var(--workspace-accent);font-weight:650}.publishing-shell .brand small {font-size:9px;letter-spacing:1.4px;margin-top:5px;color:#7e919d}
+.publishing-shell .brand-mark {width:38px;height:40px;background:white;color:var(--workspace-accent);border:1px solid #dce7ec;font-size:24px}
 .publishing-shell .workspace {font-size:12px;color:#718795}.publishing-shell #roleNav {font-size:12px;gap:14px;margin-left:auto;min-width:0}.publishing-shell #roleNav a {min-height:44px;color:#63808d}
 .publishing-shell .layout {grid-template-columns:248px minmax(0,1fr);min-height:calc(100vh - 80px)}
 .publishing-shell .layout>aside {padding:32px 18px;background:#eff3f6e8;border-color:#e0e7eb}
@@ -114,9 +115,9 @@ tbody tr:hover {background:#f8fbfc}tr[onclick]:focus-visible {outline-offset:-3p
 .publishing-shell #roleTitle {font-size:18px;letter-spacing:-.5px;margin:9px 12px 26px;color:#385362}
 .publishing-shell aside>.eyebrow {margin:0 12px}.publishing-shell .navigation {gap:5px}
 .publishing-shell .navigation button {min-height:48px;font-size:13px;padding:12px;color:#697f8c;border-radius:10px}
-.publishing-shell .navigation button[aria-current=page] {background:white;color:#087f8c;box-shadow:0 2px 6px #35506107}
+.publishing-shell .navigation button[aria-current=page] {background:white;color:var(--workspace-accent);box-shadow:0 2px 6px #35506107}
 .publishing-shell .navigation button .workspace-nav-icon {width:18px;height:18px;margin-right:10px;vertical-align:middle;color:#7e99a7}
-.publishing-shell .navigation button[aria-current=page] .workspace-nav-icon {color:#087f8c}
+.publishing-shell .navigation button[aria-current=page] .workspace-nav-icon {color:var(--workspace-accent)}
 .publishing-shell .side-note {font-size:12px;color:#8a9aa4;margin:28px 12px;line-height:1.8}
 .publishing-shell main {padding:32px 34px 64px;max-width:1700px}.publishing-shell #pageHead {margin-bottom:23px}.publishing-shell #pageHead h2 {font-size:31px;letter-spacing:-1px;font-weight:680;margin-top:8px}
 .publishing-shell .sub,.publishing-shell .mut {font-size:13px;color:#738996;line-height:1.7}.publishing-shell .storage-note {font-size:12px;color:#738b96;margin-bottom:23px}
@@ -141,14 +142,14 @@ tbody tr:hover {background:#f8fbfc}tr[onclick]:focus-visible {outline-offset:-3p
 .auth-context {display:none}
 html.sava-locked #savaAuthRoot {display:flex;align-items:center;gap:clamp(50px,8vw,130px);padding:64px max(24px,calc((100vw - 1150px)/2));background:radial-gradient(ellipse at 17% 22%,#e4f2f3 0,transparent 48%),linear-gradient(135deg,#f6f8fa,#edf2f6);color:#254450}
 html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:center}
-.auth-context .auth-mark {display:grid;place-items:center;width:56px;height:56px;border-radius:17px;background:white;color:#087f8c;border:1px solid #d8e6eb;box-shadow:0 8px 25px #3d6d7f0a;font-size:30px;font-weight:700;margin-bottom:42px}
+.auth-context .auth-mark {display:grid;place-items:center;width:56px;height:56px;border-radius:17px;background:white;color:var(--workspace-accent);border:1px solid #d8e6eb;box-shadow:0 8px 25px #3d6d7f0a;font-size:30px;font-weight:700;margin-bottom:42px}
 .auth-context .auth-kicker {font-size:11px;letter-spacing:2px;font-weight:600;color:#668b98}.auth-context h2 {font-size:clamp(32px,3.4vw,46px);line-height:1.2;letter-spacing:-1.6px;font-weight:650;margin:15px 0 22px;color:#294c5c}
 .auth-context p {font-size:15px;line-height:1.8;color:#7a939f;max-width:340px}.auth-context .auth-lines {display:flex;flex-wrap:wrap;gap:8px;margin-top:34px}.auth-lines span {padding:7px 10px;border:1px solid #dce7eb;border-radius:8px;font-size:11px;color:#7b95a2;background:#ffffff70}
 .sava-auth-card {width:420px;max-width:100%;padding:35px;background:#ffffffed;border:1px solid #e0e8ed;border-radius:20px;box-shadow:0 5px 12px #2b4d6503,0 25px 65px #2b4d6508;box-sizing:border-box;flex-shrink:0}
-.sava-auth-brand {font-size:13px;font-weight:650;letter-spacing:1px;color:#3d5866;margin-bottom:25px}.sava-auth-brand b {color:#087f8c}
+.sava-auth-brand {font-size:13px;font-weight:650;letter-spacing:1px;color:#3d5866;margin-bottom:25px}.sava-auth-brand b {color:var(--workspace-accent)}
 .sava-auth-card h1 {font-size:27px;letter-spacing:-.9px;font-weight:650;line-height:1.3;margin:0 0 11px;color:#294552}.sava-auth-sub {font-size:12px;line-height:1.8;color:#8596a1;margin-bottom:23px}.sava-auth-card label {font-size:12px;color:#607b89;margin:17px 0 7px}
-.sava-auth-card input {min-height:48px;padding:12px 14px;border:1px solid #dce6ec;background:#fdfefe;border-radius:11px;font-size:15px;transition:box-shadow 120ms,border-color 120ms}.sava-auth-card input:focus {outline:0;border-color:#64a8b1;box-shadow:0 0 0 3px #168a9c16}
-.sava-auth-card button[type=submit] {background:#087f8c;min-height:48px;border-radius:11px;font-size:13px;font-weight:600;padding:12px 16px;margin-top:18px}.sava-auth-card button[type=submit]:hover {background:#076f7b}.sava-auth-error {font-size:12px;line-height:1.6;min-height:0}.sava-auth-error:empty {margin-top:0}.sava-auth-status {font-size:11px;color:#8b9da7;min-height:0;margin-top:13px}
+.sava-auth-card input {min-height:48px;padding:12px 14px;border:1px solid #dce6ec;background:#fdfefe;border-radius:11px;font-size:15px;transition:box-shadow 120ms,border-color 120ms}.sava-auth-card input:focus {outline:0;border-color:#529bd6;box-shadow:0 0 0 3px #007cd91a}
+.sava-auth-card button[type=submit] {background:var(--workspace-accent);min-height:48px;border-radius:11px;font-size:13px;font-weight:600;padding:12px 16px;margin-top:18px}.sava-auth-card button[type=submit]:hover {background:var(--sava-blue-hover)}.sava-auth-error {font-size:12px;line-height:1.6;min-height:0}.sava-auth-error:empty {margin-top:0}.sava-auth-status {font-size:11px;color:#8b9da7;min-height:0;margin-top:13px}
 @media(min-width:1280px){.pipeline-overview{grid-template-columns:repeat(4,minmax(0,1fr))}.line-panel{padding:18px}.funnel-row{grid-template-columns:minmax(0,1fr) 13px;min-height:35px;gap:7px}.funnel-row .bar{display:none}.line-panel .line-value{min-height:39px}}
 @media(min-width:1650px){.crm-shell .main{padding-left:44px;padding-right:44px}.workspace-header{margin-left:-44px;margin-right:-44px;padding-left:44px;padding-right:44px}.line-panel{padding:23px}.funnel-row{grid-template-columns:minmax(0,1fr) 40px 18px}.funnel-row .bar{display:block}}
 @media(max-width:1150px){.toolbar .page-actions{width:100%}.toolbar .search-control{flex:1}.toolbar .search-control input{width:100%}.header-actions>.role-link{display:none}.publishing-shell .workspace{display:none}.publishing-shell .layout{grid-template-columns:220px minmax(0,1fr)}.publishing-shell main{padding:30px 24px}.publishing-shell .topbar{gap:18px;padding:0 24px}.publishing-shell #roleNav{gap:8px;font-size:11px}.publishing-shell .workspace-account-bar{max-width:220px!important}.publishing-shell .workspace-account-bar #savaUserInfo{max-width:130px!important}}
@@ -156,7 +157,7 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
   .crm-shell .main{margin-left:0;padding:0 22px 100px}.workspace-header{height:72px;margin:0 -22px 25px;padding:0 22px}.crm-shell .side{width:278px;padding:25px 18px;background:#f1f5f8f5}.nav button{min-height:48px;font-size:14px}.workspace-switch strong{font-size:14px}.workspace-switch small{font-size:12px}.side-nav-cards{margin-top:20px}.nav-card-text strong{font-size:13px}.nav-card-text small{font-size:12px}
   #savaUserBar.workspace-account-bar{font-size:11px;gap:8px;max-width:240px}#savaUserBar.workspace-account-bar #savaUserInfo{max-width:145px}#savaUserBar.workspace-account-bar button{min-height:36px;font-size:10px;padding:7px 9px}
   .mobile-nav{padding:8px 8px max(9px,env(safe-area-inset-bottom));background:#fafcfded;backdrop-filter:blur(24px) saturate(140%);border-color:#dde7ed;box-shadow:0 -8px 28px #31576904;gap:3px}
-  .mobile-nav button{font-size:10px;line-height:1.4;min-height:51px;gap:5px;color:#8095a3;flex:1;min-width:0}.mobile-nav button:nth-child(n+6):not(.workspace-more){display:none}.mobile-nav button.on{background:#e6f1f4;color:#087f8c}.mobile-nav svg{height:19px;width:19px}
+  .mobile-nav button{font-size:10px;line-height:1.4;min-height:51px;gap:5px;color:#8095a3;flex:1;min-width:0}.mobile-nav button:nth-child(n+6):not(.workspace-more){display:none}.mobile-nav button.on{background:#e4f1fc;color:var(--workspace-accent)}.mobile-nav svg{height:19px;width:19px}
   .pipeline-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.line-panel{padding:19px}.funnel-row{grid-template-columns:minmax(0,1fr) 18px;font-size:12px}.funnel-row .bar{display:none}
   .publishing-shell .topbar{height:auto;min-height:72px;padding:12px 20px;gap:14px;flex-wrap:wrap}.publishing-shell .layout{grid-template-columns:200px minmax(0,1fr)}.publishing-shell .layout>aside{padding:27px 13px}.publishing-shell main{padding:28px 22px}.publishing-shell .navigation button{font-size:12px;padding:11px}.publishing-shell .navigation button .workspace-nav-icon{display:none}.publishing-shell .workspace-account{margin-left:auto}.publishing-shell #roleNav{margin-left:auto}.publishing-shell #roleNav a{max-width:160px}.publishing-shell .card-grid,.publishing-shell .rule-grid{grid-template-columns:1fr}
   html.sava-locked #savaAuthRoot{gap:40px;padding:35px 25px}.auth-context h2{font-size:33px}.auth-context p{font-size:13px}.sava-auth-card{width:370px;padding:30px}
@@ -188,14 +189,14 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-ctl {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .dash-ctl-label {font-size:12px;font-weight:600;color:#42586a}
 .dash-chip {border:1px solid #cfdde5;background:#fff;color:#42586a;border-radius:999px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;min-height:34px}
-.dash-chip.on {background:#0f766e;border-color:#0f766e;color:#fff}
+.dash-chip.on {background:var(--sava-blue-ink);border-color:var(--sava-blue-ink);color:#fff}
 .dash-select {border:1px solid #cfdde5;border-radius:9px;padding:7px 10px;font-size:12.5px;background:#fff;color:#294552;min-height:34px}
 .dash-date-input {width:118px}
 .dash-note {font-size:12px;line-height:1.65;color:#60717d;margin:6px 0}
-.dash-badge {font-size:11px;font-weight:600;color:#0f766e;background:#e6f4f1;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.dash-badge {font-size:11px;font-weight:600;color:var(--sava-blue-ink);background:#e4f1fc;border-radius:999px;padding:4px 10px;white-space:nowrap}
 .dash-kpis {margin-bottom:18px}
 .dash-kpi {cursor:pointer;position:relative}
-.dash-kpi:hover {border-color:#0f766e}
+.dash-kpi:hover {border-color:var(--sava-blue-ink)}
 .dash-kpi-dot {position:absolute;top:16px;right:16px;width:10px;height:10px;border-radius:50%}
 .dash-panel {margin-bottom:18px}
 .dash-legend {display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:#42586a;margin-bottom:6px}
@@ -211,9 +212,9 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-funnel-num {font-size:13px;font-weight:700;color:#213846;text-align:right}
 .dash-funnel-pct b {display:block;font-size:20px;line-height:1.15;color:#213846}
 .dash-funnel-pct span {display:block;font-size:10.5px;color:#60717d}
-.dash-funnel-start {grid-template-columns:1fr;gap:6px;background:#e6f4f1;padding:10px 12px;cursor:pointer}
+.dash-funnel-start {grid-template-columns:1fr;gap:6px;background:#e4f1fc;padding:10px 12px;cursor:pointer}
 .dash-funnel-start-txt {font-size:14px;font-weight:700;color:#213846}
-.dash-funnel-pct .dash-funnel-fromprev {margin-top:3px;font-size:11px;font-weight:600;color:#0f766e}
+.dash-funnel-pct .dash-funnel-fromprev {margin-top:3px;font-size:11px;font-weight:600;color:var(--sava-blue-ink)}
 .dash-funnel-exit {margin-top:14px;border-top:2px dashed #d9a5a5;padding-top:10px}
 .dash-funnel-exit-row {background:#fbf3f3;border:1px dashed #d9a5a5;padding:8px 10px}
 .dash-funnel-exit-row:hover {background:#f9e9e9}
@@ -251,9 +252,9 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .combo-list[hidden] {display:none}
 .combo-item {display:block;width:100%;text-align:left;background:none;border:0;border-radius:7px;padding:9px 10px;font-size:13.5px;line-height:1.45;color:var(--workspace-ink);cursor:pointer;white-space:normal;word-break:break-word;min-height:40px}
 .combo-item:hover {background:#eef6f7}
-.combo-item.is-selected {font-weight:650;color:#076f7b}
-.combo-item.is-selected::after {content:" ✓";color:#087f8c}
-.combo-item.is-active {background:#e7f2f3;outline:2px solid #168a9c33}
+.combo-item.is-selected {font-weight:650;color:var(--sava-blue-hover)}
+.combo-item.is-selected::after {content:" ✓";color:var(--workspace-accent)}
+.combo-item.is-active {background:#e4f1fc;outline:2px solid #007cd933}
 .combo-more,.combo-empty {padding:8px 10px;font-size:12px;color:#60717d;line-height:1.5}
 @media(max-width:700px){.combo-list{max-height:220px}.combo-item{font-size:14px;padding:10px}}
 
@@ -444,10 +445,10 @@ td.list-stt {color:#64748b;font-weight:600}
 :root {
   --workspace-ink: #162830;
   --workspace-muted: #536571;
-  --workspace-accent: #06757e;
+  --workspace-accent: #066dbd;
   --workspace-bg: #f4f6f8;
   --workspace-border: #dfe6ea;
-  --workspace-soft: #e2f1f0;
+  --workspace-soft: #e4f1fc;
   --workspace-shadow: 0 1px 2px #16354306, 0 8px 24px #16354306;
 }
 .crm-shell .side,
@@ -471,15 +472,15 @@ td.list-stt {color:#64748b;font-weight:600}
 .nav button.on,
 .publishing-shell .navigation button[aria-current=page],
 .mobile-nav button.on {
-  color: #075862;
-  background: #d9eeed;
-  box-shadow: inset 0 0 0 1px #c4e1e1;
+  color: var(--sava-blue-ink);
+  background: var(--workspace-soft);
+  box-shadow: inset 0 0 0 1px #c5def5;
   font-weight: 650;
 }
 .nav button.on svg,
-.publishing-shell .navigation button[aria-current=page] .workspace-nav-icon { color: #075862; }
+.publishing-shell .navigation button[aria-current=page] .workspace-nav-icon { color: var(--sava-blue-ink); }
 .nav-card { background: #f8fbfc; }
-.nav-card:hover { border-color: #9fc4ca; }
+.nav-card:hover { border-color: #a7c8e5; }
 .publishing-shell #roleNav a,
 .crm-shell .role-link { color: #345967; font-weight: 600; }
 
@@ -494,7 +495,7 @@ td.list-stt {color:#64748b;font-weight:600}
 .publishing-shell #pageHead .sub { color: var(--workspace-muted); }
 .linetabs { background: #e7edf1; }
 .linetabs button { color: #4b6371; }
-.linetabs button.on { color: #075862; }
+.linetabs button.on { color: var(--sava-blue-ink); }
 .crm-shell :is(.panel, .kpi, .gcard),
 .publishing-shell :is(.panel, .metric) { border-color: var(--workspace-border); }
 .crm-shell .kpi .k,
@@ -509,8 +510,8 @@ td.list-stt {color:#64748b;font-weight:600}
   top: 16px;
   right: 16px;
   border-radius: 10px;
-  background: #e9f3f4;
-  color: #28616e;
+  background: #e7f2fc;
+  color: var(--sava-blue-ink);
 }
 .kpi.attention .kpi-icon { background: #faf0dd; color: #795718; }
 .section-heading h2 { color: var(--workspace-ink); font-size: 1.125rem; font-weight: 680; }
@@ -524,7 +525,7 @@ td.list-stt {color:#64748b;font-weight:600}
 }
 :is(.table-wrap, .dash-table-wrap, .imp-table-wrap, .table-scroll) > table tr:hover td { background-color: #f5fafb; }
 .crm-shell .btn:not(.ghost):not(.danger):hover,
-.publishing-shell .btn.primary:hover { background: #055f67; }
+.publishing-shell .btn.primary:hover { background: var(--sava-blue-hover); }
 button:disabled:active { transform: none; }
 
 /* Dashboard controls form one group, with the chart data kept in its own surface. */
@@ -535,12 +536,12 @@ button:disabled:active { transform: none; }
   border-radius: 12px;
 }
 .dash-chip { border-color: #c8d8df; }
-.dash-chip.on { background: #07656c; border-color: #07656c; }
+.dash-chip.on { background: var(--workspace-accent); border-color: var(--workspace-accent); }
 .dash-panel h3,
 .dash-conv h3 { color: var(--workspace-ink); }
 .dash-legend-note { color: var(--workspace-muted); }
 .dash-funnel-bar { background: #e4edf1; }
-.dash-funnel-start { background: #dfeeed; }
+.dash-funnel-start { background: #e4f1fc; }
 .dash-conv { min-width: 0; }
 .dash-conv > div:last-child { min-width: 0; }
 .publishing-shell .badge.positive { color: #22684b; }
@@ -552,47 +553,52 @@ button:disabled:active { transform: none; }
 /* Sign-in keeps the account controls separate from the workspace identity. */
 html.sava-locked #savaAuthRoot {
   gap: clamp(24px, 4vw, 64px);
-  background: radial-gradient(ellipse at 16% 18%, #deeeee, transparent 52%), #f3f6f8;
+  background: radial-gradient(ellipse at 16% 18%, #dbeeff, transparent 52%), #f3f6fa;
 }
 html.sava-locked .auth-context {
   box-sizing: border-box;
   max-width: 492px;
   min-width: 0;
-  padding: clamp(28px, 4vw, 54px);
+  padding: clamp(26px, 3.2vw, 46px);
   border-radius: 26px;
-  border: 1px solid #194a55;
+  border: 1px solid #174e7b;
   background:
-    repeating-radial-gradient(ellipse at 122% -12%, transparent 0 36px, #bfeaea18 37px 38px, transparent 39px 54px),
-    linear-gradient(150deg, #0d3040 5%, #12404c 57%, #145e61);
-  box-shadow: 0 18px 52px #0e364322;
+    repeating-radial-gradient(ellipse at 122% -12%, transparent 0 36px, #c5eaff25 37px 38px, transparent 39px 54px),
+    linear-gradient(150deg, #102d4a 5%, #12477b 57%, #0864a9);
+  box-shadow: 0 18px 52px #0e345022;
 }
 .auth-context .auth-mark {
-  background: #d8f3ee;
-  border-color: #d8f3ee;
-  color: #0d4b53;
-  margin-bottom: clamp(26px, 4vw, 50px);
+  width: max-content;
+  max-width: 100%;
+  height: auto;
+  padding: 10px 15px;
+  border-radius: 13px;
+  background: #fff;
+  border-color: #d8e8f5;
+  margin-bottom: clamp(24px, 3vw, 40px);
 }
-.auth-context .auth-kicker { color: #a4d7d5; }
-.auth-context h2 { color: #f6fcfc; font-size: clamp(1.9rem, 3.15vw, 2.7rem); }
-.auth-context p { color: #d3e8ea; }
+.auth-context .auth-mark img { display: block; width: clamp(108px, 11vw, 155px); max-width: 100%; height: auto; }
+.auth-context .auth-kicker { color: #c6e5ff; }
+.auth-context h2 { color: #f6fbff; font-size: clamp(1.65rem, 2.65vw, 2.25rem); text-wrap: balance; }
+.auth-context p { color: #e1efff; }
 .auth-lines span {
-  border-color: #a1c9cc54;
-  color: #e4f3f3;
-  background: #e8f7f214;
+  border-color: #c5e4ff54;
+  color: #f0f7ff;
+  background: #e8f5ff14;
 }
 .sava-auth-card { border-radius: 24px; box-shadow: 0 12px 40px #1635430d; }
 .sava-auth-card h1 { font-weight: 710; color: var(--workspace-ink); }
 .sava-auth-card label { color: #405763; font-weight: 620; }
 .sava-auth-card .sava-auth-sub { font-size: 13px; }
 .sava-auth-card input { background: #f8fafb; border-color: #cad9e0; }
-.sava-auth-card input:focus { border-color: #06757e; box-shadow: 0 0 0 3px #06757e26; }
+.sava-auth-card input:focus { border-color: #066dbd; box-shadow: 0 0 0 3px #007cd926; }
 .sava-auth-card button[type=submit] { background: var(--workspace-accent); }
-.sava-auth-card button[type=submit]:hover { background: #055f67; }
+.sava-auth-card button[type=submit]:hover { background: var(--sava-blue-hover); }
 
 @media (max-width: 700px) {
   html.sava-locked #savaAuthRoot { gap: 15px; padding: 20px 16px 34px; }
   html.sava-locked .auth-context { width: min(420px, 100%); padding: 22px 24px; border-radius: 20px; }
-  .auth-context .auth-mark { width: 36px; height: 36px; margin-bottom: 15px; font-size: 21px; }
+  .auth-context .auth-mark { padding: 7px 11px; margin-bottom: 15px; }
   .auth-context h2 { font-size: 1.5rem; margin-top: 6px; }
   .sava-auth-card { padding: 24px; border-radius: 20px; }
   .workspace-path { min-width: 0; }
@@ -612,13 +618,13 @@ html.sava-locked .auth-context {
     background: #f9fbfc;
     backdrop-filter: none;
   }
-  html.sava-locked .auth-context { background: #103c49; }
+  html.sava-locked .auth-context { background: #143f68; }
 }
 @media (prefers-contrast: more) {
   :root { --workspace-border: #9aadb8; }
   .nav button.on,
   .publishing-shell .navigation button[aria-current=page],
-  .mobile-nav button.on { box-shadow: inset 0 0 0 2px #075862; }
+  .mobile-nav button.on { box-shadow: inset 0 0 0 2px var(--sava-blue-ink); }
 }
 
 /* Motion follows existing UI states. Drawer and review-dialog springs run separately. */
@@ -653,4 +659,21 @@ html.sava-locked .auth-context {
 @keyframes workspace-form-in {
   from { opacity: .8; transform: translateY(8px) scale(.985); }
   to { opacity: 1; transform: none; }
+}
+
+/* The original Sava wordmark has a white background. Keep it on a white surface. */
+.brand-lockup { display: grid; justify-items: start; gap: 5px; min-width: 0; }
+.brand-wordmark { display: block; width: 132px; height: auto; padding: 6px 8px; box-sizing: content-box; border: 1px solid #dbe6ef; border-radius: 8px; background: #fff; }
+.brand-lockup :is(.brand-caption, small) { margin: 0; color: #526372; }
+.publishing-shell .brand-wordmark { width: 104px; padding: 4px 6px; }
+.publishing-shell .brand-lockup small { margin: 0; color: #526372; }
+.workspace-switch .workspace-icon,
+.nav-card .nav-card-icon { background: var(--workspace-soft); color: var(--sava-blue-ink); }
+.crm-shell :is(input, select, textarea):focus,
+.publishing-shell :is(input, select, textarea):focus { border-color: var(--sava-brand-blue) !important; }
+.crm-shell :is(input, select, textarea):focus-visible,
+.publishing-shell :is(input, select, textarea):focus-visible { box-shadow: 0 0 0 3px #007cd926; }
+@media (max-width: 700px) {
+  .publishing-shell .brand-wordmark { width: 83px; }
+  .publishing-shell .brand-lockup { gap: 3px; }
 }
