@@ -29,6 +29,12 @@
   let updMap = {};                              // {table: {id: updated_at}} phục vụ phát hiện xung đột
   let syncing = false, dirty = false, failCount = 0, retryTimer = null;
   let warnedRevChange = false;
+  /* Vá lỗ hổng đồng bộ (5/11/2026): promise của vòng runSync đang chạy
+     (để flushSync chờ đúng vòng đó thay vì đoán), cờ chống đăng ký trùng
+     các handler rời trang/điều hướng, và ngân sách chờ điều hướng. */
+  let currentSyncPromise = null;
+  let lifecycleRegistered = false, navGuardRegistered = false;
+  const NAV_FLUSH_TIMEOUT_MS = 2500;
 
   /* ---------- UI cảnh báo đồng bộ ---------- */
   function bannerEl() {
@@ -213,6 +219,8 @@
   function installHook() {
     if (installHook.done) return;
     installHook.done = true;
+    registerLifecycleFlush();
+    registerNavGuard();
     const orig = localStorage.setItem.bind(localStorage);
     localStorage.setItem = function (k, v) {
       orig(k, v);
@@ -519,9 +527,15 @@
     return conflicts;
   }
 
-  async function runSync() {
-    if (syncing || !ctx.enabled || !ctx.client) return;
+  /* runSync giữ nguyên thân cũ (diff-sync + last-write-wins) nhưng được
+     bọc trong một promise dùng chung: nơi gọi kiểu cũ (setTimeout) bỏ qua
+     promise như trước, còn flushSync() chờ được đúng vòng đang chạy /
+     vòng nó vừa kích hoạt. Promise này KHÔNG bao giờ reject (lỗi đã được
+     xử lý ở catch bên trong như cũ) nên chờ nó không nuốt cơ chế retry. */
+  function runSync() {
+    if (syncing || !ctx.enabled || !ctx.client) return currentSyncPromise || Promise.resolve(false);
     syncing = true;
+    currentSyncPromise = (async () => {
     try {
       let crmLocal = null, pubLocal = null;
       try { crmLocal = JSON.parse(localStorage.getItem(CRM_KEY) || 'null'); } catch (e) {}
@@ -534,14 +548,168 @@
       dirty = false; failCount = 0;
       clearSyncError();
       if (conflicts.length) warnTransient('Phát hiện ' + conflicts.length + ' mục vừa được cập nhật ở nơi khác (' + conflicts.slice(0, 3).join(', ') + (conflicts.length > 3 ? '…' : '') + '). Bản bạn vừa lưu đã được ghi (last-write-wins).');
+      return true;
     } catch (e) {
       failCount++;
       showSyncError('Đồng bộ lên Supabase thất bại: ' + (e && e.message ? e.message : e) + '. Dữ liệu vẫn còn trên máy này và sẽ tự đồng bộ lại.');
       if (failCount <= 4) { retryTimer = setTimeout(runSync, 12000); }
+      return false;
     } finally {
       syncing = false;
       if (dirty && ctx.enabled) scheduleSync(900);
     }
+    })();
+    return currentSyncPromise;
+  }
+
+  /* ---------- Flush đồng bộ (vá lỗ hổng mất dữ liệu khi rời trang) ----------
+     Gốc lỗi: ghi cache chỉ lên lịch debounce 700ms qua scheduleSync();
+     chuyển trang trong cửa sổ đó thì trang đích loadAll() ghi đè cache
+     bằng state máy chủ cũ -> bản ghi mới mất vĩnh viễn (deal của BD
+     Hoàng, 5/11/2026). flushSync() huỷ timer chờ và chạy/vòng chờ đồng
+     bộ NGAY, trả true khi cache đã sạch (dirty=false).
+     Kỷ luật để không phá cơ chế cũ:
+     - Không dirty + không đang sync -> trả ngay, 0 request thừa (đường
+       debounce thường ngày không đổi, flush chỉ là đường bổ sung).
+     - Vòng sync THẤT BẠI (failCount > 0 sau khi chờ): DỪNG ngay, giữ
+       nguyên timer retry mà runSync đã lên lịch trong finally — flush
+       không thử lại dồn dập và không nuốt retry.
+     - Dirty còn lại sau một vòng THÀNH CÔNG chỉ có thể do người dùng
+       sửa tiếp trong lúc sync đang chạy: huỷ timer 900ms mà finally
+       vừa đặt và flush thêm vòng nữa (tối đa 3 vòng). */
+  async function flushSync() {
+    if (!ctx.enabled || !ctx.client) return false;
+    if (!syncing && !dirty) return true;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    for (let pass = 0; pass < 3; pass++) {
+      if (syncing) { if (currentSyncPromise) await currentSyncPromise; }
+      else if (dirty) { await runSync(); }
+      else return true;
+      if (!dirty) return true;
+      if (failCount > 0) return false; /* lỗi thật: chừa đường retry của runSync */
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    }
+    return !dirty;
+  }
+
+  /* Điều hướng có chờ flush, kèm timeout cứng (mặc định 2500ms): sync
+     kẹt/mạng chết thì VẪN đi sau timeout — cache local giữ nguyên và
+     timer retry của runSync vẫn còn để vòng sau ở trang cũ/ngữ cảnh
+     khác xử lý tiếp; tuyệt đối không treo người dùng ở trang cũ. */
+  function navigateTo(url) {
+    try {
+      const loc = (typeof window !== 'undefined' && window.location) || (typeof location !== 'undefined' ? location : null);
+      if (!loc) return false;
+      if (typeof loc.assign === 'function') { loc.assign(url); return true; }
+      loc.href = url; return true;
+    } catch (e) { return false; }
+  }
+  async function flushBeforeNavigate(url, timeoutMs) {
+    const ms = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : NAV_FLUSH_TIMEOUT_MS;
+    let timer = null, timedOut = false, flushed = false;
+    try { flushAudit(); } catch (e) {} /* audit là phụ trợ: kích hoạt, không chờ */
+    try {
+      flushed = await Promise.race([
+        flushSync().catch(() => false),
+        new Promise(res => { timer = setTimeout(() => { timedOut = true; res(false); }, ms); }),
+      ]);
+    } catch (e) { flushed = false; }
+    if (timer) { clearTimeout(timer); timer = null; }
+    const navigated = url ? navigateTo(url) : false;
+    return { flushed: !!flushed, timedOut, navigated, url: url || null };
+  }
+
+  /* Nhận diện link LIÊN TRANG trong app (3 trang dùng chung tầng dữ
+     liệu này): href tương đối/tuyệt đối trỏ vào index.html / mkt.html /
+     publishing.html (kèm query deep-link như ?tab=reviews&kind=game&
+     id=... của nút "Yêu cầu đánh giá"). Trả href GỐC để điều hướng giữ
+     nguyên dạng tương đối như tác giả link đã viết; null nếu không
+     phải link liên trang (link ngoài, neo trong trang, mailto...). */
+  const APP_PAGES = ['index.html', 'mkt.html', 'publishing.html'];
+  function appPageHref(href) {
+    if (!href || typeof href !== 'string') return null;
+    const h = href.trim();
+    if (!h || h.charAt(0) === '#' || /^(javascript|mailto|tel|data):/i.test(h)) return null;
+    let file = '', origin = null, samePage = false;
+    try {
+      const loc = (typeof window !== 'undefined' && window.location) || (typeof location !== 'undefined' ? location : null);
+      const base = (loc && loc.href) || 'http://localhost/';
+      const u = new URL(h, base);
+      file = (u.pathname || '').split('/').pop() || '';
+      origin = u.origin || null;
+      if (loc && origin && loc.origin && origin !== loc.origin) return null;
+      samePage = !!(loc && u.pathname === loc.pathname && (u.search || '') === (loc.search || ''));
+    } catch (e) {
+      file = h.split('#')[0].split('?')[0].split('/').pop() || '';
+    }
+    if (!APP_PAGES.includes(file)) return null;
+    if (samePage) return null; /* chỉ đổi hash/trỏ lại chính trang hiện tại */
+    return h;
+  }
+  function anchorFromEvent(ev) {
+    try {
+      let t = ev && ev.target;
+      if (t && typeof t.closest === 'function') { const a = t.closest('a'); if (a) return a; }
+      let n = t, hops = 0;
+      while (n && hops < 6) {
+        if ((n.tagName === 'A' || n.nodeName === 'A') && (n.href || (typeof n.getAttribute === 'function' && n.getAttribute('href')))) return n;
+        n = n.parentNode || n.parentElement || null; hops++;
+      }
+    } catch (e) {}
+    return null;
+  }
+  /* Chặn click ở pha capture trên document (một handler dùng chung cho
+     cả 3 trang — mọi link liên trang sinh động trong drawer/render đều
+     được phủ, không phải sửa từng chỗ sinh link): chỉ chặn khi THẬT SỰ
+     có dữ liệu chưa đồng bộ (dirty hoặc đang sync) và tầng dữ liệu đang
+     bật; ngoài ra để trình duyệt đi như cũ, 0 thay đổi hành vi. */
+  function onInterPageClick(ev) {
+    try {
+      if (!ev || ev.defaultPrevented) return;
+      if (typeof ev.button === 'number' && ev.button !== 0) return;
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+      if (!ctx.enabled || !ctx.client || (!dirty && !syncing)) return;
+      const a = anchorFromEvent(ev);
+      if (!a) return;
+      if (typeof a.hasAttribute === 'function' && a.hasAttribute('download')) return;
+      const target = (typeof a.getAttribute === 'function' ? a.getAttribute('target') : a.target) || '';
+      if (target && target !== '_self') return;
+      const rawHref = (typeof a.getAttribute === 'function' && a.getAttribute('href')) || a.href || '';
+      const href = appPageHref(rawHref);
+      if (!href) return;
+      ev.preventDefault();
+      flushBeforeNavigate(href);
+    } catch (e) {}
+  }
+  function onPageHideFlush() {
+    /* pagehide / ẩn tab: kích hoạt flush NGAY (không chờ được lâu —
+       trình duyệt có thể đóng trang bất cứ lúc nào; đây là nỗ lực tốt
+       nhất, còn đường chính cho link liên trang là flushBeforeNavigate
+       có chờ + timeout ở trên). flushSync tự lo idempotent: đang sync
+       thì không sinh vòng trùng. */
+    try { flushSync(); } catch (e) {}
+    try { flushAudit(); } catch (e) {}
+  }
+  function onVisibilityFlush() {
+    try { if (typeof document !== 'undefined' && document.visibilityState === 'hidden') onPageHideFlush(); } catch (e) {}
+  }
+  function safeListen(target, type, fn, opts) {
+    try { if (target && typeof target.addEventListener === 'function') target.addEventListener(type, fn, opts); } catch (e) {}
+  }
+  function registerLifecycleFlush() {
+    if (lifecycleRegistered) return;
+    lifecycleRegistered = true;
+    const w = (typeof window !== 'undefined') ? window : null;
+    const d = (typeof document !== 'undefined') ? document : null;
+    safeListen(w, 'pagehide', onPageHideFlush);
+    safeListen(w, 'visibilitychange', onVisibilityFlush);
+    safeListen(d, 'visibilitychange', onVisibilityFlush);
+  }
+  function registerNavGuard() {
+    if (navGuardRegistered) return;
+    navGuardRegistered = true;
+    const d = (typeof document !== 'undefined') ? document : null;
+    safeListen(d, 'click', onInterPageClick, true);
   }
 
   /* ---------- Lịch sử chỉnh sửa (audit_log) ----------
@@ -654,11 +822,26 @@
   const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, listRecent: auditListRecent, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
   if (typeof window !== 'undefined') window.SavaAudit = auditApi;
 
+  /* Đăng ký flush rời trang ngay khi file được nạp (mọi trang dùng
+     file này đều hưởng, kể cả trước khi auth gọi installHook); các
+     đăng ký trong installHook là lớp dự phòng và bị cờ chống trùng
+     nuốt nếu đã đăng ký ở đây. Handler tự kiểm tra ctx.enabled/dirty
+     nên lúc tầng dữ liệu chưa bật chúng là no-op. */
+  registerLifecycleFlush();
+  registerNavGuard();
+
   const api = {
     attach, setEnabled, loadAll, installHook, scheduleSync,
-    syncNow: () => scheduleSync(0),
+    /* syncNow NAY là flush thật (trả promise, chờ được vòng sync hoàn
+       tất) thay cho scheduleSync(0) bắn-rồi-quên như trước; nơi gọi cũ
+       bỏ qua giá trị trả về vẫn chạy đúng như cũ. */
+    syncNow: () => flushSync(),
+    flushSync, flushBeforeNavigate,
     isReady: () => ctx.ready, CRM_KEY, PUB_KEY, CRM_BACKUP_KEY, PUB_BACKUP_KEY,
     _ctx: ctx, audit: auditApi,
+    _syncState: () => ({ dirty, syncing, failCount }),
+    _navFlushTimeoutMs: NAV_FLUSH_TIMEOUT_MS,
+    _appPageHref: appPageHref,
   };
   if (typeof window !== 'undefined') window.SavaData = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
