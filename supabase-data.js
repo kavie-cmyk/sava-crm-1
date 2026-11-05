@@ -268,13 +268,13 @@
     const snapRows = A.crmStateToRows(crmSnap || {});
     const conflicts = [];
     /* Thứ tự ghi tôn trọng FK: cha trước (members->companies->games->leads
-       ->deals->term/contract/leads->tasks->activities->events); xoá thì
+       ->deals->term/contract/leads->tasks->events->activities); xoá thì
        ngược lại. Hai bảng nối deal_leads + event_links được xử lý riêng
        SAU vòng upsert bên dưới (xem FIX Việc 1 ở khối deal_leads). */
     const order = [
       ['members', 'id'], ['companies', 'id'], ['company_partner_eval_archive', 'company_id'],
       ['games', 'id'], ['leads', 'id'], ['deals', 'id'], ['deal_terms', 'deal_id'],
-      ['deal_contracts', 'deal_id'], ['tasks', 'id'], ['activities', 'id'], ['events', 'id'],
+      ['deal_contracts', 'deal_id'], ['tasks', 'id'], ['events', 'id'], ['activities', 'id'], /* Sự kiện TRƯỚC activities: activities.event_id FK -> events (đợt 5/11/2026); vòng xoá chạy ngược order nên activities vẫn bị xoá trước events */
     ];
     const plans = {};
     for (const [table, key] of order) plans[table] = planFor(newRows[table], snapRows[table], key);
@@ -326,6 +326,8 @@
          local (không nằm trong plan) nhưng vắng mặt trên server. */
       ensureParentRows(plans.activities.upserts, 'lead_id', 'leads');
       ensureParentRows(plans.activities.upserts, 'game_id', 'games');
+      /* Đợt Sự kiện (5/11/2026): hoạt động gắn TRỰC TIẾP vào sự kiện — cha là events, cùng mẫu lead/game ở trên. */
+      ensureParentRows(plans.activities.upserts, 'event_id', 'events');
       ensureParentRows([...leadChangedDeals].map(id => ({ deal_id: id })), 'deal_id', 'deals');
       ensureParentRows([...linkChangedEvents].map(id => ({ event_id: id })), 'event_id', 'events');
     }

@@ -402,7 +402,7 @@ function currentMemberIdForStamp() {
 }
 /* === Ép đóng dấu cho BẢN GHI CHỦ khi HOẠT ĐỘNG của nó thay đổi ===
    Hoạt động là collection RIÊNG (S.activities) gắn vào đúng 1 chủ
-   (deal/lead/game): thêm/sửa/xoá hoạt động không đổi field nào của bản
+   (deal/lead/game/event): thêm/sửa/xoá hoạt động không đổi field nào của bản
    ghi chủ nên stampCollection (so field của chính chủ) không thấy thay
    đổi — trước đợt này chủ KHÔNG được đóng dấu updatedAt/updatedBy và
    KHÔNG có mục lịch sử nào, dù thao tác hoạt động là một lần cập nhật
@@ -417,7 +417,7 @@ function currentMemberIdForStamp() {
    diff-sync lên server như mọi lần sửa khác (máy khác nhận về qua
    snapshot, không đóng dấu lại). Áp cho CẢ 3 loại chủ deal/lead/game để
    nhất quán (gốc yêu cầu chỉ nêu lead/game; deal trước đây cũng thiếu
-   dấu y hệt). Quyết định chi tiết:
+   dấu y hệt; đợt Sự kiện 5/11/2026 mở rộng cho chủ event qua đúng cơ chế này). Quyết định chi tiết:
    - Thêm: chủ mới nhận change "Hoạt động — thêm" (to = tóm tắt activity).
    - Sửa (giữ chủ): change "Hoạt động — sửa" (from/to = tóm tắt cũ/mới).
    - Xoá: change "Hoạt động — xoá" (from = tóm tắt activity đã xoá).
@@ -433,7 +433,7 @@ function currentMemberIdForStamp() {
      forced vào mục duy nhất nó sinh cho entity). */
 function activityOwnerKeyOf(a) {
   if (!a) return null;
-  const kinds = ["deal", "lead", "game"].filter(k => a[k]);
+  const kinds = ["deal", "lead", "game", "event"].filter(k => a[k]);
   if (kinds.length !== 1) return null;
   return { kind: kinds[0], id: String(a[kinds[0]]) };
 }
@@ -444,7 +444,7 @@ function activityStampSummary(a) {
   return short ? type + ": " + short : type;
 }
 function crmActivityOwnerForced() {
-  const maps = { deal: new Map(), lead: new Map(), game: new Map() };
+  const maps = { deal: new Map(), lead: new Map(), game: new Map(), event: new Map() };
   try {
     if (!window.SavaSys || !crmPrevSnap || !crmPrevSnap.activities) return maps;
     const before = crmPrevSnap.activities;
@@ -452,7 +452,7 @@ function crmActivityOwnerForced() {
     (Array.isArray(S.activities) ? S.activities : []).forEach(a => { if (a && a.id !== undefined && a.id !== null) cur.set(String(a.id), a); });
     const push = (owner, change) => {
       if (!owner) return;
-      const coll = owner.kind === "deal" ? S.deals : owner.kind === "lead" ? S.leads : S.games;
+      const coll = owner.kind === "deal" ? S.deals : owner.kind === "lead" ? S.leads : owner.kind === "event" ? (Array.isArray(S.events) ? S.events : []) : S.games;
       if (!Array.isArray(coll) || !coll.some(x => x && String(x.id) === owner.id)) return;
       if (!maps[owner.kind].has(owner.id)) maps[owner.kind].set(owner.id, []);
       maps[owner.kind].get(owner.id).push(change);
@@ -1068,8 +1068,8 @@ function vDash() {
   const actOwnerTitle = a => { const o = activityOwnerOf(a); return o && o.target ? activityOwnerLabel(o) : ""; };
   const activities = S.activities.filter(a=>(curLine==='all'||actOwnerLine(a)===curLine)&&(!query||(a.text+' '+actOwnerTitle(a)).toLowerCase().includes(query))).slice(0,4).map(a=>{
     const o = activityOwnerOf(a);
-    const openFn = o ? (o.kind==='deal'?'openDeal':o.kind==='lead'?'openLead':'openGame') : '';
-    const head = o ? (o.kind==='deal' ? (o.target?o.target.title:a.type) : (o.kind==='lead'?'📥 Lead: ':'🎮 Game: ')+activityOwnerLabel(o)) : a.type;
+    const openFn = o ? (o.kind==='deal'?'openDeal':o.kind==='lead'?'openLead':o.kind==='event'?'openEvent':'openGame') : '';
+    const head = o ? (o.kind==='deal' ? (o.target?o.target.title:a.type) : (o.kind==='lead'?'📥 Lead: ':o.kind==='event'?'🎪 Sự kiện: ':'🎮 Game: ')+activityOwnerLabel(o)) : a.type;
     return `<div class="activity-item" ${o&&o.target?`onclick="${openFn}('${o.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(head)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
   const dashActDeals = S.deals.filter(d => curLine === 'all' || d.line === curLine);
@@ -1230,7 +1230,8 @@ function isOverdue(t) {
    - Deal:    t.deal    — cơ chế cũ, adapter ghi xuống cột tasks.deal_id.
    - Company: t.company ┐
    - Lead:    t.lead    ├─ field MỚI: CỐ Ý không nằm trong TASK_KNOWN của
-   - Game:    t.game    ┘  supabase-adapter.js nên đi qua tasks.legacy_extra
+   - Game:    t.game    │
+   - Event:   t.event   ┘  supabase-adapter.js nên đi qua tasks.legacy_extra (Event thêm 5/11/2026, đúng cùng cơ chế)
      khi ghi và được mergeExtras khôi phục khi đọc — đúng mẫu deal.vertical /
      lead.mainContact / lead.phone, KHÔNG cần cột/SQL mới.
    saveTask chuẩn hoá: xoá cả 4 khoá rồi chỉ đặt lại đúng 1 khoá theo ô chọn
@@ -1243,12 +1244,14 @@ const TASK_LINK_META = {
   company: { icon: "🏢", noun: "Công ty", open: "openCompany" },
   lead:    { icon: "📥", noun: "Lead",    open: "openLead" },
   game:    { icon: "🎮", noun: "Game",    open: "openGame" },
+  event:   { icon: "🎪", noun: "Sự kiện", open: "openEvent" },
 };
 function taskLinkTarget(type, id) {
   if (type === "deal") return S.deals.find(x => x.id === id) || null;
   if (type === "company") { const c = comp(id); return c && c.id ? c : null; }
   if (type === "lead") return S.leads.find(x => x.id === id) || null;
   if (type === "game") return game(id) || null;
+  if (type === "event") return (Array.isArray(S.events) ? S.events : []).find(x => x.id === id) || null;
   return null;
 }
 function taskLinkLabel(type, target) {
@@ -1257,11 +1260,12 @@ function taskLinkLabel(type, target) {
   if (type === "company") return target.name || "—";
   if (type === "lead") return leadDisplayName(target);
   if (type === "game") return target.title || "—";
+  if (type === "event") return target.name || "—";
   return "—";
 }
 function taskLinkOf(t) {
   if (!t) return null;
-  for (const type of ["deal", "company", "lead", "game"]) {
+  for (const type of ["deal", "company", "lead", "game", "event"]) {
     const id = t[type];
     if (id) { const target = taskLinkTarget(type, id); return { type, id, target, label: taskLinkLabel(type, target), icon: TASK_LINK_META[type].icon, noun: TASK_LINK_META[type].noun, open: TASK_LINK_META[type].open }; }
   }
@@ -2055,10 +2059,12 @@ function openEvent(id) {
     ${eventLinkBlockHTML(ev, "lead")}
     ${eventLinkBlockHTML(ev, "deal")}
     ${eventReportBlockHTML(ev)}
+    ${relatedTasksHTML("event", ev.id)}
     <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>
-    ${(() => { const evActs = S.activities.filter(a => (Array.isArray(ev.deals) && ev.deals.includes(a.deal)) || (Array.isArray(ev.leads) && a.lead && ev.leads.includes(a.lead)) || (Array.isArray(ev.games) && a.game && ev.games.includes(a.game))); return evActs.length ? evActs.map(a => activityRowHTML(a, { showDeal: true })).join("") : '<div class="mut">Chưa có hoạt động nào.</div>'; })()}
-    ${activityAddBlockHTML("event", S.deals.filter(d => Array.isArray(ev.deals) && ev.deals.includes(d.id)))}
-    <div class="mut" style="margin-top:14px">Liên kết công ty / lead / deal nằm ngay trên sự kiện này — xoá sự kiện chỉ gỡ các liên kết đó, các đối tượng vẫn giữ nguyên trong CRM.</div>${auditSectionHTML("event", ev.id)}`);
+    ${(() => { const directActs = S.activities.filter(a => a.event === ev.id); const directSlice = listPageSlice("eventacts:" + ev.id, directActs); return '<h4 style="margin:10px 0 4px">🎪 Hoạt động trực tiếp của sự kiện này (' + directActs.length + ')</h4>' + (directActs.length ? directSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("eventacts:" + ev.id, directSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào gắn trực tiếp vào sự kiện này — bấm "+ Thêm hoạt động" ở dưới và chọn đích gắn trực tiếp vào sự kiện để ghi.</div>'); })()}
+    ${activityAddBlockHTML("event", S.deals.filter(d => Array.isArray(ev.deals) && ev.deals.includes(d.id)), { direct: { kind: "event", id: ev.id, label: ev.name || ev.id } })}
+    ${(() => { const evActs = S.activities.filter(a => (Array.isArray(ev.deals) && ev.deals.includes(a.deal)) || (Array.isArray(ev.leads) && a.lead && ev.leads.includes(a.lead)) || (Array.isArray(ev.games) && a.game && ev.games.includes(a.game))); return '<h4 style="margin:14px 0 4px">🔗 Hoạt động qua liên kết (' + evActs.length + ')</h4>' + (evActs.length ? evActs.map(a => activityRowHTML(a, { showDeal: true })).join("") : '<div class="mut">Chưa có hoạt động nào qua các deal / lead / game đã liên kết.</div>'); })()}
+    <div class="mut" style="margin-top:14px">Liên kết công ty / lead / deal nằm ngay trên sự kiện này — xoá sự kiện chỉ gỡ các liên kết đó, các đối tượng vẫn giữ nguyên trong CRM. Việc gắn với sự kiện cũng chỉ bị gỡ liên kết (việc vẫn còn); hoạt động gắn TRỰC TIẾP vào sự kiện sẽ bị xoá theo sự kiện (như hoạt động gắn trực tiếp vào lead/game).</div>${auditSectionHTML("event", ev.id)}`);
   loadDrawerAudit(document.getElementById("drawer"), "event", id);
 }
 function openEventForm(id) {
@@ -2121,8 +2127,15 @@ function deleteEvent(id) {
   const nc = Array.isArray(ev.companies) ? ev.companies.length : 0;
   const nl = Array.isArray(ev.leads) ? ev.leads.length : 0;
   const nd = Array.isArray(ev.deals) ? ev.deals.length : 0;
-  if (!confirm(`Xoá hẳn sự kiện "${ev.name}"?\n\nSự kiện đang gắn ${nc} công ty, ${nl} lead và ${nd} deal — xoá sự kiện sẽ gỡ ${nc} liên kết công ty, ${nl} liên kết lead và ${nd} liên kết deal này, nhưng các công ty, lead và deal đó vẫn giữ nguyên trong CRM.\n\nKhông khôi phục được.`)) return;
+  const nTask = S.tasks.filter(t => t.event === id).length;
+  const nAct = S.activities.filter(a => a.event === id).length;
+  if (!confirm(`Xoá hẳn sự kiện "${ev.name}"?\n\nSự kiện đang gắn ${nc} công ty, ${nl} lead và ${nd} deal — xoá sự kiện sẽ gỡ ${nc} liên kết công ty, ${nl} liên kết lead và ${nd} liên kết deal này, nhưng các công ty, lead và deal đó vẫn giữ nguyên trong CRM.` + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với sự kiện này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với sự kiện).` : "") + (nAct ? `\n\n${nAct} hoạt động gắn TRỰC TIẾP vào sự kiện này sẽ bị xoá theo sự kiện.` : "") + `\n\nKhông khôi phục được.`)) return;
   S.events = eventsList().filter(x => x.id !== id);
+  /* Hoạt động gắn TRỰC TIẾP vào sự kiện bị xoá theo sự kiện (khớp FK
+     activities.event_id ON DELETE CASCADE ở DB); hoạt động qua deal/lead/game liên kết giữ nguyên. */
+  S.activities = S.activities.filter(a => a.event !== id);
+  /* Việc gắn trực tiếp với sự kiện: gỡ liên kết, KHÔNG xoá việc — cùng quy ước xoá company/lead/game/deal. */
+  S.tasks.forEach(t => { if (t.event === id) delete t.event; });
   save(); closeDrawer(); render(); toast("Đã xoá sự kiện: " + (ev.name || ""));
 }
 /* --- Phía entity: hiển thị nguồn sự kiện (suy ra từ S.events) --- */
@@ -5936,7 +5949,7 @@ function deleteLead(id) {
 
 /* --- Việc (task) --- */
 /* Ô chọn liên kết nguồn của form việc: value dạng "<type>:<id>" với type ∈
-   deal/company/lead/game, "" = không gắn gì. Gộp cả 4 loại vào MỘT ô chọn
+   deal/company/lead/game/event, "" = không gắn gì. Gộp cả 5 loại vào MỘT ô chọn
    (nhóm theo loại) để bất biến "một việc — tối đa một đối tượng nguồn" nằm
    ngay trong form: tạo từ view Công việc chọn deal như cũ hoặc đối tượng
    khác; tạo từ drawer thì editTask(null, type, id) điền sẵn đúng giá trị
@@ -5949,6 +5962,7 @@ function taskLinkSelectHTML(curVal) {
     ["company", S.companies.filter(c => c && c.id).map(c => [c.id, c.name || "—"])],
     ["lead", S.leads.map(l => [l.id, leadLabel(l)])],
     ["game", S.games.map(g => [g.id, g.title || "—"])],
+    ["event", (Array.isArray(S.events) ? S.events : []).map(ev => [ev.id, ev.name || "—"])],
   ];
   let extra = "";
   if (curVal) {
@@ -5962,7 +5976,7 @@ function taskLinkSelectHTML(curVal) {
     for (const [type, opts] of groups) { const hit = opts.find(([v]) => curVal === type + ":" + v); if (hit) return hit[1]; }
     return curVal;
   })();
-  return comboSelectHTML("e_tlink", `<option value="" ${!curVal ? "selected" : ""}>— Không gắn đối tượng nào —</option>${extra}${groups.map(([type, opts]) => opts.length ? `<optgroup label="${esc(TASK_LINK_META[type].icon + " " + TASK_LINK_META[type].noun)}">${opts.map(([v, label]) => `<option value="${esc(type + ":" + v)}" ${curVal === type + ":" + v ? "selected" : ""}>${esc(label)}</option>`).join("")}</optgroup>` : "").join("")}`, { label: extra && curVal ? ((TASK_LINK_META[curVal.slice(0, curVal.indexOf(":"))] || {}).icon || "🔗") + " " + ((TASK_LINK_META[curVal.slice(0, curVal.indexOf(":"))] || {}).noun || "") + ": (đối tượng đã xoá)" : curLabel, placeholder: "Gõ tên deal / công ty / lead / game để tìm…" });
+  return comboSelectHTML("e_tlink", `<option value="" ${!curVal ? "selected" : ""}>— Không gắn đối tượng nào —</option>${extra}${groups.map(([type, opts]) => opts.length ? `<optgroup label="${esc(TASK_LINK_META[type].icon + " " + TASK_LINK_META[type].noun)}">${opts.map(([v, label]) => `<option value="${esc(type + ":" + v)}" ${curVal === type + ":" + v ? "selected" : ""}>${esc(label)}</option>`).join("")}</optgroup>` : "").join("")}`, { label: extra && curVal ? ((TASK_LINK_META[curVal.slice(0, curVal.indexOf(":"))] || {}).icon || "🔗") + " " + ((TASK_LINK_META[curVal.slice(0, curVal.indexOf(":"))] || {}).noun || "") + ": (đối tượng đã xoá)" : curLabel, placeholder: "Gõ tên deal / công ty / lead / game / sự kiện để tìm…" });
 }
 /* editTask(id, linkType, linkId): linkType/linkId CHỈ dùng khi tạo mới (id=null)
    từ drawer Company/Lead/Deal/Game để điền sẵn liên kết. Người làm giữ mặc
@@ -5997,14 +6011,14 @@ function saveTask(id) {
   if (!dueDateR.ok) return;
   const data = { title, assignee: document.getElementById("e_tassignee").value, due: existingTask ? (existingTask.due || "") : "", dueDate: dueDateR.value, done, overdue: false };
   /* Liên kết nguồn: đọc "<type>:<id>" từ ô chọn, chuẩn hoá về ĐÚNG 1 khoá
-     (deal/company/lead/game) — xoá cả 4 khoá cũ trước khi đặt khoá mới, nên
+     (deal/company/lead/game/event) — xoá cả 5 khoá cũ trước khi đặt khoá mới, nên
      sửa việc giữ nguyên liên kết khi ô chọn không đổi và đổi/gỡ sạch khi
-     user đổi ô chọn. Giá trị lạ (type không thuộc 4 loại) -> coi như không gắn. */
+     user đổi ô chọn. Giá trị lạ (type không thuộc 5 loại) -> coi như không gắn. */
   const lv = (document.getElementById("e_tlink")?.value || "").trim();
   const sep = lv.indexOf(":");
   const linkType = sep > 0 ? lv.slice(0, sep) : "";
   const linkId = sep > 0 ? lv.slice(sep + 1) : "";
-  const applyLink = t => { ["deal", "company", "lead", "game"].forEach(k => { delete t[k]; }); if (linkId && TASK_LINK_META[linkType]) t[linkType] = linkId; };
+  const applyLink = t => { ["deal", "company", "lead", "game", "event"].forEach(k => { delete t[k]; }); if (linkId && TASK_LINK_META[linkType]) t[linkType] = linkId; };
   let t;
   if (id) { t = S.tasks.find(x => x.id === id); data.overdue = t.overdue && !done; Object.assign(t, data); applyLink(t); }
   else { t = { id: "t" + Date.now(), ...data }; applyLink(t); S.tasks.push(t); }
@@ -6038,14 +6052,14 @@ function deleteTask(id) {
    ở local). Tham chiếu chủ dùng chung một định dạng ở mọi ô chọn:
    deal = id trần (tương thích ngược Việc 7), lead = "lead:<id>",
    game = "game:<id>" (activityOwnerParse/activityOwnerOf bên dưới). */
-/* Chủ của một hoạt động: đúng một trong {deal, lead, game}. */
-const ACTIVITY_OWNER_KINDS = ["deal", "lead", "game"];
+/* Chủ của một hoạt động: đúng một trong {deal, lead, game, event}. */
+const ACTIVITY_OWNER_KINDS = ["deal", "lead", "game", "event"];
 function activityOwnerOf(a) {
   if (!a) return null;
   const found = ACTIVITY_OWNER_KINDS.filter(k => a[k]);
   if (found.length !== 1) return null;
   const kind = found[0], id = String(a[kind]);
-  const target = kind === "deal" ? S.deals.find(x => x.id === id) : kind === "lead" ? S.leads.find(x => x.id === id) : game(id);
+  const target = kind === "deal" ? S.deals.find(x => x.id === id) : kind === "lead" ? S.leads.find(x => x.id === id) : kind === "event" ? (Array.isArray(S.events) ? S.events : []).find(x => x.id === id) || null : game(id);
   return { kind, id, target: target || null };
 }
 function activityOwnerParse(ref) {
@@ -6053,6 +6067,7 @@ function activityOwnerParse(ref) {
   if (!s) return null;
   if (s.startsWith("lead:")) return { kind: "lead", id: s.slice(5) };
   if (s.startsWith("game:")) return { kind: "game", id: s.slice(5) };
+  if (s.startsWith("event:")) return { kind: "event", id: s.slice(6) };
   if (s.startsWith("deal:")) return { kind: "deal", id: s.slice(5) };
   return { kind: "deal", id: s };
 }
@@ -6064,6 +6079,7 @@ function activityOwnerLabel(o) {
   if (!o) return "";
   if (o.kind === "deal") return o.target ? (o.target.title || "—") : "(deal đã xoá) " + o.id;
   if (o.kind === "lead") return o.target ? leadDisplayName(o.target) : "(lead đã xoá) " + o.id;
+  if (o.kind === "event") return o.target ? (o.target.name || "—") : "(sự kiện đã xoá) " + o.id;
   return o.target ? (o.target.title || "—") : "(game đã xoá) " + o.id;
 }
 function activityOwnerExists(o) {
@@ -6071,6 +6087,7 @@ function activityOwnerExists(o) {
   if (o.kind === "deal") return S.deals.some(x => x.id === o.id);
   if (o.kind === "lead") return S.leads.some(x => x.id === o.id);
   if (o.kind === "game") return S.games.some(x => x.id === o.id);
+  if (o.kind === "event") return (Array.isArray(S.events) ? S.events : []).some(x => x.id === o.id);
   return false;
 }
 function openActLinkById(actId) {
@@ -6098,6 +6115,7 @@ function activityRowHTML(a, opts) {
     if (o && o.kind === "deal" && o.target) ownerHTML = ` · <a href="#" onclick="openDeal('${o.id}'); return false" title="Mở deal liên quan">${esc(o.target.title || "—")}</a>`;
     else if (o && o.kind === "lead") ownerHTML = o.target ? ` · 📥 Lead: <a href="#" onclick="openLead('${o.id}'); return false" title="Mở lead chủ của hoạt động">${esc(leadDisplayName(o.target))}</a>` : ` · 📥 Lead: (lead đã xoá) ${esc(o.id)}`;
     else if (o && o.kind === "game") ownerHTML = o.target ? ` · 🎮 Game: <a href="#" onclick="openGame('${o.id}'); return false" title="Mở game chủ của hoạt động">${esc(o.target.title || "—")}</a>` : ` · 🎮 Game: (game đã xoá) ${esc(o.id)}`;
+    else if (o && o.kind === "event") ownerHTML = o.target ? ` · 🎪 Sự kiện: <a href="#" onclick="openEvent('${o.id}'); return false" title="Mở sự kiện chủ của hoạt động">${esc(o.target.name || "—")}</a>` : ` · 🎪 Sự kiện: (sự kiện đã xoá) ${esc(o.id)}`;
     else if (o && o.kind === "deal") ownerHTML = ` · (deal đã xoá) ${esc(o.id)}`;
   }
   const url = String(a.url || "").trim();
@@ -6130,12 +6148,12 @@ function toggleActivityForm(scope) { toggleActivityFormEl(document.getElementByI
    opts.who: người thực hiện điền sẵn. */
 function activityAddBlockHTML(scope, dealChoices, opts) {
   const deals = (Array.isArray(dealChoices) ? dealChoices : []).filter(d => d && d.id);
-  const direct = (opts && opts.direct && (opts.direct.kind === "lead" || opts.direct.kind === "game") && opts.direct.id) ? opts.direct : null;
-  if (!deals.length && !direct) return `<div class="mut" style="margin-top:8px">Chưa thêm được hoạt động ở đây: hoạt động phải gắn với một deal, mà đối tượng này chưa có deal nào liên kết. Hãy tạo hoặc gắn deal trước, rồi quay lại ghi hoạt động vào deal đó.</div>`;
+  const direct = (opts && opts.direct && (opts.direct.kind === "lead" || opts.direct.kind === "game" || opts.direct.kind === "event") && opts.direct.id) ? opts.direct : null;
+  if (!deals.length && !direct) return `<div class="mut" style="margin-top:8px">Chưa thêm được hoạt động ở đây: hoạt động phải gắn với đúng một chủ (deal, lead, game hoặc sự kiện), mà đối tượng này chưa có deal nào liên kết và cũng không phải là chủ gắn trực tiếp được. Hãy tạo hoặc gắn deal trước, rồi quay lại ghi hoạt động vào deal đó.</div>`;
   const p = "na_" + scope + "_";
   const who = (opts && opts.who) || defaultOwnerId() || (deals[0] && deals[0].owner) || "";
   const directRef = direct ? direct.kind + ":" + direct.id : "";
-  const directNoun = direct ? (direct.kind === "lead" ? "Lead" : "Game") : "";
+  const directNoun = direct ? (direct.kind === "lead" ? "Lead" : direct.kind === "event" ? "Sự kiện" : "Game") : "";
   const directField = direct ? (deals.length
     ? `<label style="display:block;margin-top:8px">Đích gắn hoạt động</label><select id="${p}target" style="width:100%"><option value="">Theo deal đã chọn ở trên</option><option value="${esc(directRef)}">Gắn TRỰC TIẾP vào ${directNoun} này (không qua deal): ${esc(direct.label || direct.id)}</option></select>`
     : "") : "";
@@ -6169,7 +6187,7 @@ function createActivity(ownerRef, data) {
   const text = String((data && data.text) || "").trim();
   if (!text) { toast("Nhập nội dung hoạt động trước đã"); return null; }
   const owner = activityOwnerParse(ownerRef);
-  if (!owner || !activityOwnerExists(owner)) { toast("Hoạt động phải gắn với đúng một chủ (deal, lead hoặc game) — hãy chọn chủ còn tồn tại để gắn hoạt động vào"); return null; }
+  if (!owner || !activityOwnerExists(owner)) { toast("Hoạt động phải gắn với đúng một chủ (deal, lead, game hoặc sự kiện) — hãy chọn chủ còn tồn tại để gắn hoạt động vào"); return null; }
   let nid = "a" + Date.now();
   while (S.activities.some(x => x.id === nid)) nid += "x";
   const a = { id: nid, type: (data && data.type) || "Note", who: (data && data.who) || "", when: todayStr(), text, url: String((data && data.url) || "").trim() };
@@ -6181,7 +6199,7 @@ function createActivity(ownerRef, data) {
    Lead/Game, dùng chung lõi validate với createActivity. */
 function createActivityFor(kind, id, data) {
   if (kind === "deal") return createActivity(id, data);
-  if (kind === "lead" || kind === "game") return createActivity(kind + ":" + id, data);
+  if (kind === "lead" || kind === "game" || kind === "event") return createActivity(kind + ":" + id, data);
   return null;
 }
 function addActivityScoped(scope) {
@@ -6214,13 +6232,14 @@ function editActivity(id) {
     + S.deals.map(d => `<option value="${esc(d.id)}" ${curRef === d.id ? "selected" : ""}>${esc(d.title || "—")} · ${esc(comp(d.company).name)}</option>`).join("")
     + S.leads.map(l => `<option value="lead:${esc(l.id)}" ${curRef === "lead:" + l.id ? "selected" : ""}>📥 Lead: ${esc(leadDisplayName(l))} · ${esc(leadCompanyName(l))}</option>`).join("")
     + S.games.map(g => `<option value="game:${esc(g.id)}" ${curRef === "game:" + g.id ? "selected" : ""}>🎮 Game: ${esc(g.title || "—")}</option>`).join("")
+    + (Array.isArray(S.events) ? S.events : []).map(ev => `<option value="event:${esc(ev.id)}" ${curRef === "event:" + ev.id ? "selected" : ""}>🎪 Sự kiện: ${esc(ev.name || "—")}</option>`).join("")
     + (curOwner && !curOwner.target ? `<option value="${esc(curRef)}" selected>(${esc(curOwner.kind)} đã xoá) ${esc(curOwner.id)}</option>` : "")
-    + (!curOwner && (a.deal || a.lead || a.game) ? `<option value="" selected>(chủ không hợp lệ) ${(a.deal || a.lead || a.game)}</option>` : "");
+    + (!curOwner && (a.deal || a.lead || a.game || a.event) ? `<option value="" selected>(chủ không hợp lệ) ${(a.deal || a.lead || a.game || a.event)}</option>` : "");
   const ownerLabel = curOwner ? (curOwner.kind === "deal" && curOwner.target ? (curOwner.target.title || "—") + " · " + comp(curOwner.target.company).name : activityOwnerLabel(curOwner)) : "— Không gắn deal —";
   openEdit(`<h3 style="font-size:16px">✏️ Sửa hoạt động</h3>
     <div style="margin-bottom:8px">${typeBadgeHTML("activity")}</div>
     ${field("Loại", sel("ea_type", [["Note", "Note"], ["Call", "Call"], ["Email", "Email"], ["Meeting", "Meeting"], ["Demo", "Demo"], ["Zalo", "Zalo"], ["Messenger", "Messenger"]], a.type))}
-    ${field("Chủ của hoạt động (deal / lead / game)", comboSelectHTML("ea_deal", ownerOpts, { label: ownerLabel, placeholder: "Gõ tên deal / lead / game để tìm…" }))}
+    ${field("Chủ của hoạt động (deal / lead / game / sự kiện)", comboSelectHTML("ea_deal", ownerOpts, { label: ownerLabel, placeholder: "Gõ tên deal / lead / game / sự kiện để tìm…" }))}
     ${field("Người thực hiện", ownerSel("ea_who", a.who))}
     ${field("Thời gian", `<input id="ea_when" type="text" placeholder="dd-mm-yyyy" value="${esc(isValidDateStr(a.when) ? isoToDMY(a.when) : "")}">` + (a.when && !isValidDateStr(a.when) ? `<div class="mut" style="margin-top:4px">(dữ liệu cũ) ${esc(a.when)} — để trống ngày thì giữ nguyên giá trị cũ này</div>` : ""))}
     ${field("Nội dung", `<textarea id="ea_text">${esc(a.text || "")}</textarea>`)}
@@ -6248,12 +6267,12 @@ function saveActivity(id) {
      id trần = deal, "lead:<id>" / "game:<id>" = gắn trực tiếp. */
   const dealEl = document.getElementById("ea_deal");
   const newOwner = activityOwnerParse(dealEl ? dealEl.value : activityOwnerRef(a));
-  if (!newOwner || !activityOwnerExists(newOwner)) { toast("Hoạt động phải gắn với đúng một chủ (deal, lead hoặc game) — hãy chọn chủ cho hoạt động này"); return; }
+  if (!newOwner || !activityOwnerExists(newOwner)) { toast("Hoạt động phải gắn với đúng một chủ (deal, lead, game hoặc sự kiện) — hãy chọn chủ cho hoạt động này"); return; }
   a.type = document.getElementById("ea_type").value;
   /* FIX-C1 A8 (mở rộng): chủ của hoạt động sửa được ngay trong form — xoá
      cả 3 khoá chủ cũ rồi đặt đúng 1 khoá mới, không bao giờ sinh hoạt
      động 2 chủ khi đổi loại chủ (deal -> lead/game và ngược lại). */
-  delete a.deal; delete a.lead; delete a.game;
+  delete a.deal; delete a.lead; delete a.game; delete a.event;
   a[newOwner.kind] = newOwner.id;
   a.who = document.getElementById("ea_who").value;
   a.when = actWhenR.value || a.when;
@@ -6316,7 +6335,7 @@ window.__savaOnDataRefreshed = function () {
 /* Deep-link vào CRM (phía Publishing link ngược về đúng hồ sơ):
    ?open=company&id=<id> -> mở drawer công ty; ?open=game&id=<id> -> mở drawer game;
    ?open=deal&id=<id> -> mở drawer deal; ?open=lead&id=<id> -> mở drawer lead;
-   ?open=member&id=<id> -> mở drawer member; ?open=task&id=<id> -> mở form sửa
+   ?open=member&id=<id> -> mở drawer member; ?open=event&id=<id> -> mở drawer sự kiện; ?open=task&id=<id> -> mở form sửa
    việc và ?open=activity&id=<id> -> mở form sửa hoạt động (editTask/editActivity
    là bề mặt mở sẵn có duy nhất của hai loại này — cùng mẫu auditHistEntity dùng). */
 try {
@@ -6327,6 +6346,7 @@ try {
   else if (__oid && __open === "deal") openDeal(__oid);
   else if (__oid && __open === "lead") openLead(__oid);
   else if (__oid && __open === "member") openMember(__oid);
+  else if (__oid && __open === "event") openEvent(__oid);
   else if (__oid && __open === "task") editTask(__oid);
   else if (__oid && __open === "activity") editActivity(__oid);
 } catch (e) {}

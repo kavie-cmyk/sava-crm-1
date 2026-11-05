@@ -153,7 +153,7 @@
   const TERM_KNOWN = ['rev_share', 'advance', 'advance_num', 'advance_cur', 'territories', 'duration', 'exclusivity', 'marketing', 'payment'];
   const CONTRACT_KNOWN = ['status', 'no', 'signed', 'url'];
   const LEAD_KNOWN = ['id', 'name', 'company', 'person', 'line', 'source', 'status', 'note', 'when'];
-  /* Liên kết nguồn MỚI của task — t.company / t.lead / t.game (một việc gắn
+  /* Liên kết nguồn MỚI của task — t.company / t.lead / t.game / t.event (một việc gắn
      tối đa một đối tượng nguồn; t.deal cũ vẫn đi cột deal_id) — CỐ Ý không
      nằm trong TASK_KNOWN: bảng tasks không có cột cho chúng, ba field đi qua
      legacy_extra của tasks khi ghi (extrasOf) và được mergeExtras khôi phục
@@ -169,7 +169,7 @@
      và khôi phục nguyên vẹn khi đọc (xem hai chiều bên dưới) — đúng tinh
      thần cặp raw/date: raw luôn thắng khi đọc lại (pairBack). */
   const TASK_KNOWN = ['id', 'title', 'assignee', 'deal', 'due', 'dueDate', 'done', 'overdue'];
-  const ACTIVITY_KNOWN = ['id', 'deal', 'lead', 'game', 'type', 'who', 'when', 'text', 'url'];
+  const ACTIVITY_KNOWN = ['id', 'deal', 'lead', 'game', 'event', 'type', 'who', 'when', 'text', 'url'];
   const MEMBER_KNOWN = ['id', 'name', 'role', 'active'];
   /* Sự kiện: attendees (mảng member id), note và 3 trường hệ thống
      (createdAt/updatedAt/updatedBy) CỐ Ý không nằm trong EVENT_KNOWN:
@@ -295,9 +295,9 @@
         legacy_extra: taskExtra,
       });
     });
-    /* Việc 7 + đợt Lead/Game: activities có ĐÚNG MỘT chủ — deal_id /
-       lead_id / game_id (CHECK activities_exactly_one_owner ở DB, FK cả
-       ba). Hoạt động KHÔNG có đúng 1 chủ hợp lệ (0 chủ, 2+ chủ, hoặc chủ
+    /* Việc 7 + đợt Lead/Game + đợt Sự kiện (5/11/2026): activities có ĐÚNG MỘT chủ — deal_id /
+       lead_id / game_id / event_id (CHECK activities_exactly_one_owner ở DB, FK cả
+       bốn). Hoạt động KHÔNG có đúng 1 chủ hợp lệ (0 chủ, 2+ chủ, hoặc chủ
        đã xoá ở local) KHÔNG được thành row đẩy lên server: một row như
        vậy làm vỡ CHECK/FK và, vì snapshot đồng bộ chỉ tiến khi sync chạy
        trọn, sẽ kẹt MỌI lần đồng bộ sau đó. Bỏ qua ở cả hai chiều
@@ -307,18 +307,20 @@
     const dealIdSet = new Set(rows.deals.map(r => String(r.id)));
     const leadIdSet = new Set(rows.leads.map(r => String(r.id)));
     const gameIdSet = new Set(rows.games.map(r => String(r.id)));
+    const eventIdSet = new Set((Array.isArray(s.events) ? s.events : []).map(r => String(r && r.id))); /* rows.events được dựng SAU vòng activities trong hàm này nên tập id chủ sự kiện phải lấy từ state nguồn, không lấy từ rows.events (lúc này còn rỗng) */
     (Array.isArray(s.activities) ? s.activities : []).forEach(a => {
       if (!isObj(a) || !a.id) return;
       const owners = [];
       if (a.deal) owners.push(['deal_id', a.deal, dealIdSet]);
       if (a.lead) owners.push(['lead_id', a.lead, leadIdSet]);
       if (a.game) owners.push(['game_id', a.game, gameIdSet]);
+      if (a.event) owners.push(['event_id', a.event, eventIdSet]);
       if (owners.length !== 1) return;
       const [ownerCol, ownerId, ownerSet] = owners[0];
       if (!ownerSet.has(String(ownerId))) return;
       const when = datePair(a.when);
       const row = {
-        id: a.id, deal_id: null, lead_id: null, game_id: null, type: a.type || 'Note', actor_id: nullIfEmpty(a.who),
+        id: a.id, deal_id: null, lead_id: null, game_id: null, event_id: null, type: a.type || 'Note', actor_id: nullIfEmpty(a.who),
         occurred_date: when.date, occurred_raw: when.raw,
         text: String(a.text || ''), url: a.url === undefined || a.url === '' ? null : a.url,
         legacy_extra: extrasOf(a, ACTIVITY_KNOWN),
@@ -447,7 +449,7 @@
       if (o.dueDate_raw !== undefined) { o.dueDate = pairBack(t.due_date, o.dueDate_raw); delete o.dueDate_raw; }
     });
     arr('activities').forEach(a => {
-      /* Chủ của hoạt động: đúng một khoá deal/lead/game được đặt theo cột
+      /* Chủ của hoạt động: đúng một khoá deal/lead/game/event được đặt theo cột
          chủ khác NULL (hàng cũ chỉ có deal_id -> o.deal như trước, 100%
          tương thích ngược; hàng mồ côi cả 3 cột NULL — DB nay chặn bằng
          CHECK — thì không đặt khoá chủ nào, adapter state->rows sẽ giữ
@@ -459,6 +461,7 @@
       if (a.deal_id) o.deal = a.deal_id;
       if (a.lead_id) o.lead = a.lead_id;
       if (a.game_id) o.game = a.game_id;
+      if (a.event_id) o.event = a.event_id;
       if (a.url !== null && a.url !== undefined) o.url = a.url;
       state.activities.push(mergeExtras(o, a));
     });

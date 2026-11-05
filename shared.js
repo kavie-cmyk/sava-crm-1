@@ -155,9 +155,9 @@ const FIELD_LABELS = {
   company: { name: "Tên công ty", type: "Loại hình", roles: "Vai trò theo mảng", last: "Tương tác cuối", partnerEval: "Đánh giá Partner (legacy)", partnerEvalMigrated: "Cờ chuyển dữ liệu Partner", location: "Địa điểm", establishedYear: "Năm thành lập", size: "Quy mô", employees: "Số nhân sự", industry: "Ngành", website: "Website", linkedinUrl: "LinkedIn công ty", linkedinUrls: "LinkedIn công ty (nhiều link)", parentCompany: "Công ty mẹ / Nhà đầu tư", parentWebsite: "Website công ty mẹ", suborgCount: "Số tổ chức con", suborgDomains: "Domain tổ chức con", suborgNames: "Tên tổ chức con", buyingSignals: "Tín hiệu mua (Buying Signals)", vertical: "Ngành dọc", savaOffering: "SAVA Offering", bizModel: "Mô hình kinh doanh (Biz Model)", priority: "Mức ưu tiên (Priority)" },
   lead: { name: "Tên lead", company: "Công ty", person: "Position", phone: "Điện thoại", email: "Email", linkedinUrl: "LinkedIn cá nhân", ownerId: "Người phụ trách", line: "Mảng", source: "Nguồn", status: "Trạng thái", note: "Ghi chú", when: "Thời điểm", mainContact: "Đầu mối chính", activity: "Hoạt động" },
   game: { title: "Tên game", own: "Loại game", company: "Studio sở hữu", genre: "Genre", platform: "Nền tảng", stage: "Giai đoạn phát triển", emoji: "Emoji", desc: "Mô tả", bdNote: "Ghi chú BD", buildUrl: "Link build", trailerUrl: "Link trailer", scores: "Điểm BD /10 (lưu trữ)", verdict: "Kết luận BD (lưu trữ)", mktEval: "Đánh giá MKT /10 (lưu trữ)", activity: "Hoạt động" },
-  task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
+  task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", event: "Sự kiện liên kết", due: "Hạn (nhãn)", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
   member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
-  activity: { deal: "Deal", lead: "Lead", game: "Game", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
+  activity: { deal: "Deal", lead: "Lead", game: "Game", event: "Sự kiện", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
   event: { name: "Tên sự kiện", date: "Ngày diễn ra", endDate: "Ngày kết thúc", location: "Địa điểm", attendees: "Người tham dự", note: "Ghi chú", status: "Trạng thái sự kiện", eventUrl: "Link sự kiện", line: "Mảng liên quan", reportMet: "Báo cáo — Đã gặp ai", reportOutcome: "Báo cáo — Kết quả", reportNext: "Báo cáo — Việc tiếp theo", reportLinks: "Báo cáo — Link đính kèm", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
   request: { kind: "Loại hồ sơ", entityId: "Hồ sơ CRM", requestedBy: "BD phụ trách", assignee: "MKT được giao", due: "Hạn đánh giá", requestNote: "Thông tin đầu vào / yêu cầu BD", source: "Link build / bằng chứng", build: "Build / phiên bản", status: "Trạng thái", intake: "Hồ sơ đầu vào", entitySnapshot: "Dữ liệu chụp hồ sơ" },
 };
@@ -165,8 +165,8 @@ const REF_FIELDS = {
   deal: { owner: "member", company: "company", game: "game" },
   lead: { company: "company", ownerId: "member" },
   game: { company: "company" },
-  task: { assignee: "member", deal: "deal", company: "company", lead: "lead", game: "game" },
-  activity: { who: "member", deal: "deal", lead: "lead", game: "game" },
+  task: { assignee: "member", deal: "deal", company: "company", lead: "lead", game: "game", event: "event" },
+  activity: { who: "member", deal: "deal", lead: "lead", game: "game", event: "event" },
   request: { requestedBy: "member", assignee: "member", entityId: "entity" },
 };
 function cloneForDiff(v) {
@@ -203,7 +203,7 @@ function resolveRefLabel(state, refKind, id, entityType, entity) {
       const t = (Array.isArray(coll) ? coll : []).find(x => x && x.id === id);
       return t ? String(t.name || t.title || id) : String(id);
     }
-    const collMap = { company: "companies", game: "games", deal: "deals", lead: "leads" };
+    const collMap = { company: "companies", game: "games", deal: "deals", lead: "leads", event: "events" };
     const coll = state && state[collMap[refKind]];
     const t = (Array.isArray(coll) ? coll : []).find(x => x && x.id === id);
     if (t) return String(t.name || t.title || id);
@@ -970,8 +970,8 @@ function migrateState(s) {
     ["company", "game"].forEach(f => { if (typeof d[f] === "number" && Number.isFinite(d[f])) d[f] = String(d[f]); });
   });
   s.leads.forEach(l => { if (typeof l.company === "number" && Number.isFinite(l.company)) l.company = String(l.company); });
-  s.tasks.forEach(t => { if (typeof t.deal === "number" && Number.isFinite(t.deal)) t.deal = String(t.deal); });
-  s.activities.forEach(a => { ["deal", "lead", "game"].forEach(f => { if (typeof a[f] === "number" && Number.isFinite(a[f])) a[f] = String(a[f]); }); });
+  s.tasks.forEach(t => { ["deal", "company", "lead", "game", "event"].forEach(f => { if (typeof t[f] === "number" && Number.isFinite(t[f])) t[f] = String(t[f]); }); });
+  s.activities.forEach(a => { ["deal", "lead", "game", "event"].forEach(f => { if (typeof a[f] === "number" && Number.isFinite(a[f])) a[f] = String(a[f]); }); });
   (s.deals || []).forEach(d => { if (!Array.isArray(d.leads)) d.leads = []; else d.leads = d.leads.map(v => (typeof v === "number" && Number.isFinite(v)) ? String(v) : v); });
   let migSeq = 0;
   const newCompanyId = () => {

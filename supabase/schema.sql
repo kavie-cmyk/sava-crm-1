@@ -495,6 +495,10 @@ create table public.activities (
   legacy_extra jsonb not null default '{}'::jsonb,
   -- Đúng MỘT chủ: Deal HOẶC Lead HOẶC Game (đợt activity-lead-game, file
   -- supabase/activity-lead-game.sql áp cùng định nghĩa này lên project thật).
+  -- CHỦ THỨ TƯ — Sự kiện (event_id + nới CHECK thành đúng-1-trong-4): KHÔNG
+  -- khai ở đây vì bảng events không nằm trong file này (nó ở events-module.sql,
+  -- chạy SAU schema.sql) — khai FK -> events ở đây sẽ vỡ thứ tự cài mới.
+  -- Định nghĩa đầy đủ nằm ở supabase/activity-event.sql (chạy sau events-module.sql).
   constraint activities_exactly_one_owner check (
     (case when deal_id is not null then 1 else 0 end
      + case when lead_id is not null then 1 else 0 end
