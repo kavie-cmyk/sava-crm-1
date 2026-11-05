@@ -23,6 +23,35 @@
   const A = (typeof window !== 'undefined' && window.SavaAdapter) || (typeof globalThis !== 'undefined' && globalThis.SavaAdapter) || null;
   const CRM_KEY = 'sava_crm_shared_v1', PUB_KEY = 'sava_publishing_v1';
   const CRM_BACKUP_KEY = CRM_KEY + '__pre_supabase_backup', PUB_BACKUP_KEY = PUB_KEY + '__pre_supabase_backup';
+  /* ---------- Hạng mục CHIẾN LƯỢC CACHE (5/11/2026, Zac duyệt nguyên tắc) ----------
+     Vấn đề: sau vá phân trang, mirror localStorage của kho CRM phình tới
+     ~4,68–4,74MB trên trần ~5MB của localStorage; chạm trần thì rawSet()
+     cũ NUỐT lỗi ghi âm thầm. Thiết kế mới (cấu trúc, không nén tạm):
+     - Hai danh sách nặng companies/leads (đo trên server 5/11/2026:
+       4.174 công ty ≈1,96MB + 6.637 lead ≈3,00MB dạng state — ~99% cache)
+       KHÔNG còn nằm trong localStorage. Chúng nạp thẳng từ server mỗi
+       phiên qua loadAll() và sống trong BỘ NHỚ PHIÊN (memCrm bên dưới);
+       baseline diff-sync cho chúng cũng giữ trong bộ nhớ (crmSnap vốn
+       đã là biến bộ nhớ). Phần còn lại của kho CRM (đo ~21KB dữ liệu
+       dòng trên server) giữ mirror localStorage như cũ ở dạng "nhẹ":
+       cùng khoá CRM_KEY nhưng companies/leads = [] và khoá phụ
+       CRM_FORMAT_KEY mang giá trị SPLIT_FORMAT để phân biệt với cache
+       ĐẦY định dạng cũ (không có khoá phụ này).
+     - Di trú cache cũ: loadAll() đọc được cả hai định dạng; dữ kiện
+       sửa-trong-lúc-nạp / chưa đồng bộ được bảo toàn qua cơ chế
+       localDirty + nhật ký dirty (CRM_JOURNAL_KEY, xem
+       persistDirtyJournal) như mô tả ở loadAll(). Không sao lưu thêm
+       bản đầy vào localStorage (một bản sao ~4,7MB sẽ tự gây tràn
+       quota và chiếm lại dung lượng vừa giải phóng).
+     - Lỗi ghi cache KHÔNG còn bị nuốt: mọi đường ghi (rawSet ở đây,
+       storeState ở shared.js, write() ở publishing.js qua hook/global)
+       đều báo qua banner cache bền #savaCacheBanner + biến
+       window.__savaCacheWriteError (xem showCacheError bên dưới). */
+  const CRM_FORMAT_KEY = CRM_KEY + '__format';
+  const SPLIT_FORMAT = 'split-heavy-v1';
+  const CRM_JOURNAL_KEY = CRM_KEY + '__dirty_journal';
+  const HEAVY_KEYS = ['companies', 'leads'];
+  const CRM_COLLECTIONS = ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events'];
 
   const ctx = { client: null, role: null, ready: false, enabled: false };
   let crmSnap = null, pubSnap = null;           // state tại thời điểm nạp / sau lần đồng bộ thành công
@@ -79,7 +108,135 @@
       return new Set(recs.map(r => r.id));
     } catch (e) { return new Set(); }
   }
-  function rawSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  /* ---------- Lỗi ghi cache: PHẢI nhìn thấy được (không nuốt âm thầm) ----------
+     lastCacheError giữ lỗi ghi gần nhất; showCacheError dựng banner ĐỎ
+     BỀN #savaCacheBanner (không tự ẩn, không dùng chung banner đồng bộ
+     vốn tự tắt) + đặt window.__savaCacheWriteError để tầng khác/test
+     đọc được. Một lần ghi thành công ở đúng khoá đó sẽ xoá lỗi + ẩn
+     banner (clearCacheError). Hàm được phơi ra window.__savaShowCacheError
+     NGAY khi file này nạp (trước shared.js) để storeState() của shared.js
+     và write() của publishing.js báo được kể cả trước installHook(). */
+  let lastCacheError = null;
+  function cacheBannerEl() {
+    let el = document.getElementById('savaCacheBanner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'savaCacheBanner';
+      el.setAttribute('role', 'alert');
+      el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:14px;z-index:10001;max-width:min(94vw,680px);background:#fef2f2;border:1.5px solid #dc2626;color:#991b1b;border-radius:10px;padding:10px 14px;font-size:13.5px;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.2);display:none';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  function showCacheError(key, err) {
+    const info = { key: key || '', name: (err && err.name) || 'Error', message: String((err && err.message) || err || 'lỗi không rõ'), at: new Date().toISOString() };
+    lastCacheError = info;
+    try { if (typeof window !== 'undefined') window.__savaCacheWriteError = info; } catch (e) {}
+    try {
+      const el = cacheBannerEl();
+      el.textContent = '⚠️ Không ghi được dữ liệu vào bộ nhớ đệm trên máy này (kho "' + (key || '') + '": ' + info.message + '). Có thể bộ nhớ trình duyệt đã đầy. Dữ liệu trong phiên làm việc này vẫn còn và máy chủ Supabase vẫn là nguồn chính — hãy tải lại trang / báo quản trị (Zac) nếu banner này không tự biến mất sau khi app ghi lại thành công.';
+      el.style.display = 'block';
+    } catch (e) {}
+    return info;
+  }
+  function clearCacheError(key) {
+    if (lastCacheError && key && lastCacheError.key !== key) return;
+    lastCacheError = null;
+    try { if (typeof window !== 'undefined') window.__savaCacheWriteError = null; } catch (e) {}
+    try { const el = document.getElementById('savaCacheBanner'); if (el) el.style.display = 'none'; } catch (e) {}
+  }
+  try { if (typeof window !== 'undefined') { window.__savaShowCacheError = showCacheError; window.__savaCacheWriteError = null; } } catch (e) {}
+
+  function rawSet(key, value) {
+    try { localStorage.setItem(key, value); clearCacheError(key); return true; }
+    catch (e) { showCacheError(key, e); return false; }
+  }
+  function lsGetRaw(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function lsRemoveRaw(key) { try { localStorage.removeItem(key); } catch (e) {} }
+
+  /* ---------- Trạng thái CRM đầy đủ trong bộ nhớ phiên ----------
+     memCrm: bản state CRM ĐẦY ĐỦ (gồm companies/leads) gần nhất mà
+     phiên này biết — loadAll() đặt từ dữ liệu máy chủ (hoặc bản local
+     đã hợp nhất khi localDirty), storeState() của shared.js cập nhật
+     qua SavaHeavyCache.setState() mỗi lần app lưu. runSync() ưu tiên
+     đọc từ đây (đây là nguồn duy nhất còn chứa companies/leads sau khi
+     cache localStorage đã tách nhẹ); khi memCrm chưa có (test chỉ chạy
+     tầng dữ liệu, chưa qua shared.js) thì runSync rơi về đọc
+     localStorage như cũ (định dạng đầy vẫn được tôn trọng).
+     splitActive: loadAll() đã nạp thành công trong phiên này — từ đó
+     storeState() mới được tách nhẹ; trước thời điểm đó storeState()
+     vẫn ghi ĐẦY như cũ để bản sao local duy nhất của dữ liệu nặng
+     không bị phá khi máy chủ chưa nạp được (vd mất mạng lúc mở app). */
+  let memCrm = null;
+  let splitActive = false;
+  /* memHeavyKnown: bộ nhớ phiên đã từng chứa phần nặng THẬT (từ máy
+     chủ qua loadAll, từ cache đầy cũ, hoặc từ một lần ghi đầy đủ) —
+     phân biệt với state boot của cache nhẹ (companies/leads tạm rỗng
+     trong lúc chờ nạp), vốn cũng đi qua setState() nhưng không được
+     coi là "đã có phần nặng". */
+  let memHeavyKnown = false;
+  function cloneState(s) { return (A && s) ? A.clone(s) : (s ? JSON.parse(JSON.stringify(s)) : s); }
+  function lightOf(state) {
+    const light = cloneState(state) || {};
+    HEAVY_KEYS.forEach(k => { light[k] = []; });
+    return light;
+  }
+  function heavyOf(state) {
+    const h = {};
+    HEAVY_KEYS.forEach(k => { h[k] = (state && Array.isArray(state[k])) ? cloneState(state[k]) : []; });
+    return h;
+  }
+  function joinLightHeavy(light, heavy) {
+    const out = cloneState(light) || {};
+    HEAVY_KEYS.forEach(k => { out[k] = (heavy && Array.isArray(heavy[k])) ? cloneState(heavy[k]) : []; });
+    return out;
+  }
+  function isSplitFormatStored() { return lsGetRaw(CRM_FORMAT_KEY) === SPLIT_FORMAT; }
+  function markSplitFormat() { try { localStorage.setItem(CRM_FORMAT_KEY, SPLIT_FORMAT); } catch (e) { showCacheError(CRM_FORMAT_KEY, e); } }
+  function clearSplitFormat() { lsRemoveRaw(CRM_FORMAT_KEY); }
+  /* Ghi cache CRM theo thiết kế mới: bản NHẸ vào localStorage + bản
+     ĐẦY vào bộ nhớ phiên. Trả true khi bản nhẹ ghi được; lỗi ghi được
+     showCacheError báo bền (không nuốt). */
+  function writeCrmCacheSplit(fullState) {
+    memCrm = cloneState(fullState);
+    memHeavyKnown = true;
+    splitActive = true;
+    const ok = rawSet(CRM_KEY, JSON.stringify(lightOf(fullState)));
+    if (ok) markSplitFormat();
+    return ok;
+  }
+  /* Đọc state CRM ĐẦY ĐỦ từ localStorage (cả hai định dạng):
+     - Nội dung có companies/leads khác rỗng -> định dạng ĐẦY là nguồn
+       sự thật (ghi trực tiếp kiểu cũ / bản di trú) -> nhận luôn + đồng
+       bộ lại bộ nhớ phiên.
+     - Ngược lại, nếu khoá format báo bản nhẹ -> ghép với bộ nhớ phiên. */
+  function readFullCrmFromStorage() {
+    const raw = lsGetRaw(CRM_KEY);
+    if (raw === null || raw === undefined) return memCrm ? cloneState(memCrm) : null;
+    const parsed = parseCachedState(raw);
+    if (parsed === undefined) return null;
+    const hasHeavyContent = HEAVY_KEYS.some(k => Array.isArray(parsed[k]) && parsed[k].length > 0);
+    if (hasHeavyContent) { memCrm = cloneState(parsed); memHeavyKnown = true; return cloneState(parsed); }
+    if (isSplitFormatStored() && memCrm) return joinLightHeavy(parsed, heavyOf(memCrm));
+    return parsed;
+  }
+  /* API phơi cho shared.js (nạp SAU file này ở cả 3 trang): shared dùng
+     để loadState() ghép bản nhẹ với bộ nhớ phiên và storeState() tách
+     nhẹ khi splitActive. Mọi hàm đều an toàn khi gọi thừa/lệch nhịp. */
+  const heavyCacheApi = {
+    isSplitActive: () => splitActive,
+    isSplitFormatStored,
+    getState: () => (memCrm ? cloneState(memCrm) : null),
+    hasState: () => !!memCrm,
+    hasHeavy: () => !!(memCrm && memHeavyKnown),
+    setState: (s) => { if (s && typeof s === 'object' && !Array.isArray(s)) { memCrm = cloneState(s); if (splitActive) memHeavyKnown = true; } },
+    adoptLegacyState: (s) => { if (s && typeof s === 'object' && !Array.isArray(s)) { memCrm = cloneState(s); memHeavyKnown = true; } },
+    lightOf,
+    noteWriteError: (key, err) => showCacheError(key, err),
+    clearWriteError: (key) => clearCacheError(key),
+    markSplitFormat, clearSplitFormat,
+  };
+  try { if (typeof window !== 'undefined') window.SavaHeavyCache = heavyCacheApi; } catch (e) {}
   /* So sánh cache cũ với state máy chủ theo NỘI DUNG (deep-equal trên bản
      đã parse), KHÔNG theo chuỗi JSON thô: app tự ghi lại cache qua lớp
      migrate (loadState/storeState trong shared.js, read/write trong
@@ -149,6 +306,107 @@
     (rows || []).forEach(r => { if (r && r.id && r.updated_at) updMap[table][r.id] = r.updated_at; });
   }
 
+  /* ---------- Nhật ký dữ kiện chưa đồng bộ (dirty journal) ----------
+     Trước nâng cấp, dữ kiện chưa sync sống sót qua lần đóng trình duyệt
+     nhờ cache ĐẦY trong localStorage. Nay companies/leads không còn ở
+     đó, nên phần CHƯA ĐỒNG BỘ được giữ bằng một nhật ký RIÊNG, kích
+     thước tỉ lệ với số bản ghi chưa sync (thường rỗng/rất nhỏ): với mỗi
+     collection là danh sách bản ghi upsert (nguyên object state) + id
+     đã xoá, tính bằng diff state local so với snapshot máy chủ crmSnap.
+     Nhật ký được ghi khi: một vòng sync THẤT BẠI, flush thất bại, và
+     lúc rời trang/ẩn tab mà vẫn còn dirty. Vòng sync THÀNH CÔNG thì
+     xoá nhật ký. loadAll() kế tiếp áp nhật ký lên dữ liệu máy chủ mới
+     (applyJournal) và coi như localDirty để đẩy lên — dữ kiện chưa
+     sync vì vậy KHÔNG mất khi di trú lẫn khi đóng/mở lại app. */
+  function diffStateToJournal(local, snap) {
+    if (!local || !snap) return null;
+    const j = { v: 1, at: new Date().toISOString(), cols: {} };
+    let any = false;
+    CRM_COLLECTIONS.forEach(k => {
+      const lm = new Map(), sm = new Map();
+      (Array.isArray(local[k]) ? local[k] : []).forEach(r => { if (r && r.id !== undefined && r.id !== null) lm.set(String(r.id), r); });
+      (Array.isArray(snap[k]) ? snap[k] : []).forEach(r => { if (r && r.id !== undefined && r.id !== null) sm.set(String(r.id), r); });
+      const up = [], del = [];
+      lm.forEach((r, id) => { const old = sm.get(id); if (!old || !A.deepEqual(r, old)) up.push(cloneState(r)); });
+      sm.forEach((r, id) => { if (!lm.has(id)) del.push(id); });
+      if (up.length || del.length) { j.cols[k] = { up, del }; any = true; }
+    });
+    if (!A.deepEqual(local.verticals || [], snap.verticals || [])) { j.verticals = cloneState(local.verticals || []); any = true; }
+    return any ? j : null;
+  }
+  function persistDirtyJournal() {
+    try {
+      if (!crmSnap) return false;
+      const local = memCrm ? cloneState(memCrm) : readFullCrmFromStorage();
+      if (!local) return false;
+      const j = diffStateToJournal(local, crmSnap);
+      if (!j) { lsRemoveRaw(CRM_JOURNAL_KEY); return true; }
+      return rawSet(CRM_JOURNAL_KEY, JSON.stringify(j));
+    } catch (e) { return false; }
+  }
+  function readJournal() {
+    const raw = lsGetRaw(CRM_JOURNAL_KEY);
+    if (!raw) return null;
+    try { const j = JSON.parse(raw); return (j && typeof j === 'object' && j.cols) ? j : null; } catch (e) { return null; }
+  }
+  function applyJournal(serverState, journal) {
+    const out = cloneState(serverState);
+    if (!journal || !journal.cols) return out;
+    CRM_COLLECTIONS.forEach(k => {
+      const entry = journal.cols[k];
+      if (!entry) return;
+      let rows = Array.isArray(out[k]) ? out[k] : [];
+      const delSet = new Set((entry.del || []).map(String));
+      if (delSet.size) rows = rows.filter(r => !(r && delSet.has(String(r.id))));
+      const byId = new Map(rows.map(r => [String(r && r.id), r]));
+      (entry.up || []).forEach(r => {
+        if (!r || r.id === undefined || r.id === null) return;
+        const id = String(r.id);
+        if (byId.has(id)) { rows[rows.indexOf(byId.get(id))] = cloneState(r); }
+        else rows.push(cloneState(r));
+        byId.set(id, r);
+      });
+      out[k] = rows;
+    });
+    if (journal.verticals !== undefined) out.verticals = cloneState(journal.verticals);
+    return out;
+  }
+  /* Phủ phần sửa-trực-tiếp-trong-lúc-nạp (live) lên một state nền theo
+     TỪNG BẢN GHI: so local với base (state người dùng THẤY lúc bắt đầu
+     nạp) — bản ghi thêm/sửa so với base thì phủ lên nền, bản ghi có ở
+     base mà mất ở local thì xoá khỏi nền, còn lại giữ nguyên nền (dữ
+     liệu máy chủ mới). Đây là cơ chế giúp đường cache NHẸ an toàn như
+     đường cache ĐẦY cũ: state lúc boot của cache nhẹ KHÔNG đầy đủ
+     (thiếu companies/leads) nên TUYỆT ĐỐI không được lấy nguyên local
+     làm ứng viên đồng bộ (sẽ thành xoá hàng loạt phía máy chủ); chỉ
+     phần DIFF thật so với lúc boot mới là ý định của người dùng. */
+  function overlayLocalDiff(baseState, localState, ontoState) {
+    const out = cloneState(ontoState);
+    CRM_COLLECTIONS.forEach(k => {
+      const base = new Map(), loc = new Map();
+      (baseState && Array.isArray(baseState[k]) ? baseState[k] : []).forEach(r => { if (r && r.id !== undefined && r.id !== null) base.set(String(r.id), r); });
+      (localState && Array.isArray(localState[k]) ? localState[k] : []).forEach(r => { if (r && r.id !== undefined && r.id !== null) loc.set(String(r.id), r); });
+      let rows = Array.isArray(out[k]) ? out[k] : [];
+      const byId = new Map(rows.map(r => [String(r && r.id), r]));
+      loc.forEach((r, id) => {
+        const b = base.get(id);
+        if (!b || !A.deepEqual(r, b)) {
+          if (byId.has(id)) rows[rows.indexOf(byId.get(id))] = cloneState(r); else rows.push(cloneState(r));
+          byId.set(id, r);
+        }
+      });
+      base.forEach((b, id) => {
+        if (!loc.has(id) && byId.has(id)) { rows = rows.filter(r => String(r && r.id) !== id); byId.delete(id); }
+      });
+      out[k] = rows;
+    });
+    if (baseState && localState && !A.deepEqual(localState.verticals || [], baseState.verticals || [])) out.verticals = cloneState(localState.verticals || []);
+    /* Khoá gốc lạ của state local (marker migration, _crmRev/_crmTab…)
+       được giữ từ local như đường cũ (adapter bỏ qua khi đồng bộ). */
+    if (localState) Object.keys(localState).forEach(k => { if (!(k in out)) out[k] = cloneState(localState[k]); });
+    return out;
+  }
+
   /* ---------- Nạp toàn bộ từ Supabase -> state cũ -> cache ---------- */
   async function loadAll() {
     if (!A) throw new Error('Thiếu supabase-adapter.js');
@@ -159,6 +417,19 @@
     let startCrm = null, startPub = null;
     try { startCrm = localStorage.getItem(CRM_KEY); } catch (e) {}
     try { startPub = localStorage.getItem(PUB_KEY); } catch (e) {}
+    /* Ảnh chụp phục vụ chiến lược cache mới: định dạng cache lúc BẮT
+       ĐẦU nạp (đầy-cũ hay nhẹ-mới), state đầy đủ mà app ĐANG THẤY lúc
+       bắt đầu (base cho overlayLocalDiff), và nhật ký dirty còn tồn
+       từ phiên trước. startSplitFormat quyết định ngữ nghĩa localDirty:
+       cache ĐẦY cũ -> state boot là đầy đủ, giữ nguyên đường cũ; cache
+       NHẸ -> state boot thiếu companies/leads, chỉ được phủ DIFF. */
+    const startSplitFormat = isSplitFormatStored();
+    const startMemState = memCrm ? cloneState(memCrm) : null;
+    const startHeavyKnown = !!(memCrm && memHeavyKnown);
+    const startParsed = parseCachedState(startCrm);
+    const startFull = startParsed === undefined ? null
+      : (startSplitFormat ? joinLightHeavy(startParsed, startHeavyKnown ? heavyOf(startMemState || {}) : {}) : startParsed);
+    const startJournal = readJournal();
     const byCreated = qb => qb.order('created_at', { ascending: true });
     const [members, companies, archive, games, leads, deals, dealTerms, dealContracts, dealLeads, tasks, activities, events, eventLinks] = await Promise.all([
       q('members', byCreated), q('companies', byCreated), qSafe('company_partner_eval_archive'),
@@ -199,26 +470,96 @@
     try { priorCrm = localStorage.getItem(CRM_KEY); } catch (e) {}
     try { priorPub = localStorage.getItem(PUB_KEY); } catch (e) {}
     const crmJson = JSON.stringify(crmState), pubJson = JSON.stringify(pubState);
-    const changed = cacheDiffers(priorCrm, crmState) || cacheDiffers(priorPub, pubState);
     const hash = A.hashStr(crmJson + '|' + pubJson);
-    /* Người dùng ĐÃ SỬA cache trong lúc nạp (boot mở-nhanh): cache cuối
-       khác ảnh chụp ban đầu VỀ MẶT CHUỖI và khác dữ liệu máy chủ VỀ NỘI
-       DUNG. Khi đó TUYỆT ĐỐI không ghi đè cache bằng dữ liệu máy chủ
-       (sẽ nuốt mất bản sửa vừa làm); thay vào đó: snapshot đồng bộ được
-       đặt = dữ liệu máy chủ, cache local giữ nguyên, và tầng auth bật
-       đồng bộ + đẩy diff ngay — bản sửa được đối xử như mọi lần sửa
-       sau khi vào app (last-write-wins theo chính sách xung đột sẵn
-       có). Đường cổng cũ không bao giờ gặp nhánh này vì giao diện bị
-       khoá trong lúc nạp, không ai sửa được. */
-    const localDirty = (priorCrm !== startCrm || priorPub !== startPub) && changed;
+    /* State local ĐẦY ĐỦ tại thời điểm cuối nạp, ghép từ mọi nguồn:
+       bộ nhớ phiên hiện tại (storeState cập nhật liên tục) được ưu
+       tiên vì nó phản ánh đúng state app đang giữ; localStorage chỉ
+       còn bản nhẹ nên đọc thẳng từ đó sẽ thiếu companies/leads. */
+    const priorParsed = parseCachedState(priorCrm);
+    const priorMemState = memCrm ? cloneState(memCrm) : null;
+    let priorFull = null;
+    if (priorMemState) priorFull = priorMemState;
+    else if (priorParsed !== undefined) priorFull = startSplitFormat ? joinLightHeavy(priorParsed, {}) : priorParsed;
+    else if (priorParsed === undefined && priorCrm) priorFull = null;
+    /* `changed` theo đúng ngữ nghĩa cũ (nội dung app đang thấy khác
+       máy chủ không) nhưng tính trên state ĐẦY ĐỦ đã ghép: đường cache
+       đầy cũ giữ nguyên phép so cacheDiffers trên raw; đường cache nhẹ
+       so bản nhẹ với bản nhẹ của máy chủ + phần nặng trong bộ nhớ với
+       phần nặng của máy chủ (bộ nhớ trống lúc boot -> phần nặng máy
+       chủ khác rỗng là changed, để tầng auth làm mới giao diện). */
+    let changed;
+    if (!startSplitFormat && !priorMemState) changed = cacheDiffers(priorCrm, crmState) || cacheDiffers(priorPub, pubState);
+    else if (!startSplitFormat && priorMemState && startMemState && A.deepEqual(canonicalForCompare(priorMemState), canonicalForCompare(startMemState))) changed = cacheDiffers(priorCrm, crmState) || cacheDiffers(priorPub, pubState);
+    else {
+      const lightDiff = priorParsed === undefined ? (priorCrm !== JSON.stringify(lightOf(crmState)))
+        : !A.deepEqual(canonicalForCompare(lightOf(priorParsed || {})), canonicalForCompare(lightOf(crmState)));
+      const heavyDiff = !A.deepEqual(heavyOf(priorFull || {}), heavyOf(crmState));
+      changed = lightDiff || heavyDiff || cacheDiffers(priorPub, pubState);
+    }
+    /* Ứng viên local khi có dữ kiện chưa đồng bộ:
+       (1) nhật ký dirty từ phiên trước -> áp thẳng lên máy chủ;
+       (2) sửa trực tiếp trong lúc nạp: cache đầy cũ -> lấy nguyên
+           priorFull như đường cũ; cache nhẹ -> CHỈ phủ diff so với
+           state lúc bắt đầu nạp (overlayLocalDiff) để phần nặng app
+           chưa từng thấy không bị coi là "đã xoá". */
+    let candidate = cloneState(crmState);
+    let hasLocalWork = false;
+    if (startJournal) {
+      const withJournal = applyJournal(crmState, startJournal);
+      if (!A.deepEqual(canonicalForCompare(withJournal), canonicalForCompare(candidate))) { candidate = withJournal; hasLocalWork = true; }
+    }
+    const liveWrote = priorCrm !== startCrm || priorPub !== startPub
+      || JSON.stringify(priorMemState || null) !== JSON.stringify(startMemState || null);
+    let pubLocalDirty = false;
+    if (liveWrote && priorFull) {
+      if (!startSplitFormat) {
+        if (changed) { candidate = candidate === null ? priorFull : overlayLocalDiff(crmState, priorFull, candidate); hasLocalWork = true; }
+        /* Pub sửa trong lúc nạp: giữ nguyên cache Pub như đường cũ —
+           nhận diện bằng raw khác lúc bắt đầu + khác máy chủ. */
+        pubLocalDirty = priorPub !== startPub && cacheDiffers(priorPub, pubState);
+        if (pubLocalDirty) hasLocalWork = true;
+      } else {
+        const overlaid = overlayLocalDiff(startFull || {}, priorFull, candidate);
+        if (!A.deepEqual(canonicalForCompare(overlaid), canonicalForCompare(candidate))) { candidate = overlaid; hasLocalWork = true; }
+        pubLocalDirty = priorPub !== startPub && cacheDiffers(priorPub, pubState);
+        if (pubLocalDirty) hasLocalWork = true;
+      }
+    }
+    const localDirty = hasLocalWork && (!A.deepEqual(canonicalForCompare(candidate), canonicalForCompare(crmState)) || pubLocalDirty);
+    /* Boot bằng cache NHẸ mà bộ nhớ lúc bắt đầu nạp chưa có phần nặng:
+       state app đã parse lúc mở trang chắc chắn thiếu companies/leads
+       -> tầng auth phải làm mới giao diện tại chỗ sau khi nạp (kể cả
+       khi changed=false theo các phép so còn lại) mới resolve được
+       các drawer/list liên quan tới hai danh sách này. */
+    const heavyNeedsRefresh = startSplitFormat && !startHeavyKnown
+      && ((crmState.companies || []).length > 0 || (crmState.leads || []).length > 0);
     if (localDirty) {
       crmSnap = A.clone(crmState); pubSnap = A.clone(pubState);
-      return { crmState, pubState, hash, changed: true, localDirty: true };
+      memCrm = cloneState(candidate);
+      memHeavyKnown = true;
+      /* Pub local sửa trong lúc nạp thì giữ nguyên cache Pub (đường
+         cũ); Pub không đổi thì ghi bản máy chủ như thường. CRM: ghi
+         bản NHẸ của ứng viên (phần nặng nằm ở memCrm) để các lần đọc
+         cache sau trong phiên nhất quán, phần diff chưa sync vẫn an
+         toàn trong memCrm + nhật ký sẽ được persistDirtyJournal ghi
+         ở vòng sync đầu nếu vòng đó lỗi. */
+      if (!pubLocalDirty) rawSet(PUB_KEY, pubJson);
+      writeCrmCacheSplit(candidate);
+      return { crmState: candidate, pubState, hash, changed: true, localDirty: true, heavyNeedsRefresh: true };
     }
-    rawSet(CRM_KEY, crmJson);
+    /* Di trú: KHÔNG sao lưu thêm bản ĐẦY vào localStorage — một bản sao
+       ~4,7MB nữa sẽ tự gây tràn quota và chiếm lại đúng phần dung lượng
+       vừa giải phóng. Lưới an toàn cho dữ kiện chưa sync là: bản sửa
+       trong lúc nạp (localDirty ở trên, giữ nguyên + đẩy lên ngay),
+       nhật ký dirty cho các phiên sau nâng cấp, và backup pre-Supabase
+       sẵn có của đường cũ (backupOnce ngay dưới, không đổi hành vi). */
+    backupOnce(CRM_KEY, CRM_BACKUP_KEY);
+    backupOnce(PUB_KEY, PUB_BACKUP_KEY);
+    const cacheWriteOk = writeCrmCacheSplit(crmState);
     rawSet(PUB_KEY, pubJson);
+    if (startJournal) lsRemoveRaw(CRM_JOURNAL_KEY);
     crmSnap = A.clone(crmState); pubSnap = A.clone(pubState);
-    return { crmState, pubState, hash, changed, localDirty: false };
+    return { crmState, pubState, hash, changed, localDirty: false, heavyNeedsRefresh, cacheWriteOk };
   }
 
   /* ---------- Đồng bộ diff ---------- */
@@ -249,14 +590,49 @@
     registerNavGuard();
     const orig = localStorage.setItem.bind(localStorage);
     localStorage.setItem = function (k, v) {
-      orig(k, v);
+      try { orig(k, v); }
+      catch (e) { showCacheError(k, e); throw e; }
+      clearCacheError(k);
+      /* Ghi trực tiếp kiểu cũ (nội dung ĐẦY có companies/leads) vẫn
+         được nhận diện để bộ nhớ phiên không lệch với localStorage:
+         bản đầy là nguồn sự thật của lần ghi đó. Bản NHẸ (hai danh
+         sách rỗng + format split) thì bộ nhớ phiên đã được
+         storeState()/loadAll() cập nhật trước khi ghi, không đụng. */
+      if (k === CRM_KEY) {
+        try {
+          const p = parseCachedState(v);
+          if (p) {
+            if (HEAVY_KEYS.some(hk => Array.isArray(p[hk]) && p[hk].length > 0)) { memCrm = cloneState(p); memHeavyKnown = true; }
+            else if (memCrm && memHeavyKnown) memCrm = joinLightHeavy(p, heavyOf(memCrm));
+            else memCrm = cloneState(p);
+          }
+        } catch (e) {}
+      }
       if ((k === CRM_KEY || k === PUB_KEY) && ctx.enabled && !installHook._mute) scheduleSync();
     };
     installHook._orig = orig;
   }
   function cacheWrite(key, stateObj) {
     installHook._mute = true;
-    try { localStorage.setItem(key, JSON.stringify(stateObj)); } finally { installHook._mute = false; }
+    try { rawSet(key, JSON.stringify(stateObj)); } finally { installHook._mute = false; }
+  }
+  /* Ghi state CRM ĐẦY ĐỦ qua đúng đường cache mới (bộ nhớ phiên + bản
+     nhẹ localStorage), có lên lịch đồng bộ như một lần ghi cache
+     thường. Dùng cho code/test cần sửa state sau khi cache đã tách —
+     ghi thẳng JSON đầy vào CRM_KEY không còn là đường đúng nữa. */
+  function writeFullCrmState(state) {
+    if (!state || typeof state !== 'object') return false;
+    if (splitActive) {
+      const ok = writeCrmCacheSplit(state);
+      if (ctx.enabled && !installHook._mute) scheduleSync();
+      return ok;
+    }
+    memCrm = cloneState(state);
+    memHeavyKnown = true;
+    const ok = rawSet(CRM_KEY, JSON.stringify(state));
+    if (ok) clearSplitFormat();
+    if (ctx.enabled && !installHook._mute) scheduleSync();
+    return ok;
   }
 
   function indexBy(rows, key) { const m = new Map(); (rows || []).forEach(r => { if (r && r[key] !== undefined && r[key] !== null) m.set(String(r[key]), r); }); return m; }
@@ -564,19 +940,29 @@
     currentSyncPromise = (async () => {
     try {
       let crmLocal = null, pubLocal = null;
-      try { crmLocal = JSON.parse(localStorage.getItem(CRM_KEY) || 'null'); } catch (e) {}
+      /* Nguồn state CRM cho diff-sync: bộ nhớ phiên (memCrm) là nguồn
+         ĐẦY ĐỦ duy nhất sau khi cache đã tách nhẹ; chỉ khi memCrm chưa
+         có (luồng lạ chưa qua loadAll/shared) mới đọc localStorage —
+         readFullCrmFromStorage tự ghép bản nhẹ + bộ nhớ / tôn trọng
+         bản đầy kiểu cũ. */
+      try { crmLocal = memCrm ? cloneState(memCrm) : readFullCrmFromStorage(); } catch (e) {}
       try { pubLocal = JSON.parse(localStorage.getItem(PUB_KEY) || 'null'); } catch (e) {}
       const conflicts = [];
       if (ctx.role !== 'other') {
-        if (crmLocal && crmSnap && ctx.role !== 'mkt') { conflicts.push(...await syncCrm(crmLocal)); crmSnap = A.clone(crmLocal); }
+        if (crmLocal && crmSnap && ctx.role !== 'mkt') { conflicts.push(...await syncCrm(crmLocal)); crmSnap = A.clone(crmLocal); memCrm = cloneState(crmLocal); }
         if (pubLocal && pubSnap) { conflicts.push(...await syncPub(pubLocal)); pubSnap = A.clone(pubLocal); }
       }
       dirty = false; failCount = 0;
+      lsRemoveRaw(CRM_JOURNAL_KEY);
       clearSyncError();
       if (conflicts.length) warnTransient('Phát hiện ' + conflicts.length + ' mục vừa được cập nhật ở nơi khác (' + conflicts.slice(0, 3).join(', ') + (conflicts.length > 3 ? '…' : '') + '). Bản bạn vừa lưu đã được ghi (last-write-wins).');
       return true;
     } catch (e) {
       failCount++;
+      /* Phần chưa sync được ghi vào nhật ký dirty NGAY (kích thước
+         theo số bản ghi chưa sync) để đóng/mở lại app không mất —
+         loadAll kế tiếp sẽ áp lại và đẩy lên. */
+      persistDirtyJournal();
       showSyncError('Đồng bộ lên Supabase thất bại: ' + (e && e.message ? e.message : e) + '. Dữ liệu vẫn còn trên máy này và sẽ tự đồng bộ lại.');
       if (failCount <= 4) { retryTimer = setTimeout(runSync, 12000); }
       return false;
@@ -612,7 +998,7 @@
       else if (dirty) { await runSync(); }
       else return true;
       if (!dirty) return true;
-      if (failCount > 0) return false; /* lỗi thật: chừa đường retry của runSync */
+      if (failCount > 0) { persistDirtyJournal(); return false; } /* lỗi thật: chừa đường retry của runSync + giữ nhật ký dirty */
       if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     }
     return !dirty;
@@ -714,6 +1100,10 @@
        có chờ + timeout ở trên). flushSync tự lo idempotent: đang sync
        thì không sinh vòng trùng. */
     try { flushSync(); } catch (e) {}
+    /* Còn dirty lúc rời trang/ẩn tab: ghi nhật ký dirty ĐỒNG BỘ ngay
+       (flush ở trên là bất đồng bộ, trình duyệt có thể đóng trước khi
+       xong) — phiên sau loadAll áp lại nhật ký này và đẩy lên. */
+    try { if (dirty || syncing) persistDirtyJournal(); } catch (e) {}
     try { flushAudit(); } catch (e) {}
   }
   function onVisibilityFlush() {
@@ -864,6 +1254,16 @@
     syncNow: () => flushSync(),
     flushSync, flushBeforeNavigate,
     isReady: () => ctx.ready, CRM_KEY, PUB_KEY, CRM_BACKUP_KEY, PUB_BACKUP_KEY,
+    CRM_FORMAT_KEY, SPLIT_FORMAT, CRM_JOURNAL_KEY,
+    /* Chiến lược cache: phơi API bộ nhớ phiên cho shared.js + test. */
+    heavy: heavyCacheApi,
+    readFullCrmState: () => (memCrm ? cloneState(memCrm) : readFullCrmFromStorage()),
+    writeFullCrmState,
+    _cacheWriteError: () => lastCacheError,
+    showCacheError, clearCacheError,
+    _memInfo: () => ({ splitActive, hasMem: !!memCrm, companies: memCrm && Array.isArray(memCrm.companies) ? memCrm.companies.length : 0, leads: memCrm && Array.isArray(memCrm.leads) ? memCrm.leads.length : 0 }),
+    _persistDirtyJournal: persistDirtyJournal,
+    _journal: () => readJournal(),
     _ctx: ctx, audit: auditApi,
     _syncState: () => ({ dirty, syncing, failCount }),
     _navFlushTimeoutMs: NAV_FLUSH_TIMEOUT_MS,

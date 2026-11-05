@@ -129,11 +129,16 @@ async function setup(opts = {}) {
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const NEW_DEAL = { id: 'd-flush', line: 'publishing', title: 'Deal Soul Games', company: 'c1', game: 'g1', stage: 'new', owner: 'zac', due: '', idle: 0, amount: '', cur: '', custom: {}, leads: ['l1'] };
-function addDeal(localStorage) {
-  const crm = JSON.parse(localStorage.getItem(CRM_KEY));
+function addDeal(localStorage, D) {
+  /* Chiến lược cache 5/11/2026: cache localStorage là bản NHẸ (không
+     còn companies/leads) — sửa state qua API state đầy đủ của tầng dữ
+     liệu (bộ nhớ phiên + ghi bản nhẹ), đúng đường app thật đi qua
+     shared.storeState(). */
+  const crm = D.readFullCrmState();
   crm.deals.push(structuredClone(NEW_DEAL));
-  localStorage.setItem(CRM_KEY, JSON.stringify(crm));
+  D.writeFullCrmState(crm);
 }
+function editCrm(D, fn) { const crm = D.readFullCrmState(); fn(crm); D.writeFullCrmState(crm); }
 function fire(listeners, type, ev) { (listeners[type] || []).slice().forEach(fn => fn(ev || {})); }
 
 test('flush-1 (tĩnh): supabase-data đăng ký pagehide + visibilitychange + nav-guard + timeout 2500ms', () => {
@@ -150,7 +155,7 @@ test('flush-2: TÁI HIỆN bug cũ — tạo deal rồi flushBeforeNavigate NGAY
   const { client, localStorage, D, location } = await setup();
   let dealOnDbAtNav = null;
   location.onAssign = () => { dealOnDbAtNav = client._db.deals.some(d => d.id === 'd-flush'); };
-  addDeal(localStorage); /* debounce 700ms vừa được lên lịch, CHƯA chạy */
+  addDeal(localStorage, D); /* debounce 700ms vừa được lên lịch, CHƯA chạy */
   assert.equal(client._db.deals.length, 0, 'trước flush deal chưa lên server (đúng cửa sổ lỗi cũ)');
   const res = await D.flushBeforeNavigate('publishing.html?tab=reviews&kind=game&id=g1');
   assert.equal(res.flushed, true);
@@ -163,11 +168,12 @@ test('flush-2: TÁI HIỆN bug cũ — tạo deal rồi flushBeforeNavigate NGAY
   assert.equal(loaded.crmState.deals.some(d => d.id === 'd-flush'), true, 'deal còn nguyên sau loadAll ở trang đích');
   const cache = JSON.parse(localStorage.getItem(CRM_KEY));
   assert.equal(cache.deals.some(d => d.id === 'd-flush'), true);
+  assert.equal(D.readFullCrmState().deals.some(d => d.id === 'd-flush'), true);
 });
 
 test('flush-3: click-guard dùng chung — click link "Yêu cầu đánh giá" khi đang dirty bị chặn, chờ sync xong mới điều hướng; click link ngoài/khi sạch KHÔNG bị chặn', async () => {
   const { client, localStorage, D, docListeners, location } = await setup();
-  addDeal(localStorage);
+  addDeal(localStorage, D);
   let dealOnDbAtNav = null;
   location.onAssign = () => { dealOnDbAtNav = client._db.deals.some(d => d.id === 'd-flush'); };
   const href = 'publishing.html?tab=reviews&kind=game&id=g1';
@@ -183,9 +189,7 @@ test('flush-3: click-guard dùng chung — click link "Yêu cầu đánh giá" k
   fire(docListeners, 'click', ev2);
   assert.equal(ev2.defaultPrevented, false, 'không dirty thì không được chặn click');
   /* Link ngoài app: không chặn kể cả khi dirty */
-  const crm3 = JSON.parse(localStorage.getItem(CRM_KEY));
-  crm3.companies[0].name = 'Studio A Dirty Lại';
-  localStorage.setItem(CRM_KEY, JSON.stringify(crm3)); /* dirty lại để kiểm link ngoài */
+  editCrm(D, crm3 => { crm3.companies[0].name = 'Studio A Dirty Lại'; }); /* dirty lại để kiểm link ngoài */
   const ext = { tagName: 'A', href: 'https://example.com/x', target: '', getAttribute: n => (n === 'href' ? 'https://example.com/x' : null), hasAttribute: () => false };
   const ev3 = { target: ext, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
   fire(docListeners, 'click', ev3);
@@ -194,17 +198,15 @@ test('flush-3: click-guard dùng chung — click link "Yêu cầu đánh giá" k
 });
 
 test('flush-4: pagehide + visibilitychange(hidden) kích hoạt flush — sửa xong rời trang trong cửa sổ debounce vẫn lên server', async () => {
-  const { client, localStorage, winListeners, docListeners, document } = await setup();
+  const { client, localStorage, D, winListeners, docListeners, document } = await setup();
   assert.ok((winListeners.pagehide || []).length >= 1, 'phải có handler pagehide trên window');
   assert.ok((winListeners.visibilitychange || []).length + (docListeners.visibilitychange || []).length >= 1, 'phải có handler visibilitychange');
-  addDeal(localStorage);
+  addDeal(localStorage, D);
   fire(winListeners, 'pagehide');
   await wait(150);
   assert.equal(client._db.deals.some(d => d.id === 'd-flush'), true, 'pagehide phải flush deal lên server');
   /* visibilitychange khi visible: KHÔNG flush; khi hidden: flush */
-  const crm = JSON.parse(localStorage.getItem(CRM_KEY));
-  crm.companies[0].name = 'Studio A Đổi Tên';
-  localStorage.setItem(CRM_KEY, JSON.stringify(crm));
+  editCrm(D, crm => { crm.companies[0].name = 'Studio A Đổi Tên'; });
   document.visibilityState = 'visible';
   fire(docListeners, 'visibilitychange');
   await wait(60);
@@ -218,9 +220,7 @@ test('flush-4: pagehide + visibilitychange(hidden) kích hoạt flush — sửa 
 test('flush-5: sync KẸT quá timeout -> vẫn điều hướng, cache local giữ nguyên, dirty còn nguyên để retry xử lý tiếp', async () => {
   const hangTables = new Set(['companies']);
   const { client, localStorage, D, location } = await setup({ hangTables });
-  const crm = JSON.parse(localStorage.getItem(CRM_KEY));
-  crm.companies.push({ id: 'c-hang', name: 'Công ty Khi Sync Kẹt', type: 'Game studio', roles: {}, contact: '', phone: '', last: '' });
-  localStorage.setItem(CRM_KEY, JSON.stringify(crm));
+  editCrm(D, crm => { crm.companies.push({ id: 'c-hang', name: 'Công ty Khi Sync Kẹt', type: 'Game studio', roles: {}, contact: '', phone: '', last: '' }); });
   const t0 = Date.now();
   const res = await D.flushBeforeNavigate('publishing.html', 300);
   const elapsed = Date.now() - t0;
@@ -228,17 +228,14 @@ test('flush-5: sync KẸT quá timeout -> vẫn điều hướng, cache local gi
   assert.equal(res.navigated, true, 'hết timeout vẫn phải điều hướng');
   assert.deepEqual(location.assigned, ['publishing.html']);
   assert.ok(elapsed >= 280 && elapsed < 3000, 'điều hướng quanh mốc timeout 300ms, thực tế ' + elapsed + 'ms');
-  const cache = JSON.parse(localStorage.getItem(CRM_KEY));
-  assert.equal(cache.companies.some(c => c.id === 'c-hang'), true, 'cache local KHÔNG được mất khi timeout');
+  assert.equal(D.readFullCrmState().companies.some(c => c.id === 'c-hang'), true, 'dữ liệu local (bộ nhớ phiên + cache nhẹ) KHÔNG được mất khi timeout');
   assert.equal(D._syncState().dirty, true, 'dirty phải còn nguyên sau timeout (chưa đồng bộ xong)');
 });
 
 test('flush-6: sync LỖI -> flushSync trả false, dirty giữ nguyên và retry tự chạy lại (flush không nuốt retry); sửa bình thường vẫn đi đường debounce, flush khi sạch = 0 request thừa', async () => {
   const failTables = new Set(['companies']);
   const { client, localStorage, D } = await setup({ failTables });
-  const crm = JSON.parse(localStorage.getItem(CRM_KEY));
-  crm.companies[0].name = 'Tên Sẽ Lỗi Sync';
-  localStorage.setItem(CRM_KEY, JSON.stringify(crm));
+  editCrm(D, crm => { crm.companies[0].name = 'Tên Sẽ Lỗi Sync'; });
   const ok = await D.flushSync();
   assert.equal(ok, false, 'flush phải báo false khi sync lỗi');
   assert.equal(D._syncState().dirty, true, 'dirty giữ nguyên sau flush lỗi');
@@ -257,9 +254,7 @@ test('flush-6: sync LỖI -> flushSync trả false, dirty giữ nguyên và retr
 
 test('flush-7: thao tác sửa bình thường — debounce là đường chính (không sync ngay), flushSync khi sạch không sinh request; cả hai kho CRM + Publishing cùng được flush trong một vòng', async () => {
   const { client, localStorage, D } = await setup();
-  const crm = JSON.parse(localStorage.getItem(CRM_KEY));
-  crm.companies[0].name = 'Studio A V2';
-  localStorage.setItem(CRM_KEY, JSON.stringify(crm));
+  editCrm(D, crm => { crm.companies[0].name = 'Studio A V2'; });
   const pub = JSON.parse(localStorage.getItem(PUB_KEY));
   pub.requests[0].due = '2026-11-06';
   localStorage.setItem(PUB_KEY, JSON.stringify(pub));

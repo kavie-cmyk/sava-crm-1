@@ -110,23 +110,28 @@ async function setup() {
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 test('data: loadAll nạp DB -> state cũ (ghép private) + sao lưu bản gốc + ghi cache', async () => {
-  const { localStorage, loaded } = await setup();
+  const { localStorage, loaded, D } = await setup();
+  assert.equal(D.readFullCrmState().companies[0].id, 'c3');
   assert.equal(loaded.crmState.companies[0].name, 'Pixel Ant');
   const req = loaded.pubState.requests[0];
   assert.equal(req.intake.expectations, 'kỳ vọng bí mật');
   assert.equal(req.current.comment, 'c1');
   const backup = JSON.parse(localStorage.getItem('sava_crm_shared_v1__pre_supabase_backup'));
   assert.equal(backup.duLieuCuThat, true);
+  /* Chiến lược cache 5/11/2026: cache localStorage là bản NHẸ —
+     companies/leads KHÔNG còn ở đó, chúng ở bộ nhớ phiên (readFullCrmState). */
   const cache = JSON.parse(localStorage.getItem('sava_crm_shared_v1'));
-  assert.equal(cache.companies[0].id, 'c3');
+  assert.deepEqual(cache.companies, []);
+  assert.deepEqual(cache.leads, []);
+  assert.equal(localStorage.getItem('sava_crm_shared_v1__format'), 'split-heavy-v1');
 });
 
 test('data: sửa cache -> diff upsert lên DB; xoá entity -> delete; revision mới -> chỉ insert + cập nhật pointer', async () => {
-  const { client, localStorage } = await setup();
-  const crm = JSON.parse(localStorage.getItem('sava_crm_shared_v1'));
+  const { client, localStorage, D } = await setup();
+  const crm = D.readFullCrmState();
   crm.companies[0].name = 'Pixel Ant Đổi Tên';
   crm.tasks = [];
-  localStorage.setItem('sava_crm_shared_v1', JSON.stringify(crm));
+  D.writeFullCrmState(crm);
   await wait(1000);
   assert.equal(client._db.companies[0].name, 'Pixel Ant Đổi Tên');
   assert.equal(client._db.tasks.length, 0);

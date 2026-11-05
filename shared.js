@@ -1147,12 +1147,57 @@ function corruptStateFallback(raw) {
   } catch (e3) {}
   return migrateState(emptyState());
 }
+/* === Chiến lược cache (5/11/2026): ghép/tách companies+leads với bộ nhớ phiên ===
+   supabase-data.js (nạp TRƯỚC shared.js ở cả 3 trang) phơi window.SavaHeavyCache:
+   sau khi loadAll() thành công, cache localStorage của kho CRM chỉ còn bản NHẸ
+   (companies/leads = []) và hai danh sách nặng sống trong bộ nhớ phiên của tầng
+   dữ liệu. loadState() vì vậy GHÉP phần nặng từ bộ nhớ phiên vào state trả về;
+   storeState() CẬP NHẬT bộ nhớ phiên bằng state đầy đủ rồi chỉ ghi bản nhẹ
+   xuống localStorage. Khi tầng dữ liệu chưa từng nạp thành công trong phiên
+   (splitActive=false — vd mất mạng lúc mở app, hoặc ngữ cảnh không có
+   supabase-data như test thuần shared.js), loadState/storeState giữ NGUYÊN
+   hành vi cũ trên cache ĐẦY để bản sao local duy nhất của dữ liệu nặng không
+   bị phá. Lỗi ghi cache ở storeState KHÔNG còn bị nuốt: được báo qua banner
+   bền của tầng dữ liệu (window.__savaShowCacheError) + cờ
+   window.__savaCacheWriteError. */
+function savaHeavyCache() {
+  try {
+    const w = (typeof window !== "undefined" && window) || (typeof globalThis !== "undefined" ? globalThis : null);
+    return (w && w.SavaHeavyCache) || null;
+  } catch (e) { return null; }
+}
+function noteSharedCacheError(key, err) {
+  try {
+    const w = (typeof window !== "undefined" && window) || (typeof globalThis !== "undefined" ? globalThis : null);
+    if (w && typeof w.__savaShowCacheError === "function") { w.__savaShowCacheError(key, err); return; }
+    if (w) w.__savaCacheWriteError = { key, name: (err && err.name) || "Error", message: String((err && err.message) || err || ""), at: new Date().toISOString() };
+  } catch (e) {}
+}
 function loadState() {
   let raw = null;
   try { raw = localStorage.getItem(STORE_KEY); } catch (e) { return migrateState(emptyState()); }
   if (!raw) return migrateState(emptyState());
   let parsedRaw;
   try { parsedRaw = JSON.parse(raw); } catch (e) { return corruptStateFallback(raw); }
+  /* Cache NHẸ (định dạng split): ghép companies/leads từ bộ nhớ phiên.
+     Bộ nhớ chưa có (vừa mở trang, loadAll chưa chạy xong) -> hai danh
+     sách tạm rỗng; tầng auth sẽ làm mới giao diện tại chỗ ngay khi
+     loadAll() đặt phần nặng vào bộ nhớ (heavyNeedsRefresh). Cache ĐẦY
+     cũ: nạp phần nặng của nó vào bộ nhớ phiên làm nguồn ghép cho các
+     lần đọc sau trong cùng phiên (di trú trong bộ nhớ, chưa ghi đè
+     cache cho tới khi loadAll() thành công). */
+  try {
+    const H = savaHeavyCache();
+    if (H && parsedRaw && typeof parsedRaw === "object" && !Array.isArray(parsedRaw)) {
+      if (H.isSplitFormatStored && H.isSplitFormatStored()) {
+        const mem = H.getState ? H.getState() : null;
+        if (mem) { parsedRaw.companies = Array.isArray(mem.companies) ? mem.companies : []; parsedRaw.leads = Array.isArray(mem.leads) ? mem.leads : []; }
+      } else if ((Array.isArray(parsedRaw.companies) && parsedRaw.companies.length) || (Array.isArray(parsedRaw.leads) && parsedRaw.leads.length)) {
+        if (H.adoptLegacyState && !(H.hasHeavy && H.hasHeavy())) H.adoptLegacyState(parsedRaw);
+        else if (H.setState && !(H.hasState && H.hasState())) H.setState(parsedRaw);
+      }
+    }
+  } catch (e) {}
   /* A1/A2: JSON parse được nhưng KHÔNG phải object thuần — mảng ("[1,2]")
      hay scalar hợp lệ (null / "hello" / 123 / true) — đều là dữ liệu hỏng:
      đi đúng đường backup + banner như JSON hỏng, không trả mảng cho app và
@@ -1166,7 +1211,30 @@ function loadState() {
     return corruptStateFallback(raw);
   }
 }
-function storeState(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {} }
+function storeState(s) {
+  try {
+    const H = savaHeavyCache();
+    if (H && H.isSplitActive && H.isSplitActive() && s && typeof s === "object" && !Array.isArray(s)) {
+      /* Đã tách: cập nhật bộ nhớ phiên bằng state ĐẦY ĐỦ trước (đây là
+         nơi companies/leads sống), rồi chỉ ghi bản NHẸ xuống
+         localStorage + giữ khoá format. Thứ tự này đảm bảo hook đồng
+         bộ của tầng dữ liệu (chạy khi setItem) đọc được bộ nhớ mới. */
+      if (H.setState) H.setState(s);
+      const light = { ...s, companies: [], leads: [] };
+      localStorage.setItem(STORE_KEY, JSON.stringify(light));
+      if (H.markSplitFormat) H.markSplitFormat();
+      if (H.clearWriteError) H.clearWriteError(STORE_KEY);
+      return;
+    }
+    if (H && H.setState && s && typeof s === "object" && !Array.isArray(s)) H.setState(s);
+    localStorage.setItem(STORE_KEY, JSON.stringify(s));
+    /* KHÔNG xoá khoá format ở đây: vòng đời của khoá format do tầng dữ
+       liệu quản (loadAll/ghi đầy); một lần ghi đầy-xuất-phát-từ-cache-nhẹ
+       (hai danh sách đang chờ nạp) không được tự ý hạ định dạng. Đường
+       đọc của tầng dữ liệu luôn ưu tiên nội dung đầy khi nó xuất hiện. */
+    if (H && H.clearWriteError) H.clearWriteError(STORE_KEY);
+  } catch (e) { noteSharedCacheError(STORE_KEY, e); }
+}
 /* Định dạng tiền CHỈ ở tầng hiển thị (B6): VND < 1tr hiện nguyên số có
    phân cách nghìn + " ₫" (trước đây làm tròn tới hàng triệu nên 400.000
    thành "0tr ₫"); VND >= 1tr hiện "Xtr ₫" tối đa 2 chữ số thập phân, cắt

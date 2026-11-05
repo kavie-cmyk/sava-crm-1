@@ -183,7 +183,10 @@ test('fast boot: server có dữ liệu mới -> cập nhật tại chỗ qua ho
   assert.equal(r.stats.refreshCalls, 1, 'dữ liệu đổi -> hook render-tại-chỗ được gọi đúng 1 lần');
   assert.equal(r.sandbox.__S.companies.length, 1, 'state trong bộ nhớ đã là dữ liệu mới');
   assert.equal(r.sandbox.__S.companies[0].name, 'NewCo Studio');
-  assert.equal(JSON.parse(r.storage.getItem(CRM)).companies[0].name, 'NewCo Studio');
+  /* Chiến lược cache 5/11/2026: cache localStorage là bản NHẸ (companies
+     rỗng ở đó) — dữ liệu đầy đủ nằm ở bộ nhớ phiên của tầng dữ liệu. */
+  assert.deepEqual(JSON.parse(r.storage.getItem(CRM)).companies, []);
+  assert.equal(r.sandbox.window.SavaData.readFullCrmState().companies[0].name, 'NewCo Studio');
   assert.equal(r.docClasses.has('sava-locked'), false);
   assert.equal(r.stats.writes.length, 0);
 });
@@ -271,7 +274,9 @@ test('data localDirty: sửa cache trong lúc loadAll đang chạy -> không b�
   assert.equal(res.localDirty, true);
   assert.equal(res.changed, true);
   const after = JSON.parse(storage.getItem(CRM));
-  assert.equal(after.companies.some(c => c.id === 'c-local'), true, 'bản sửa trong lúc nạp KHÔNG được bị dữ liệu máy chủ ghi đè mất');
+  assert.equal(after.companies.some(c => c.id === 'c-local'), false, 'cache localStorage nay là bản nhẹ — companies không còn nằm ở đó');
+  assert.equal(res.crmState.companies.some(c => c.id === 'c-local'), true, 'bản sửa trong lúc nạp KHÔNG được bị dữ liệu máy chủ ghi đè mất');
+  assert.equal(D.readFullCrmState().companies.some(c => c.id === 'c-local'), true, 'bản sửa trong lúc nạp còn nguyên trong state đầy đủ (bộ nhớ phiên)');
   /* Đối chứng: không sửa gì trong lúc nạp -> localDirty=false, cache
      được ghi đè bằng dữ liệu máy chủ như cũ. */
   const res2 = await D.loadAll();

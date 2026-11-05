@@ -403,7 +403,7 @@
     try { notify('Đã tải lại dữ liệu Publishing mới nhất — bạn sửa tiếp được rồi.'); } catch {}
   }
   try { if (typeof window !== 'undefined') window.pubReloadLatest = pubReloadLatest; } catch {}
-  function write(s) { stampPubAndAudit(s); localStorage.setItem(KEY,JSON.stringify(s)); }
+  function write(s) { stampPubAndAudit(s); try { localStorage.setItem(KEY,JSON.stringify(s)); } catch (e) { /* Lỗi ghi cache (quota…) KHÔNG nuốt âm thầm: báo banner bền của tầng dữ liệu (chiến lược cache 5/11/2026) rồi ném lại như cũ để đường gọi biết ghi chưa thành. */ try { if (typeof window !== 'undefined' && typeof window.__savaShowCacheError === 'function') window.__savaShowCacheError(KEY, e); } catch {} throw e; } }
   /* Helper hiển thị dùng chung cho dialog Publishing (audit.js). */
   const sysMetaPubHTML = r => { try { return (typeof window !== 'undefined' && window.SavaAuditUI) ? window.SavaAuditUI.metaLineHTML(crm(), r) : ''; } catch { return ''; } };
   const auditSectionPubHTML = r => { try { return (typeof window !== 'undefined' && window.SavaAuditUI) ? window.SavaAuditUI.sectionHTML('request', r.id) : ''; } catch { return ''; } };

@@ -551,8 +551,10 @@ async function setupFk() {
   D.attach(client, "bd"); D.installHook();
   const loaded = await D.loadAll();
   D.setEnabled(true);
-  const getState = () => JSON.parse(localStorage.getItem("sava_crm_shared_v1"));
-  const putState = s => localStorage.setItem("sava_crm_shared_v1", JSON.stringify(s));
+  /* Chiến lược cache 5/11/2026: cache localStorage là bản NHẸ — đọc/ghi
+     state qua API state đầy đủ của tầng dữ liệu (bộ nhớ phiên). */
+  const getState = () => D.readFullCrmState();
+  const putState = s => D.writeFullCrmState(s);
   const drain = async () => { for (let i = 0; i < 12; i++) await new Promise(r => setTimeout(r, 900)); };
   return { client, localStorage, D, loaded, getState, putState, drain };
 }

@@ -156,10 +156,12 @@ async function setup(crmState) {
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
 async function flush(D) { D.syncNow(); await wait(120); }
-function editCrm(localStorage, fn) {
-  const crm = JSON.parse(localStorage.getItem('sava_crm_shared_v1'));
+function editCrm(D, fn) {
+  /* Chiến lược cache 5/11/2026: cache localStorage là bản NHẸ — sửa
+     state qua API state đầy đủ của tầng dữ liệu (bộ nhớ phiên). */
+  const crm = D.readFullCrmState();
   fn(crm);
-  localStorage.setItem('sava_crm_shared_v1', JSON.stringify(crm));
+  D.writeFullCrmState(crm);
   return crm;
 }
 const fkErrors = client => client._errors.filter(e => /violates foreign key/.test(e.message || ''));
@@ -168,7 +170,7 @@ const NEW_DEAL = { id: 'd1', line: 'publishing', title: 'Deal từ Game', compan
 test('FK-1: tạo deal MỚI + gắn lead trong CÙNG một lần lưu -> deal + deal_leads lên DB, 0 lỗi FK', async (t) => {
   const { client, localStorage, D } = await setup();
   t.after(() => { try { D.setEnabled(false); } catch (e) {} });
-  editCrm(localStorage, crm => { crm.deals.push(structuredClone(NEW_DEAL)); });
+  editCrm(D, crm => { crm.deals.push(structuredClone(NEW_DEAL)); });
   await flush(D);
   assert.deepEqual(fkErrors(client), [], 'không được có lỗi FK: ' + JSON.stringify(client._errors));
   assert.equal(client._db.deals.filter(d => d.id === 'd1').length, 1, 'deal mới phải có trên DB');
@@ -178,7 +180,7 @@ test('FK-1: tạo deal MỚI + gắn lead trong CÙNG một lần lưu -> deal +
 test('FK-2: cùng lần lưu sinh lead MỚI + deal MỚI + term/contract/task/activity -> mọi con sau cha, 0 lỗi FK', async (t) => {
   const { client, localStorage, D } = await setup();
   t.after(() => { try { D.setEnabled(false); } catch (e) {} });
-  editCrm(localStorage, crm => {
+  editCrm(D, crm => {
     crm.leads.push({ id: 'l9', name: 'Lead Mới', company: 'c1', person: '', line: '', source: '', status: 'new', note: '', when: '' });
     const d = structuredClone(NEW_DEAL); d.leads = ['l9'];
     d.term = { rev_share: 'Sava 50%', advance: '', territories: '', duration: '', exclusivity: '', marketing: '', payment: '' };
@@ -199,7 +201,7 @@ test('FK-2: cùng lần lưu sinh lead MỚI + deal MỚI + term/contract/task/a
 test('FK-3: tạo event MỚI + links trong cùng lần lưu -> event_links sau events, 0 lỗi FK (khoá hồi quy)', async (t) => {
   const { client, localStorage, D } = await setup();
   t.after(() => { try { D.setEnabled(false); } catch (e) {} });
-  editCrm(localStorage, crm => { crm.events.push({ id: 'e1', name: 'Sự kiện X', date: '2026-11-03', location: '', companies: ['c1'], leads: ['l1'], deals: [] }); });
+  editCrm(D, crm => { crm.events.push({ id: 'e1', name: 'Sự kiện X', date: '2026-11-03', location: '', companies: ['c1'], leads: ['l1'], deals: [] }); });
   await flush(D);
   assert.deepEqual(fkErrors(client), []);
   assert.equal(client._db.events.filter(e => e.id === 'e1').length, 1);
@@ -210,7 +212,7 @@ test('FK-4: cha (deals) lỗi -> con KHÔNG được đẩy + không attempt l�
   const { client, localStorage, D } = await setup();
   t.after(() => { try { D.setEnabled(false); } catch (e) {} });
   client._failTables.add('deals');
-  editCrm(localStorage, crm => {
+  editCrm(D, crm => {
     const d = structuredClone(NEW_DEAL);
     d.term = { rev_share: 'Sava 50%', advance: '', territories: '', duration: '', exclusivity: '', marketing: '', payment: '' };
     crm.deals.push(d);
@@ -239,7 +241,7 @@ test('FK-5: deal bị xoá trên server bởi phiên khác, local chỉ đổi d
   client._db.deals = client._db.deals.filter(d => d.id !== 'd0');
   client._db.deal_leads = [];
   client._errors.length = 0;
-  editCrm(localStorage, crm => { crm.deals.find(d => d.id === 'd0').leads = ['l1', 'l2']; });
+  editCrm(D, crm => { crm.deals.find(d => d.id === 'd0').leads = ['l1', 'l2']; });
   await flush(D);
   assert.deepEqual(fkErrors(client), [], 'không được có lỗi FK: ' + JSON.stringify(client._errors));
   assert.equal(client._db.deals.filter(d => d.id === 'd0').length, 1, 'cha phải được upsert lại trong cùng vòng');

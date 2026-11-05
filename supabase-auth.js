@@ -706,7 +706,7 @@
       window.SavaData.installHook();
       if (!optimistic) setStatus('Đang tải dữ liệu từ Supabase…');
       try {
-        const { hash, changed, localDirty } = await window.SavaData.loadAll();
+        const { hash, changed, localDirty, heavyNeedsRefresh } = await window.SavaData.loadAll();
         if (optimistic && page !== 'import.html') {
           try { sessionStorage.setItem('sava_boot_hash', hash); } catch (e) {}
           persistBootCaches(session, hash);
@@ -717,7 +717,7 @@
           try { document.documentElement.classList.remove('sava-optimistic'); } catch (e) {}
           if (localDirty) {
             if (typeof window.SavaData.scheduleSync === 'function') window.SavaData.scheduleSync(0);
-          } else if (changed) {
+          } else if (changed || heavyNeedsRefresh) {
             refreshAppInPlace();
           }
           showNotice(takeNotice());
@@ -754,6 +754,16 @@
         try { sessionStorage.setItem('sava_boot_hash', hash); } catch (e) {}
         persistBootCaches(session, hash);
         window.SavaData.setEnabled(true);
+        /* Chiến lược cache (5/11/2026), đường cổng đầy đủ:
+           - localDirty (nhật ký dirty phiên trước / sửa trong lúc
+             nạp): đẩy diff lên ngay như đường mở-nhanh vẫn làm.
+           - heavyNeedsRefresh: trang này mở bằng cache NHẸ nên state
+             trong bộ nhớ lúc boot thiếu companies/leads; loadAll đã
+             đặt phần nặng vào bộ nhớ phiên của tầng dữ liệu — làm mới
+             giao diện TẠI CHỖ để app nạp lại state đầy đủ (không
+             reload thêm, tránh vòng lặp của sự cố 30/10/2026). */
+        if (localDirty && typeof window.SavaData.scheduleSync === 'function') window.SavaData.scheduleSync(0);
+        else if (heavyNeedsRefresh) refreshAppInPlace();
       } catch (e) {
         /* Offline / lỗi nạp: mở app từ cache trên máy, TẮT đồng bộ ghi
            (chưa có snapshot server thì không đẩy gì lên). Ở đường

@@ -217,7 +217,12 @@ test('page-6: client nạp mới (dữ liệu > 1.000 dòng/bảng) -> vòng syn
   const ok = await D.flushSync();
   assert.equal(ok, true, 'vòng sync đầu của client nạp mới phải thành công');
   assert.equal(client._writes.length, 0, 'sync đầu phải có 0 lệnh ghi (không phantom insert/delete/upsert), thực tế: ' + JSON.stringify(client._writes.slice(0, 5)));
+  /* Chiến lược cache 5/11/2026: localStorage chỉ còn bản NHẸ (0
+     companies/leads); state đầy đủ sống ở bộ nhớ phiên. */
   const cache = JSON.parse(localStorage.getItem('sava_crm_shared_v1'));
-  assert.equal(cache.companies.length, N_COMPANIES, 'cache sau sync vẫn đủ companies');
-  assert.equal(cache.leads.length, N_LEADS, 'cache sau sync vẫn đủ leads');
+  assert.equal(cache.companies.length, 0, 'cache localStorage là bản nhẹ');
+  assert.equal(cache.leads.length, 0, 'cache localStorage là bản nhẹ');
+  const full = D.readFullCrmState();
+  assert.equal(full.companies.length, N_COMPANIES, 'state đầy đủ (bộ nhớ phiên) sau sync vẫn đủ companies');
+  assert.equal(full.leads.length, N_LEADS, 'state đầy đủ (bộ nhớ phiên) sau sync vẫn đủ leads');
 });
