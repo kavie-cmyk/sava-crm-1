@@ -2,21 +2,22 @@
    - Helper thuần window.SavaDash (shared.js): wmScopeKey (ánh xạ phạm vi
      Tổng quan -> scope key snapshot), wmDelta (chênh + %, tuần trước = 0
      -> pct null), wmMetricsFor (scope/tuần thiếu -> toàn 0),
-     wmNormalizeMetrics (chỉ chuẩn hoá 7 chỉ số; leadStages trong payload
-     bị bỏ qua), wmDefaultWeekIndex (tuần chứa hôm nay, không có -> tuần
-     cuối; rỗng -> -1), wmWeekLabel (Thứ 2 -> Chủ nhật dd-mm-yyyy),
-     wmComputedAtText (HH:mm ngày dd-mm-yyyy quy về Asia/Saigon, lấy
-     đúng giờ trong computed_at).
-   - Bảng biến động theo trạng thái (stage) của Lead ĐÃ GỠ khỏi khối
-     (Zac chốt 5/11/2026): không còn wmStageRows / WM_STAGE_* ở shared.js,
-     không còn bảng Vào/Ra/Ròng ở index.html, không còn .dash-wm-subtitle
-     ở CSS. Payload phía máy chủ VẪN giữ leadStages như cũ — app chỉ
-     không hiển thị nữa.
+     wmNormalizeMetrics (chỉ chuẩn hoá 7 chỉ số), wmDefaultWeekIndex
+     (tuần chứa hôm nay, không có -> tuần cuối; rỗng -> -1), wmWeekLabel
+     (Thứ 2 -> Chủ nhật dd-mm-yyyy), wmComputedAtText (HH:mm ngày
+     dd-mm-yyyy quy về Asia/Saigon, lấy đúng giờ trong computed_at).
+   - Bảng biến động theo trạng thái (stage) của Lead ĐÃ GỠ SẠCH khỏi
+     khối (Zac chốt 5/11/2026, gồm cả quyết định bổ sung gỡ luôn phần
+     TÍNH leadStages ở tầng dữ liệu — đợt dữ liệu riêng): không còn
+     wmStageRows / WM_STAGE_* ở shared.js, không còn bảng Vào/Ra/Ròng ở
+     index.html, không còn .dash-wm-subtitle ở CSS, và payload KHÔNG
+     còn key leadStages — mọi payload mẫu trong file này đều không có
+     key đó, app phải chạy an toàn khi key vắng mặt.
    - Tĩnh: index.html đọc dashboard_snapshots key="weekly_movement" qua
      client dùng chung, khối gắn CUỐI dashAnalyticsHTML, đủ chú thích
      phạm vi dữ liệu bắt buộc + nhãn "Số liệu tính tới"; CSS dash-wm-.
    - Hành vi qua harness index.html: render đủ 7 thẻ và KHÔNG còn bảng
-     stage trên payload mẫu đúng hợp đồng (payload vẫn có leadStages);
+     stage trên payload mẫu đúng hợp đồng mới (không có leadStages);
      so sánh tuần trước (gồm ca tuần
      trước = 0 chỉ hiện chênh tuyệt đối; Deal Lost đảo màu); nút ‹ ›
      disable ở biên + wmMoveWeek kẹp biên; đổi dashScope -> số đổi theo
@@ -33,15 +34,14 @@ function loadShared() {
   return ctx;
 }
 
-const STAGE_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted', 'not_yet_have_demand'];
-function mkMetrics(over = {}, stageOver = {}) {
-  const leadStages = {};
-  for (const k of STAGE_KEYS) leadStages[k] = stageOver[k] || { in: 0, out: 0, net: 0 };
-  return { leadsNew: 0, leadsMovedUnique: 0, dealsNew: 0, dealsWon: 0, dealsLost: 0, activitiesNew: 0, tasksCompleted: 0, ...over, leadStages };
+function mkMetrics(over = {}) {
+  return { leadsNew: 0, leadsMovedUnique: 0, dealsNew: 0, dealsWon: 0, dealsLost: 0, activitiesNew: 0, tasksCompleted: 0, ...over };
 }
-/* Payload mẫu đúng hợp đồng: 3 tuần tăng dần; tuần 1 toàn 0 (để ca tuần
-   trước = 0 rơi vào tuần 2); member:yen có số riêng; member hoang KHÔNG
-   có scope nào (ca scope thiếu). computed_at 11:05 — cố ý khác 18:00. */
+/* Payload mẫu đúng hợp đồng MỚI (sau quyết định gỡ leadStages ở tầng
+   dữ liệu): metrics CHỈ có 7 chỉ số, KHÔNG có key leadStages ở bất kỳ
+   scope/tuần nào. 3 tuần tăng dần; tuần 1 toàn 0 (để ca tuần trước = 0
+   rơi vào tuần 2); member:yen có số riêng; member hoang KHÔNG có scope
+   nào (ca scope thiếu). computed_at 11:05 — cố ý khác 18:00. */
 function wmPayload() {
   return {
     version: 1,
@@ -52,9 +52,7 @@ function wmPayload() {
         'member:yen': mkMetrics({ leadsNew: 4, leadsMovedUnique: 2, dealsNew: 1, dealsWon: 1, dealsLost: 0, activitiesNew: 3, tasksCompleted: 1 }),
       } },
       { weekStart: '2026-11-02', scopes: {
-        all: mkMetrics(
-          { leadsNew: 15, leadsMovedUnique: 5, dealsNew: 2, dealsWon: 3, dealsLost: 3, activitiesNew: 0, tasksCompleted: 6 },
-          { new: { in: 15, out: 10, net: 5 }, converted: { in: 3, out: 0, net: 3 }, not_yet_have_demand: { in: 2, out: 1, net: 1 } }),
+        all: mkMetrics({ leadsNew: 15, leadsMovedUnique: 5, dealsNew: 2, dealsWon: 3, dealsLost: 3, activitiesNew: 0, tasksCompleted: 6 }),
         'member:yen': mkMetrics({ leadsNew: 9, leadsMovedUnique: 2, dealsNew: 1, dealsWon: 2, dealsLost: 0, activitiesNew: 1, tasksCompleted: 2 }),
       } },
     ],
@@ -90,18 +88,20 @@ test('wmDelta: chênh tuyệt đối + % trên tuần trước; tuần trước 
 
 /* ---------- 3) Metrics theo tuần/scope + chuẩn hoá ---------- */
 
-test('wmMetricsFor: scope thiếu trong tuần / tuần hỏng -> toàn 0; chuẩn hoá bỏ qua leadStages của payload', () => {
+test('wmMetricsFor: scope thiếu trong tuần / tuần hỏng -> toàn 0; payload THIẾU HẲN leadStages vẫn chuẩn hoá đúng 7 chỉ số', () => {
   const D = loadShared().window.SavaDash;
-  const week = wmPayload().weeks[2];
+  const payload = wmPayload();
+  for (const w of payload.weeks) for (const k of Object.keys(w.scopes)) assert.ok(!('leadStages' in w.scopes[k]), 'payload mẫu theo hợp đồng mới không có key leadStages ở scope ' + k);
+  const week = payload.weeks[2];
+  assert.equal(D.wmMetricsFor(week, 'all').leadsNew, 15);
   assert.equal(D.wmMetricsFor(week, 'member:yen').leadsNew, 9);
   const missing = D.wmMetricsFor(week, 'member:hoang');
   assert.equal(missing.leadsNew, 0); assert.equal(missing.tasksCompleted, 0);
-  assert.ok(!('leadStages' in missing), 'metrics chuẩn hoá không còn mang leadStages');
   assert.equal(D.wmMetricsFor(null, 'all').dealsNew, 0);
   assert.equal(D.wmMetricsFor({}, 'all').leadsMovedUnique, 0);
-  const norm = D.wmNormalizeMetrics({ leadsNew: 3, leadStages: { new: { in: 5, out: 2 } } });
+  const norm = D.wmNormalizeMetrics({ leadsNew: 3 });
   assert.equal(norm.leadsNew, 3);
-  assert.ok(!('leadStages' in norm), 'leadStages trong payload (máy chủ vẫn tính) bị bỏ qua, không đi vào metrics hiển thị');
+  assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(norm))).sort(), ['activitiesNew', 'dealsLost', 'dealsNew', 'dealsWon', 'leadsMovedUnique', 'leadsNew', 'tasksCompleted'], 'metrics chuẩn hoá chỉ gồm đúng 7 chỉ số, không sinh key lạ khi payload thiếu leadStages');
   assert.equal(norm.dealsWon, 0, 'field thiếu -> 0');
 });
 
@@ -212,7 +212,7 @@ function renderReady(run, idx) {
 const wmSlice = html => html.slice(html.indexOf('id="wmBlock"'));
 const wmGrid = html => { const s = wmSlice(html); const start = s.indexOf('dash-wm-grid'); return s.slice(start, s.indexOf('<p class="dash-note">', start)); };
 
-test('hành vi: tuần hiện tại (idx cuối) — nhãn tính tới đúng computed_at, nhãn tuần, 7 thẻ + chênh/% + Deal Lost đảo màu, KHÔNG còn bảng stage dù payload vẫn có leadStages, nút › disable', () => {
+test('hành vi: tuần hiện tại (idx cuối) — nhãn tính tới đúng computed_at, nhãn tuần, 7 thẻ + chênh/% + Deal Lost đảo màu, KHÔNG còn bảng stage và payload không còn key leadStages vẫn render đúng, nút › disable', () => {
   const { run, getEl } = loadIndex();
   renderReady(run, 2);
   const html = wmSlice(getEl('view').innerHTML);
@@ -228,7 +228,7 @@ test('hành vi: tuần hiện tại (idx cuối) — nhãn tính tới đúng co
   assert.ok(grid.includes('dash-wm-delta bad">▲ +2 (+200%)'), 'Deal Lost 1 -> 3: TĂNG nhưng ĐỎ (đảo nghĩa màu)');
   assert.ok(grid.includes('dash-wm-delta bad">▼ -7 (-100%)'), 'Hoạt động 7 -> 0: giảm, đỏ');
   assert.ok(grid.includes('dash-wm-delta good">▲ +3 (+100%)'), 'Việc hoàn thành 3 -> 6: tăng, xanh');
-  assert.ok(!html.includes('dash-wm-table') && !html.includes('dash-wm-subtitle') && !html.includes('Biến động theo trạng thái của Lead'), 'không còn bảng Vào/Ra/Ròng theo trạng thái Lead — payload mẫu tuần này vẫn chứa leadStages (new: vào 15 / ra 10), app bỏ qua không hiển thị');
+  assert.ok(!html.includes('dash-wm-table') && !html.includes('dash-wm-subtitle') && !html.includes('Biến động theo trạng thái của Lead'), 'không còn bảng Vào/Ra/Ròng theo trạng thái Lead — và payload mẫu theo hợp đồng mới không có key leadStages ở bất kỳ scope nào, khối vẫn render bình thường (an toàn khi key vắng mặt)');
   assert.ok(!html.includes('<th>Trạng thái</th>'), 'không còn header bảng stage trong khối');
   assert.ok(/wmMoveWeek\(1\)" disabled/.test(html), 'đang ở tuần cuối: nút › disable');
   assert.ok(!/wmMoveWeek\(-1\)" disabled/.test(html), 'nút ‹ còn bấm được');

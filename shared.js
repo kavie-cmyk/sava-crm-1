@@ -1540,9 +1540,11 @@ function dashCompare(state, days, now, isOverdueFn) {
        weekStart, tuần cuối là tuần hiện tại.
    metrics: leadsNew / leadsMovedUnique / dealsNew / dealsWon /
    dealsLost / activitiesNew / tasksCompleted (số nguyên).
-   Payload phía máy chủ VẪN tính kèm leadStages như cũ, nhưng khối này
-   KHÔNG hiển thị biến động theo trạng thái của Lead nữa (Zac chốt
-   5/11/2026) — tầng hiển thị bỏ qua hẳn phần đó khi chuẩn hoá.
+   Khối này KHÔNG còn biến động theo trạng thái của Lead nữa: Zac chốt
+   5/11/2026 gỡ CẢ hiển thị lẫn phần tính leadStages ở tầng dữ liệu
+   (đợt dữ liệu riêng xử lý SQL/script) — payload KHÔNG còn key
+   leadStages và không helper nào dưới đây đọc key đó; snapshot cũ còn
+   sót key thì cũng bị bỏ qua, payload thiếu key vẫn an toàn tuyệt đối.
    Mọi helper đều chịu dữ kiện THIẾU/HỎNG: scope không có trong tuần ->
    toàn 0; field thiếu -> 0. */
 /* 7 thẻ chỉ số của khối, theo đúng thứ tự trình bày. invert = đảo nghĩa
@@ -1569,10 +1571,10 @@ function wmNum(v) { const n = Number(v); return Number.isFinite(n) ? Math.trunc(
 function wmEmptyMetrics() {
   return { leadsNew: 0, leadsMovedUnique: 0, dealsNew: 0, dealsWon: 0, dealsLost: 0, activitiesNew: 0, tasksCompleted: 0 };
 }
-/* Chuẩn hoá 1 metrics thô từ payload: field thiếu/hỏng -> 0; phần
-   leadStages trong payload (máy chủ vẫn tính) bị BỎ QUA hẳn vì khối
-   không còn hiển thị bảng theo trạng thái. Idempotent: metrics đã
-   chuẩn hoá chạy lại qua đây không đổi. */
+/* Chuẩn hoá 1 metrics thô từ payload: field thiếu/hỏng -> 0. Chỉ đọc
+   đúng 7 chỉ số của WM_METRIC_DEFS — payload thiếu hẳn key leadStages
+   (đã gỡ ở tầng dữ liệu) hay snapshot cũ còn sót key đều an toàn như
+   nhau. Idempotent: metrics đã chuẩn hoá chạy lại qua đây không đổi. */
 function wmNormalizeMetrics(raw) {
   const out = wmEmptyMetrics();
   if (!raw || typeof raw !== "object") return out;
