@@ -1539,15 +1539,12 @@ function dashCompare(state, days, now, isOverdueFn) {
        metrics, "unassigned": metrics } } ] } — weeks tăng dần theo
        weekStart, tuần cuối là tuần hiện tại.
    metrics: leadsNew / leadsMovedUnique / dealsNew / dealsWon /
-   dealsLost / activitiesNew / tasksCompleted (số nguyên) + leadStages:
-   object 11 key trạng thái lead, mỗi key { in, out, net }.
+   dealsLost / activitiesNew / tasksCompleted (số nguyên).
+   Payload phía máy chủ VẪN tính kèm leadStages như cũ, nhưng khối này
+   KHÔNG hiển thị biến động theo trạng thái của Lead nữa (Zac chốt
+   5/11/2026) — tầng hiển thị bỏ qua hẳn phần đó khi chuẩn hoá.
    Mọi helper đều chịu dữ kiện THIẾU/HỎNG: scope không có trong tuần ->
-   toàn 0; field thiếu -> 0; net thiếu -> tự suy in - out. */
-const WM_STAGE_KEYS = ["new", "sent_connect", "first_message", "first_email", "first_fu", "in_response", "in_reply", "discovery_meeting", "contacted", "converted", "not_yet_have_demand"];
-/* Nhãn stage: KHỚP ĐÚNG nhãn của LEAD_STATUSES phía index.html (nguồn sự
-   thật UI lead) — cùng cặp key<->nhãn với AUDIT_LEAD_STATUS_LABELS ở
-   trên, trừ "qualified" đã bỏ khỏi UI lead nên không có ở đây. */
-const WM_STAGE_LABELS = { new: "Mới", sent_connect: "Sent connect", first_message: "1st message", first_email: "1st email", first_fu: "1st FU", in_response: "In-response", in_reply: "In reply", discovery_meeting: "Discovery meeting", contacted: "Đã liên hệ", converted: "Đã chuyển đổi", not_yet_have_demand: "Not yet have demand" };
+   toàn 0; field thiếu -> 0. */
 /* 7 thẻ chỉ số của khối, theo đúng thứ tự trình bày. invert = đảo nghĩa
    TỐT/XẤU khi lên màu ▲▼: riêng Deal Lost tăng là xấu (đỏ), giảm là tốt
    (xanh); mọi thẻ còn lại tăng = tốt (xanh), giảm = xấu (đỏ). */
@@ -1570,24 +1567,16 @@ function wmScopeKey(scopeId) {
 }
 function wmNum(v) { const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : 0; }
 function wmEmptyMetrics() {
-  const leadStages = {};
-  WM_STAGE_KEYS.forEach(k => { leadStages[k] = { in: 0, out: 0, net: 0 }; });
-  return { leadsNew: 0, leadsMovedUnique: 0, dealsNew: 0, dealsWon: 0, dealsLost: 0, activitiesNew: 0, tasksCompleted: 0, leadStages };
+  return { leadsNew: 0, leadsMovedUnique: 0, dealsNew: 0, dealsWon: 0, dealsLost: 0, activitiesNew: 0, tasksCompleted: 0 };
 }
-/* Chuẩn hoá 1 metrics thô từ payload: field thiếu/hỏng -> 0, leadStages
-   thiếu key -> {0,0,0}, net thiếu/không phải số -> in - out. Idempotent:
-   metrics đã chuẩn hoá chạy lại qua đây không đổi. */
+/* Chuẩn hoá 1 metrics thô từ payload: field thiếu/hỏng -> 0; phần
+   leadStages trong payload (máy chủ vẫn tính) bị BỎ QUA hẳn vì khối
+   không còn hiển thị bảng theo trạng thái. Idempotent: metrics đã
+   chuẩn hoá chạy lại qua đây không đổi. */
 function wmNormalizeMetrics(raw) {
   const out = wmEmptyMetrics();
   if (!raw || typeof raw !== "object") return out;
   WM_METRIC_DEFS.forEach(d => { out[d.key] = wmNum(raw[d.key]); });
-  const ls = raw.leadStages && typeof raw.leadStages === "object" ? raw.leadStages : {};
-  WM_STAGE_KEYS.forEach(k => {
-    const s = ls[k] && typeof ls[k] === "object" ? ls[k] : {};
-    const inn = wmNum(s.in), outt = wmNum(s.out);
-    const net = (s.net === null || s.net === undefined || !Number.isFinite(Number(s.net))) ? (inn - outt) : wmNum(s.net);
-    out.leadStages[k] = { in: inn, out: outt, net };
-  });
   return out;
 }
 /* Metrics của 1 tuần cho 1 scope key; tuần/scope thiếu -> toàn 0 (không vỡ trang). */
@@ -1644,13 +1633,7 @@ function wmComputedAtText(computedAt) {
   new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hourCycle: "h23", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
   return o.day ? (o.hour + ":" + o.minute + " ngày " + o.day + "-" + o.month + "-" + o.year) : "";
 }
-/* 11 hàng biến động stage theo ĐÚNG thứ tự WM_STAGE_KEYS (10 trạng thái
-   đường chính + not_yet_have_demand cuối), mỗi hàng {key,label,in,out,net}. */
-function wmStageRows(metrics) {
-  const m = wmNormalizeMetrics(metrics);
-  return WM_STAGE_KEYS.map(k => ({ key: k, label: WM_STAGE_LABELS[k] || k, in: m.leadStages[k].in, out: m.leadStages[k].out, net: m.leadStages[k].net }));
-}
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, WM_STAGE_KEYS, WM_STAGE_LABELS, WM_METRIC_DEFS, wmScopeKey, wmNum, wmEmptyMetrics, wmNormalizeMetrics, wmMetricsFor, wmDelta, wmAddDaysISO, wmWeekEndISO, wmWeekLabel, wmDefaultWeekIndex, wmComputedAtText, wmStageRows }; }
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, WM_METRIC_DEFS, wmScopeKey, wmNum, wmEmptyMetrics, wmNormalizeMetrics, wmMetricsFor, wmDelta, wmAddDaysISO, wmWeekEndISO, wmWeekLabel, wmDefaultWeekIndex, wmComputedAtText }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;

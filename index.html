@@ -1392,18 +1392,10 @@ function weeklyMovementHTML() {
     return `<span class="dash-wm-delta ${good ? "good" : "bad"}">${arrow} ${diffTxt}${pctTxt}</span> <span class="dash-wm-prev">so với tuần trước (${d.prev})</span>`;
   };
   const cards = D.WM_METRIC_DEFS.map(def => `<div class="kpi dash-wm-card"><div class="k">${esc(def.label)}</div><div class="v">${curM[def.key]}</div><div class="s">${deltaHTML(def)}</div></div>`).join("");
-  const stageRows = D.wmStageRows(curM).map(r => {
-    const def = (typeof leadStatusDef === "function") ? leadStatusDef(r.key) : null;
-    const label = def ? def.label : r.label;
-    const netTxt = (r.net > 0 ? "+" : "") + r.net;
-    return `<tr><td>${esc(label)}</td><td class="numeric">${r.in}</td><td class="numeric">${r.out}</td><td class="numeric"><b>${netTxt}</b></td></tr>`;
-  }).join("");
   return `<section class="panel dash-panel dash-wm" id="wmBlock"><div class="panel-title"><h3>Biến động tuần</h3><span class="dash-badge">${esc(scopeName)}</span></div>
   ${computedTxt ? `<p class="dash-note dash-wm-computed">Số liệu tính tới ${esc(computedTxt)}</p>` : `<p class="dash-note dash-wm-computed">Chưa rõ thời điểm tính số liệu.</p>`}
   <div class="dash-wm-weeknav"><button class="dash-chip" onclick="wmMoveWeek(-1)"${idx <= 0 ? " disabled" : ""} aria-label="Tuần trước">‹</button><span class="dash-wm-weeklabel">${esc(D.wmWeekLabel(weeks[idx].weekStart))}</span><button class="dash-chip" onclick="wmMoveWeek(1)"${idx >= weeks.length - 1 ? " disabled" : ""} aria-label="Tuần sau">›</button></div>
   <div class="dash-wm-grid">${cards}</div>
-  <h4 class="dash-wm-subtitle">Biến động theo trạng thái của Lead</h4>
-  <div class="dash-table-wrap"><table class="dash-table dash-wm-table"><thead><tr><th>Trạng thái</th><th class="numeric">Vào</th><th class="numeric">Ra</th><th class="numeric">Ròng</th></tr></thead><tbody>${stageRows}</tbody></table></div>
   <p class="dash-note">Số chuyển trạng thái lấy từ lịch sử thay đổi trong hệ thống, đầy đủ từ 31-10-2026. Các đợt nạp dữ liệu hàng loạt không tạo lịch sử chuyển trạng thái nên không tính vào biến động stage; lead/deal nạp hàng loạt vẫn được tính ở số mới tạo của tuần nạp.</p></section>`;
 }
 /* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ (YYYY-MM-DD)
