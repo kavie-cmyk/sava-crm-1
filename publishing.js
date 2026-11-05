@@ -615,7 +615,7 @@
     }
     return '';
   }
-  if (typeof window !== 'undefined') window.PublishingEffective = {...(window.PublishingEffective || {}), mechanicIdForGame, isCompletedRequest, effectiveIntake, effectiveMechanicId, crmMechanicId, savedMechanicId, entitySnapshotFor, currentRequesterId, splitCrmGenre, canonicalRequest, memberLinkHTML, isPubStale: () => pubStale, pubPrevSnapSize: () => (pubPrevSnap ? pubPrevSnap.size : 0)};
+  if (typeof window !== 'undefined') window.PublishingEffective = {...(window.PublishingEffective || {}), mechanicIdForGame, isCompletedRequest, effectiveIntake, effectiveMechanicId, crmMechanicId, savedMechanicId, entitySnapshotFor, currentRequesterId, splitCrmGenre, canonicalRequest, memberLinkHTML, gameLeadsFor, leadLinksHTML, isPubStale: () => pubStale, pubPrevSnapSize: () => (pubPrevSnap ? pubPrevSnap.size : 0)};
   /* ===== ĐỒNG BỘ THÔNG TIN LIÊN QUAN CRM <-> ĐÁNH GIÁ (chốt bổ sung) =====
      Khảo sát mô hình thật (trước khi sửa):
      - LIVE theo id (đã đúng sẵn): tên game/company ở thẻ review
@@ -697,9 +697,26 @@
     } catch {}
     return base;
   }
-  function entitySnapshotFor(kind, en) {
+  function entitySnapshotFor(kind, en, state) {
     if (!en || typeof en !== 'object') return null;
-    if (kind === 'game') return { name: String(en.title || en.name || ''), genre: String(en.genre || ''), platform: String(en.platform || ''), stage: String(en.stage || ''), desc: String(en.desc || ''), buildUrl: String(en.buildUrl || ''), trailerUrl: String(en.trailerUrl || '') };
+    if (kind === 'game') {
+      /* Tên công ty sở hữu (companyName): chụp kèm lúc tạo request MỚI để
+         đường fallback của request mồ côi (liveInfoHTML) còn hiện được
+         studio sở hữu khi game — hoặc cả công ty — đã bị gỡ khỏi CRM.
+         Resolve từ state được truyền vào; không truyền thì tự đọc CRM
+         hiện tại qua crm() (đường submitRequest giữ nguyên chữ ký cũ).
+         Request đã tồn tại KHÔNG được viết lại snapshot ở bất kỳ đâu. */
+      let companyName = '';
+      if (en.company) {
+        try {
+          const st = state || (typeof crm === 'function' ? crm() : null);
+          const co = st && Array.isArray(st.companies) ? st.companies.find(c => c && c.id === en.company) : null;
+          if (co) companyName = String(co.name || co.title || '');
+        } catch {}
+        if (!companyName && typeof en.companyName === 'string') companyName = en.companyName;
+      }
+      return { name: String(en.title || en.name || ''), genre: String(en.genre || ''), platform: String(en.platform || ''), stage: String(en.stage || ''), desc: String(en.desc || ''), buildUrl: String(en.buildUrl || ''), trailerUrl: String(en.trailerUrl || ''), companyName };
+    }
     /* Đầu mối riêng của công ty (hai field contact/phone cũ) KHÔNG còn chụp vào
        snapshot: người liên hệ của công ty = các Lead của công ty đó (xem
        liveInfoHTML — resolve LIVE từ CRM hiện tại). Snapshot chỉ giữ định
@@ -709,6 +726,52 @@
   }
   function currentRequesterId() {
     try { const u = (typeof window !== 'undefined' && window.SavaAuth && typeof window.SavaAuth.currentUser === 'function') ? window.SavaAuth.currentUser() : null; return u && u.memberId ? String(u.memberId) : ''; } catch { return ''; }
+  }
+  /* Render danh sách lead thành HTML dùng CHUNG cho dialog company và
+     dialog game (nhất quán một mẫu hiển thị duy nhất): mỗi lead là LINK
+     sang hồ sơ lead trong CRM (?open=lead&id=<id thật>), kèm person
+     (Position/chức danh — chỉ khi khác tên), SĐT (nếu có) và nhãn
+     MAIN_CONTACT_LABEL (shared.js) khi là đầu mối chính. Danh sách
+     trống -> '' (caller dùng rowHTML nên tự rơi về "—"). */
+  function leadLinksHTML(leads) {
+    const list = Array.isArray(leads) ? leads.filter(l => l && typeof l === 'object') : [];
+    if (!list.length) return '';
+    return list.map(l => {
+      const display = String(l.name || l.person || 'Lead');
+      const bits = [];
+      if (l.person && l.person !== l.name && l.person !== display) bits.push(esc(l.person));
+      if (l.phone) bits.push(esc(l.phone));
+      if (l.mainContact) bits.push(esc(MAIN_CONTACT_LABEL));
+      const link = l.id ? `<a href="index.html?open=lead&amp;id=${encodeURIComponent(l.id)}">${esc(display)}</a>` : esc(display);
+      return [link, ...bits].filter(Boolean).join(' · ');
+    }).join(' ; ');
+  }
+  /* Lead liên quan tới 1 GAME (resolve LIVE từ CRM, không chụp snapshot):
+     (1) lead đầu mối chính (mainContact) của công ty sở hữu game
+     (en.company); (2) cộng mọi lead đang gắn với các deal có
+     deal.game = game này (deal.leads là nguồn sự thật duy nhất của quan
+     hệ deal↔lead). Khử trùng lặp theo lead id, giữ thứ tự: đầu mối
+     chính trước, sau đó theo thứ tự deal/lead gặp đầu tiên. Thiếu mảng
+     leads/deals trong state -> trả [] an toàn. */
+  function gameLeadsFor(s, en) {
+    if (!s || !en || typeof en !== 'object') return [];
+    const allLeads = Array.isArray(s.leads) ? s.leads : [];
+    const byId = new Map();
+    allLeads.forEach(l => { if (l && l.id) byId.set(String(l.id), l); });
+    const seen = new Set(), out = [];
+    const push = l => {
+      if (!l || typeof l !== 'object') return;
+      const key = l.id ? String(l.id) : null;
+      if (key) { if (seen.has(key)) return; seen.add(key); }
+      out.push(l);
+    };
+    if (en.company) allLeads.forEach(l => { if (l && l.company === en.company && l.mainContact) push(l); });
+    const deals = Array.isArray(s.deals) ? s.deals : [];
+    deals.forEach(d => {
+      if (!d || d.game !== en.id || !Array.isArray(d.leads)) return;
+      d.leads.forEach(id => push(byId.get(String(id))));
+    });
+    return out;
   }
   /* Khối "thông tin hồ sơ" trong dialog review: LIVE theo CRM khi entity
      còn; snapshot khi mồ côi; kèm ghi chú mechanic theo quy tắc ở trên. */
@@ -720,11 +783,19 @@
     if (r.kind === 'game') {
       if (en) {
         const studioCo = en.company ? (s && Array.isArray(s.companies) ? s.companies.find(c => c && c.id === en.company) : null) : null;
-        const studioRow = en.company ? rowHTML('Studio sở hữu', `<a href="index.html?open=company&amp;id=${encodeURIComponent(en.company)}">${esc(studioCo ? label(studioCo) : 'Hồ sơ đã được gỡ')}</a>`) : row('Studio sở hữu', '');
-        rows = row('Tên game (CRM hiện tại)', label(en)) + studioRow + row('Mô tả', en.desc || '') + row('Genre / Sub-genre', en.genre || '') + row('Nền tảng', en.platform || '') + row('Giai đoạn', en.stage || '') + row('Link build', en.buildUrl || '') + row('Link trailer', en.trailerUrl || '');
+        /* Công ty đã gỡ nhưng snapshot còn tên công ty -> hiện tên từ
+           snapshot thay cho nhãn "đã gỡ" (fallback companyName). */
+        const studioRow = en.company ? rowHTML('Studio sở hữu', studioCo ? `<a href="index.html?open=company&amp;id=${encodeURIComponent(en.company)}">${esc(label(studioCo))}</a>` : (snap && snap.companyName ? esc(String(snap.companyName)) + ' (snapshot)' : `<a href="index.html?open=company&amp;id=${encodeURIComponent(en.company)}">${esc('Hồ sơ đã được gỡ')}</a>`)) : row('Studio sở hữu', '');
+        /* Khối lead của game: resolve LIVE từ CRM qua gameLeadsFor
+           (đầu mối chính của công ty sở hữu + lead của mọi deal gắn
+           game này, khử trùng theo id) và render bằng leadLinksHTML —
+           cùng mẫu hiển thị với khối lead của dialog company. Không có
+           lead nào -> leadLinksHTML trả '' và rowHTML hiện "—" gọn. */
+        const gameLeadsHTML = leadLinksHTML(gameLeadsFor(s, en));
+        rows = row('Tên game (CRM hiện tại)', label(en)) + studioRow + rowHTML('Đầu mối liên hệ — lead liên quan game (CRM hiện tại)', gameLeadsHTML) + row('Mô tả', en.desc || '') + row('Genre / Sub-genre', en.genre || '') + row('Nền tảng', en.platform || '') + row('Giai đoạn', en.stage || '') + row('Link build', en.buildUrl || '') + row('Link trailer', en.trailerUrl || '');
       } else if (snap) {
         note = `<p class="mut">Hồ sơ game gốc đã được gỡ khỏi CRM — thông tin dưới đây là dữ liệu chụp trong yêu cầu lúc tạo (snapshot), điểm/kết luận đã lưu vẫn giữ nguyên.</p>`;
-        rows = row('Tên game (snapshot)', snap.name || '') + row('Mô tả (snapshot)', snap.desc || '') + row('Genre / Sub-genre (snapshot)', snap.genre || '') + row('Nền tảng (snapshot)', snap.platform || '') + row('Link build (snapshot)', snap.buildUrl || '') + row('Link trailer (snapshot)', snap.trailerUrl || '');
+        rows = row('Tên game (snapshot)', snap.name || '') + row('Studio sở hữu (snapshot)', snap.companyName || '') + row('Mô tả (snapshot)', snap.desc || '') + row('Genre / Sub-genre (snapshot)', snap.genre || '') + row('Nền tảng (snapshot)', snap.platform || '') + row('Link build (snapshot)', snap.buildUrl || '') + row('Link trailer (snapshot)', snap.trailerUrl || '');
       } else {
         note = `<p class="mut">Hồ sơ game gốc đã được gỡ khỏi CRM và yêu cầu này không có dữ liệu chụp (tạo trước đợt đồng bộ) — hiển thị theo hồ sơ đầu vào đã lưu trong yêu cầu.</p>`;
         const it = r.intake || {};
@@ -749,16 +820,9 @@
            phía CRM, ở dạng text thuần vì hàng này được esc() khi render. */
         const cLeads = (s && Array.isArray(s.leads) ? s.leads : []).filter(l => l && l.company === en.id);
         /* A11 (FIX-3): từng lead là LINK sang hồ sơ lead trong CRM
-           (?open=lead&id=<id của lead thật>), không còn chuỗi text nối ";". */
-        const leadsHTML = cLeads.length ? cLeads.map(l => {
-          const display = String(l.name || l.person || 'Lead');
-          const bits = [];
-          if (l.person && l.person !== l.name && l.person !== display) bits.push(esc(l.person));
-          if (l.phone) bits.push(esc(l.phone));
-          if (l.mainContact) bits.push(esc(MAIN_CONTACT_LABEL));
-          const link = l.id ? `<a href="index.html?open=lead&amp;id=${encodeURIComponent(l.id)}">${esc(display)}</a>` : esc(display);
-          return [link, ...bits].filter(Boolean).join(' · ');
-        }).join(' ; ') : '';
+           (?open=lead&id=<id của lead thật>), không còn chuỗi text nối ";".
+           Render qua leadLinksHTML dùng chung với dialog game. */
+        const leadsHTML = leadLinksHTML(cLeads);
         rows = row('Tên công ty (CRM hiện tại)', label(en)) + row('Loại hình', en.type || '') + rowHTML('Đầu mối liên hệ — lead của công ty (CRM hiện tại)', leadsHTML);
       } else if (snap) {
         note = `<p class="mut">Hồ sơ công ty gốc đã được gỡ khỏi CRM — thông tin dưới đây là dữ liệu chụp trong yêu cầu lúc tạo (snapshot), điểm/kết luận đã lưu vẫn giữ nguyên.</p>`;
