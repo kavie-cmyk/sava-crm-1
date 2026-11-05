@@ -1,4 +1,4 @@
-/* Đợt SỰ KIỆN 5/11/2026 — drawer Sự kiện thêm "+ Thêm việc" và "+ Thêm hoạt động":
+/* Đợt SỰ KIỆN 5/11/2026 — drawer Sự kiện thêm "+ Thêm việc" và "+ Thêm note":
    - Việc gắn sự kiện dùng ĐÚNG cơ chế task-context sẵn có: t.event là field
      mở rộng thứ 5 (sau deal/company/lead/game), CỐ Ý không nằm trong
      TASK_KNOWN của adapter nên đi qua tasks.legacy_extra, không cột/SQL
@@ -150,14 +150,14 @@ test('adapter: task.event round-trip qua tasks.legacy_extra (không cột mới)
 });
 
 /* ---------- Hoạt động gắn trực tiếp sự kiện ---------- */
-test('activity: drawer sự kiện có khối hoạt động TRỰC TIẾP riêng + khối qua liên kết riêng; nút + Thêm hoạt động kèm hint link', () => {
+test('activity: drawer sự kiện có khối hoạt động TRỰC TIẾP riêng + khối qua liên kết riêng; nút + Thêm note kèm hint link', () => {
   const { run, getEl } = loadIndex();
   run("openEvent('ev1')");
   const html = getEl('drawer').innerHTML;
   assert.ok(html.includes('Hoạt động trực tiếp của sự kiện này (1)'), 'thiếu khối hoạt động trực tiếp với số đếm');
   assert.ok(html.includes('Gặp trực tiếp tại sự kiện'), 'thiếu hoạt động gắn trực tiếp');
   assert.ok(html.includes('Hoạt động qua liên kết (1)') && html.includes('Hoạt động qua deal liên kết'), 'khối qua liên kết phải tách riêng, không trộn với trực tiếp');
-  assert.ok(html.includes('Thêm hoạt động'), 'thiếu nút + Thêm hoạt động');
+  assert.ok(html.includes('Thêm note'), 'thiếu nút + Thêm note');
   assert.ok(html.includes('Cách lấy link'), 'form thêm hoạt động phải có hint Cách lấy link như các drawer khác');
   assert.ok(html.includes('event:ev1'), 'form phải có đích gắn trực tiếp vào sự kiện (event:ev1)');
 });

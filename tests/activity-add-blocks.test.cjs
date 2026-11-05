@@ -126,7 +126,7 @@ test('company: drawer công ty có form thêm hoạt động (chọn deal của 
   run("openCompany('c1')");
   let d = getEl('drawer').innerHTML;
   const seg = d.slice(d.indexOf('🕘 Hoạt động gần nhất'));
-  assert.ok(seg.includes('Thêm hoạt động'), 'khối Hoạt động gần nhất của công ty phải có nút thêm');
+  assert.ok(seg.includes('Thêm note'), 'khối Hoạt động gần nhất của công ty phải có nút thêm');
   assert.ok(seg.includes('id="na_company_deal"'), 'phải có ô chọn deal của công ty để gắn hoạt động');
   assert.ok(seg.includes('Deal Pub One') && seg.includes('Deal AI One'), 'ô chọn deal phải liệt kê cả 2 deal của công ty');
   assert.ok(seg.includes('Cách lấy link'), 'form công ty phải có hint lấy link');
@@ -187,7 +187,7 @@ test('member: drawer thành viên thêm được hoạt động (người thực
   const h = loadIndex(); const { run, getEl } = h;
   run("openMember('m1')");
   let d = getEl('drawer').innerHTML;
-  assert.ok(d.includes('Thêm hoạt động'), 'drawer thành viên phải có nút thêm hoạt động');
+  assert.ok(d.includes('Thêm note'), 'drawer thành viên phải có nút thêm hoạt động');
   fillScoped(h, 'member', { deal: 'd1', text: 'Linh gọi đối tác lần 2', who: 'm1' });
   run("addActivityScoped('member')");
   const na = run("S.activities.find(a=>a.text==='Linh gọi đối tác lần 2')");
@@ -215,7 +215,7 @@ test('dash: panel "Hoạt động gần nhất" ở Tổng quan có form thêm +
   run("curView='dash'; curLine='all'; query=''; render()");
   let v = getEl('view').innerHTML;
   const seg = v.slice(v.indexOf('Hoạt động gần nhất'));
-  assert.ok(seg.includes('Thêm hoạt động') && seg.includes('id="na_dash_text"'), 'panel Tổng quan phải có form thêm hoạt động');
+  assert.ok(seg.includes('Thêm note') && seg.includes('id="na_dash_text"'), 'panel Tổng quan phải có form thêm hoạt động');
   fillScoped(h, 'dash', { deal: 'd2', text: 'Hoạt động thêm từ Tổng quan' });
   run("addActivityScoped('dash')");
   const na = run("S.activities.find(a=>a.text==='Hoạt động thêm từ Tổng quan')");
@@ -232,7 +232,7 @@ test('deal: form thu gọn theo cơ chế cũ (dealActForm display:none + toggle
   assert.ok(d.includes('id="dealActForm" style="display:none'), 'form deal giữ cơ chế thu gọn cũ');
   getEl('dealActForm').style.display = 'none';
   run('toggleDealActivityForm()');
-  assert.equal(getEl('dealActForm').style.display, '', 'bấm nút Thêm hoạt động phải mở form');
+  assert.equal(getEl('dealActForm').style.display, '', 'bấm nút Thêm note phải mở form');
   run('toggleDealActivityForm()');
   assert.equal(getEl('dealActForm').style.display, 'none', 'bấm lại phải thu form');
   /* link ghim sẵn có của a1 phải là href thật (không chỉ href="#") */

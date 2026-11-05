@@ -2138,7 +2138,7 @@ function openEvent(id) {
     ${eventReportBlockHTML(ev)}
     ${relatedTasksHTML("event", ev.id)}
     <h3 style="margin:16px 0 4px">🕘 Hoạt động gần nhất</h3>
-    ${(() => { const directActs = S.activities.filter(a => a.event === ev.id); const directSlice = listPageSlice("eventacts:" + ev.id, directActs); return '<h4 style="margin:10px 0 4px">🎪 Hoạt động trực tiếp của sự kiện này (' + directActs.length + ')</h4>' + (directActs.length ? directSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("eventacts:" + ev.id, directSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào gắn trực tiếp vào sự kiện này — bấm "+ Thêm hoạt động" ở dưới và chọn đích gắn trực tiếp vào sự kiện để ghi.</div>'); })()}
+    ${(() => { const directActs = S.activities.filter(a => a.event === ev.id); const directSlice = listPageSlice("eventacts:" + ev.id, directActs); return '<h4 style="margin:10px 0 4px">🎪 Hoạt động trực tiếp của sự kiện này (' + directActs.length + ')</h4>' + (directActs.length ? directSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("eventacts:" + ev.id, directSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào gắn trực tiếp vào sự kiện này — bấm "+ Thêm note" ở dưới và chọn đích gắn trực tiếp vào sự kiện để ghi.</div>'); })()}
     ${activityAddBlockHTML("event", S.deals.filter(d => Array.isArray(ev.deals) && ev.deals.includes(d.id)), { direct: { kind: "event", id: ev.id, label: ev.name || ev.id } })}
     ${(() => { const evActs = S.activities.filter(a => (Array.isArray(ev.deals) && ev.deals.includes(a.deal)) || (Array.isArray(ev.leads) && a.lead && ev.leads.includes(a.lead)) || (Array.isArray(ev.games) && a.game && ev.games.includes(a.game))); return '<h4 style="margin:14px 0 4px">🔗 Hoạt động qua liên kết (' + evActs.length + ')</h4>' + (evActs.length ? evActs.map(a => activityRowHTML(a, { showDeal: true })).join("") : '<div class="mut">Chưa có hoạt động nào qua các deal / lead / game đã liên kết.</div>'); })()}
     <div class="mut" style="margin-top:14px">Liên kết công ty / lead / deal nằm ngay trên sự kiện này — xoá sự kiện chỉ gỡ các liên kết đó, các đối tượng vẫn giữ nguyên trong CRM. Việc gắn với sự kiện cũng chỉ bị gỡ liên kết (việc vẫn còn); hoạt động gắn TRỰC TIẾP vào sự kiện sẽ bị xoá theo sự kiện (như hoạt động gắn trực tiếp vào lead/game).</div>${auditSectionHTML("event", ev.id)}`);
@@ -3549,9 +3549,9 @@ function openDeal(id) {
     ${evalBox}
     ${dealTasksBox}
     <h3 style="margin:18px 0 4px">🕘 Timeline hoạt động (${dealActsAll.length})</h3>${acts}${dealActsPager}
-    <div style="margin-top:12px"><button class="btn ghost" onclick="toggleDealActivityForm()">➕ Thêm hoạt động</button></div>
+    <div style="margin-top:12px"><button class="btn ghost" onclick="toggleDealActivityForm()">➕ Thêm note</button></div>
     <div id="dealActForm" style="display:none;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px">
-      <b style="font-size:13.5px">➕ Thêm hoạt động / ghi chú vào deal này</b>
+      <b style="font-size:13.5px">➕ Thêm note / ghi chú vào deal này</b>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px">
         <select id="na_type">${["Note", "Call", "Email", "Meeting", "Demo", "Zalo", "Messenger"].map(t => `<option>${t}</option>`).join("")}</select>
         ${ownerSel("na_who", d.owner)}
@@ -4016,7 +4016,7 @@ function openCompany(id) {
     ${acts.length ? coActsSlice.pageItems.map(a => activityRowHTML(a, { showDeal: true })).join("") + listPagerHTML("companyacts:" + c.id, coActsSlice.info, "hoạt động") : '<div class="mut">Chưa có hoạt động nào.</div>'}
 
     ${activityAddBlockHTML("company", deals)}
-    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Ghi hoạt động mới bằng nút "➕ Thêm hoạt động" ngay trên đây (hoạt động gắn vào một deal của công ty).</div>${auditSectionHTML("company", c.id)}`);
+    <div class="mut" style="margin-top:14px">Đã sửa + xóa được công ty ngay trong bản này (nút ở đầu hồ sơ). Người liên hệ của công ty là các lead ở khối trên — thêm/bớt người liên hệ bằng thêm/xóa lead. Ghi hoạt động mới bằng nút "➕ Thêm note" ngay trên đây (hoạt động gắn vào một deal của công ty).</div>${auditSectionHTML("company", c.id)}`);
 
   loadDrawerAudit(document.getElementById("drawer"), "company", id);
 }
@@ -6458,9 +6458,9 @@ function activityAddBlockHTML(scope, dealChoices, opts) {
     : deals.length === 1
     ? `<input type="hidden" id="${p}deal" value="${esc(deals[0].id)}"><div class="mut" style="margin-top:8px">Gắn vào deal: <b>${esc(deals[0].title || "—")}</b></div>`
     : `<label style="display:block;margin-top:8px">Deal gắn với hoạt động</label><select id="${p}deal" style="width:100%">${deals.map(d => `<option value="${esc(d.id)}">${esc(d.title || "—")} · ${esc(comp(d.company).name)}</option>`).join("")}</select>`;
-  return `<div style="margin-top:12px"><button class="btn ghost" onclick="toggleActivityForm('${scope}')">➕ Thêm hoạt động</button></div>
+  return `<div style="margin-top:12px"><button class="btn ghost" onclick="toggleActivityForm('${scope}')">➕ Thêm note</button></div>
     <div id="actForm_${scope}" style="display:none;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px">
-      <b style="font-size:13.5px">➕ Thêm hoạt động / ghi chú</b>
+      <b style="font-size:13.5px">➕ Thêm note / ghi chú</b>
       ${dealField}
       ${directField}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px">
@@ -6470,7 +6470,7 @@ function activityAddBlockHTML(scope, dealChoices, opts) {
       <textarea id="${p}text" placeholder="Nội dung: đã trao đổi gì, kết quả ra sao, bước tiếp theo là gì..." style="margin-top:8px"></textarea>
       <input id="${p}url" placeholder="🔗 Dán link đúng cuộc hội thoại đó (URL thread Gmail, link chat Messenger, link file Drive...)" style="width:100%;margin-top:8px">
       ${activityLinkHintHTML()}
-      <button class="btn" style="margin-top:9px" onclick="addActivityScoped('${scope}')">+ Thêm hoạt động</button>
+      <button class="btn" style="margin-top:9px" onclick="addActivityScoped('${scope}')">+ Thêm note</button>
     </div>`;
 }
 /* Lõi tạo hoạt động dùng chung cho mọi đường thêm: validate TRƯỚC khi ghi —
