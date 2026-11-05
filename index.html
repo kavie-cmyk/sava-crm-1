@@ -192,7 +192,7 @@
 <meta name="theme-color" content="#f5f6f8">
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
-<link rel="stylesheet" href="workspace-design.css?v=20261103.6">
+<link rel="stylesheet" href="workspace-design.css?v=20261105.1">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -660,6 +660,11 @@ function initDateInputs() {
     if (typeof document === "undefined" || typeof document.addEventListener !== "function" || document.__dateInputsReady) return;
     document.__dateInputsReady = true;
     document.addEventListener("focusout", e => { try { normalizeDateInputEl(e.target); } catch (err) {} });
+    /* Lịch nhỏ chọn ngày DÙNG CHUNG (shared.js SavaDatePicker): gắn tại
+       ĐÂY — cùng điểm đăng ký dùng chung, cùng quy ước nhận diện
+       placeholder dd-mm-yyyy — nên mọi ô ngày của trang đều có lịch
+       chọn cạnh đường gõ tay, không gắn tay từng ô. */
+    try { if (window.SavaDatePicker) SavaDatePicker.init(document); } catch (err) {}
   } catch (e) {}
 }
 /* Giá trị HIỂN THỊ cho ô nhập ngày: ISO hợp lệ -> dd-mm-yyyy; chữ cũ

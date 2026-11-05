@@ -283,7 +283,7 @@ test('tĩnh: nav Import ở cả desktop + mobile (class import-bd-only), SheetJ
   assert.ok(html.includes('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'));
   assert.ok(html.includes('import:vImport'));
   assert.ok(html.includes('function isImportViewer()'));
-  assert.ok(html.includes('workspace-design.css?v=20261103.6'));
+  assert.ok(html.includes('workspace-design.css?v=20261105.1'), 'bản CSS đã bump khi thêm style lịch chọn ngày (.sava-dp)');
   const css = read('workspace-design.css');
   assert.ok(css.includes('.imp-table') && css.includes('.imp-settings'));
 });

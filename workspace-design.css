@@ -413,3 +413,29 @@ td.list-stt {color:#64748b;font-weight:600}
    chia phần dư của layout auto lệch cột Deal @1900 thêm ~6px dù sàn
    không hề "cắn" ở bề rộng đó (đã đo đối chứng). */
 @media(max-width:1600px){.table-wrap>table.companies-table th:nth-child(5),.table-wrap>table.companies-table td:nth-child(5){min-width:130px}}
+
+/* === Lịch nhỏ chọn ngày (SavaDatePicker dùng chung, shared.js) ===
+   Popup position:fixed neo theo ô nhập ngày đang mở (JS kẹp trái/phải
+   trong viewport + tự lật lên trên khi sát đáy — màn ~390px không
+   tràn). z-index 300: trên drawer (50) / modal (60) / combobox (80-90),
+   dưới toast. Hôm nay nổi bật theo ĐÚNG quy ước lịch Việc/Lịch của app
+   (nền #dbeafe + viền đặc #2563eb + số đậm xanh); ngày đang có trong ô
+   (selected) = nền đặc #2563eb chữ trắng để phân biệt với hôm nay. */
+.sava-dp {position:fixed;z-index:300;width:252px;max-width:calc(100vw - 16px);background:#fff;border:1px solid #cfdde5;border-radius:12px;box-shadow:0 14px 34px #14374633;padding:10px;font-size:13px;color:#22383f;box-sizing:border-box}
+.sava-dp-head {display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
+.sava-dp-title {font-weight:700;font-size:13.5px;text-align:center;flex:1}
+.sava-dp-nav {width:28px;height:28px;border:1px solid #d7e2e8;background:#f6f9fa;border-radius:8px;cursor:pointer;font-size:16px;line-height:1;color:#22383f;flex:none}
+.sava-dp-nav:hover {background:#eef4f6}
+.sava-dp-wd,.sava-dp-week {display:grid;grid-template-columns:repeat(7,1fr);gap:1px}
+.sava-dp-wd span {text-align:center;font-size:11px;font-weight:700;color:#67808d;padding:2px 0}
+.sava-dp-day {border:none;background:transparent;height:30px;border-radius:8px;cursor:pointer;font:inherit;font-size:12.5px;color:inherit;padding:0}
+.sava-dp-day:hover {background:#eef4f6}
+.sava-dp-out {color:#a7b6bd}
+.sava-dp-today {background:#dbeafe;box-shadow:inset 0 0 0 2px #2563eb;color:#1d4ed8;font-weight:800}
+.sava-dp-today.sava-dp-out {color:#1d4ed8}
+.sava-dp-sel {background:#2563eb;color:#fff;font-weight:700}
+.sava-dp-sel:hover {background:#1d4ed8}
+.sava-dp-today.sava-dp-sel {background:#2563eb;color:#fff;box-shadow:inset 0 0 0 2px #1e40af}
+.sava-dp-foot {display:flex;justify-content:flex-end;margin-top:6px}
+.sava-dp-todaybtn {border:none;background:none;color:#2563eb;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;padding:4px 6px;border-radius:6px}
+.sava-dp-todaybtn:hover {background:#eef4f6}

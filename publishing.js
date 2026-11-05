@@ -107,6 +107,11 @@
   };
   try {
     document.addEventListener('focusout', e => { try { pubNormalizeDateInputEl(e.target); } catch (err) {} });
+    /* Lịch nhỏ chọn ngày DÙNG CHUNG (shared.js SavaDatePicker): gắn tại
+       ĐÂY — cùng điểm đăng ký blur dùng chung của Publishing, cùng quy
+       ước nhận diện placeholder dd-mm-yyyy — nên cả 3 ô ngày của
+       Publishing/MKT đều có lịch chọn cạnh đường gõ tay. */
+    try { if (window.SavaDatePicker) window.SavaDatePicker.init(document); } catch (err) {}
     /* Capture submit: chạy TRƯỚC handler lưu (bubble) nên kể cả khi
        bấm Enter không qua blur, ô ddmmyyyy vẫn về dd-mm-yyyy trước
        khi FormData được đọc. */

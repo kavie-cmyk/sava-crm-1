@@ -475,6 +475,193 @@ function normalizeDMYInput(v) {
   const pr = parseDMYtoISO(v);
   return pr.ok && pr.iso ? isoToDMY(pr.iso) : null;
 }
+/* === Lịch nhỏ chọn ngày (date picker) DÙNG CHUNG cho MỌI ô nhập ngày ===
+   (Zac yêu cầu 5/11/2026: vừa gõ tay vừa bấm chọn được.)
+   - Nhận diện ô ngày theo ĐÚNG quy ước của cơ chế blur chuẩn hoá dùng
+     chung hiện hành: INPUT có placeholder chứa "dd-mm-yyyy" (index.html
+     isDateInputEl / publishing.js pubNormalizeDateInputEl cùng quy ước).
+     Vì gắn bằng delegation ở cấp document nên MỌI ô ngày hiện hữu ở cả
+     3 trang (index/mkt/publishing — shared.js nạp ở cả 3) đều có lịch,
+     và ô ngày TƯƠNG LAI dựng theo cùng quy ước cũng tự có lịch, không
+     cần gắn tay từng ô.
+   - Lịch CHỈ là đường nhập thêm: chọn ngày -> điền dd-mm-yyyy vào ô
+     rồi phát ĐÚNG sự kiện change (bubbles) như khi người dùng gõ xong
+     rời ô, để ngữ cảnh tự áp dụng bằng đường sẵn có của nó (vd hai ô
+     Từ/Đến của kỳ Tuỳ chỉnh có onchange=setDashCustomRange; ô trong
+     form không có handler thì chỉ nằm chờ nút Lưu đọc giá trị như khi
+     gõ tay). KHÔNG đổi ngữ nghĩa validate/lưu trữ (vẫn parseDMYtoISO
+     khi lưu, lưu ISO) và KHÔNG có đường áp dụng thứ hai.
+   - Gõ tay giữ nguyên 100%: picker không chặn/phá sự kiện gõ phím;
+     blur chuẩn hoá ddmmyyyy và validate khi lưu vẫn như cũ. */
+/* Nhận diện 1 ô nhập ngày theo quy ước placeholder dùng chung. */
+function savaIsDateInputEl(el) {
+  return !!(el && el.tagName === "INPUT" && String(el.placeholder || "").includes("dd-mm-yyyy"));
+}
+const DP_MONTH_WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+function dpPad2(n) { return String(n).padStart(2, "0"); }
+function dpISOOf(y, m, d) { return y + "-" + dpPad2(m + 1) + "-" + dpPad2(d); }
+function dpTodayISO(now) {
+  const t = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  return dpISOOf(t.getFullYear(), t.getMonth(), t.getDate());
+}
+/* Lưới 1 tháng cho lịch nhỏ — logic THUẦN để test được:
+   tuần bắt đầu THỨ 2 (quy ước lịch Việc/Lịch Zac đã chốt), luôn 6 hàng
+   × 7 cột, ô thuộc tháng kề mờ (inMonth=false) nhưng vẫn chọn được.
+   opts: { today: ISO (mặc định hôm nay thật), selected: ISO, now }. */
+function dpMonthGrid(year, month, opts) {
+  const o = opts || {};
+  const base = new Date(Number(year), Number(month), 1);
+  const y = base.getFullYear(), m = base.getMonth();
+  const todayIso = o.today || dpTodayISO(o.now);
+  const selIso = o.selected || "";
+  const startOffset = (base.getDay() + 6) % 7; /* Thứ 2 = cột 0 */
+  const start = new Date(y, m, 1 - startOffset);
+  const weeks = [];
+  for (let w = 0; w < 6; w++) {
+    const row = [];
+    for (let i = 0; i < 7; i++) {
+      const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7 + i);
+      const iso = dpISOOf(cur.getFullYear(), cur.getMonth(), cur.getDate());
+      row.push({ iso, day: cur.getDate(), inMonth: cur.getMonth() === m, isToday: iso === todayIso, isSelected: !!selIso && iso === selIso });
+    }
+    weeks.push(row);
+  }
+  return { year: y, month: m, title: "Tháng " + (m + 1) + " năm " + y, weekdays: DP_MONTH_WEEKDAYS.slice(), weeks };
+}
+/* Điền ngày đã chọn vào ô + phát sự kiện như đường gõ-tay-rời-ô:
+   value = dd-mm-yyyy (đã chuẩn hoá sẵn nên blur chuẩn hoá là no-op),
+   sau đó 'input' + 'change' (bubbles) để handler sẵn có của ngữ cảnh
+   chạy (onchange của ô Từ/Đến kỳ Tuỳ chỉnh...). Ô form không handler
+   thì chỉ nhận giá trị, chờ Lưu — đúng như gõ tay. */
+function dpApplyPickedDate(el, iso) {
+  if (!el || !iso) return false;
+  const dmy = isoToDMY(iso);
+  if (!dmy) return false;
+  /* Chốt chặn: ngày điền vào PHẢI parse ngược lại đúng ISO đó (ngày
+     không có thật như 2026-02-31 không bao giờ lọt vào ô). */
+  const back = parseDMYtoISO(dmy);
+  if (!back.ok || back.iso !== iso) return false;
+  el.value = dmy;
+  try {
+    if (typeof el.dispatchEvent === "function" && typeof Event !== "undefined") {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  } catch (e) { /* môi trường không có Event (harness) — giá trị đã điền là đủ */ }
+  return true;
+}
+/* Phần DOM của lịch nhỏ: 1 popup DUY NHẤT toàn app (mở ở ô khác thì
+   lịch cũ đóng), position:fixed neo theo ô đang nhập, tự lật lên trên
+   khi sát đáy viewport và kẹp ngang trong viewport (màn ~390px không
+   tràn). Mọi thứ bọc try/guard để harness test không DOM thật không
+   bị ảnh hưởng. */
+const SavaDatePicker = (() => {
+  let pop = null, input = null, viewY = 0, viewM = 0;
+  function ensurePop(doc) {
+    if (pop) return pop;
+    pop = doc.createElement("div");
+    pop.className = "sava-dp";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", "Chọn ngày");
+    pop.style.display = "none";
+    doc.body.appendChild(pop);
+    /* mousedown trong lịch: chặn mất focus của ô nhập (giữ nguyên
+       trạng thái như đang gõ) và chặn document mousedown đóng lịch. */
+    pop.addEventListener("mousedown", e => { try { e.preventDefault(); e.stopPropagation(); } catch (err) {} });
+    pop.addEventListener("click", onPopClick);
+    return pop;
+  }
+  function render() {
+    if (!pop || !input) return;
+    const pr = parseDMYtoISO(input.value);
+    const g = dpMonthGrid(viewY, viewM, { selected: pr.ok ? pr.iso : "" });
+    pop.innerHTML =
+      `<div class="sava-dp-head"><button type="button" class="sava-dp-nav" data-dp="prev" aria-label="Tháng trước">‹</button><div class="sava-dp-title">${g.title}</div><button type="button" class="sava-dp-nav" data-dp="next" aria-label="Tháng sau">›</button></div>` +
+      `<div class="sava-dp-wd">${g.weekdays.map(d => `<span>${d}</span>`).join("")}</div>` +
+      g.weeks.map(w => `<div class="sava-dp-week">${w.map(c => `<button type="button" class="sava-dp-day${c.inMonth ? "" : " sava-dp-out"}${c.isToday ? " sava-dp-today" : ""}${c.isSelected ? " sava-dp-sel" : ""}" data-dp-day="${c.iso}" aria-label="${isoToDMY(c.iso)}">${c.day}</button>`).join("")}</div>`).join("") +
+      `<div class="sava-dp-foot"><button type="button" class="sava-dp-todaybtn" data-dp="today">Hôm nay</button></div>`;
+  }
+  function position() {
+    if (!pop || !input || typeof window === "undefined") return;
+    const r = typeof input.getBoundingClientRect === "function" ? input.getBoundingClientRect() : null;
+    if (!r) return;
+    const vw = window.innerWidth || 0, vh = window.innerHeight || 0;
+    const w = pop.offsetWidth || 252, h = pop.offsetHeight || 308;
+    let left = Math.min(Math.max(8, r.left), Math.max(8, vw - w - 8));
+    let top = r.bottom + 4;
+    if (top + h > vh - 8) top = r.top - h - 4 >= 8 ? r.top - h - 4 : Math.max(8, vh - h - 8);
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+  }
+  function open(el) {
+    if (!savaIsDateInputEl(el)) return false;
+    const doc = el.ownerDocument || (typeof document !== "undefined" ? document : null);
+    if (!doc || !doc.body || typeof doc.createElement !== "function") return false;
+    ensurePop(doc);
+    input = el;
+    const pr = parseDMYtoISO(el.value);
+    const base = pr.ok && pr.iso ? pr.iso : dpTodayISO();
+    const p = base.split("-");
+    viewY = Number(p[0]); viewM = Number(p[1]) - 1;
+    pop.style.display = "block";
+    render();
+    position();
+    return true;
+  }
+  function close() { if (pop) pop.style.display = "none"; input = null; }
+  function isOpen() { return !!(pop && input && pop.style.display !== "none"); }
+  function pick(iso) { const el = input; close(); if (el) dpApplyPickedDate(el, iso); }
+  function onPopClick(e) {
+    try {
+      const t = e && e.target;
+      if (!t || typeof t.closest !== "function") return;
+      const dayBtn = t.closest("[data-dp-day]");
+      if (dayBtn) { pick(dayBtn.getAttribute("data-dp-day")); return; }
+      const nav = t.closest("[data-dp]");
+      if (!nav) return;
+      const act = nav.getAttribute("data-dp");
+      if (act === "prev") { viewM -= 1; if (viewM < 0) { viewM = 11; viewY -= 1; } render(); position(); }
+      else if (act === "next") { viewM += 1; if (viewM > 11) { viewM = 0; viewY += 1; } render(); position(); }
+      else if (act === "today") pick(dpTodayISO());
+    } catch (err) {}
+  }
+  /* Đăng ký delegation 1 lần / 1 document (guard __savaDatePickerReady
+     như __dateInputsReady của index): mở khi focus hoặc bấm vào ô ngày;
+     đóng khi bấm ra ngoài / focus sang phần tử khác / Esc / cuộn giữ
+     vị trí bằng reposition. */
+  function init(doc) {
+    doc = doc || (typeof document !== "undefined" ? document : null);
+    if (!doc || typeof doc.addEventListener !== "function" || doc.__savaDatePickerReady) return false;
+    doc.__savaDatePickerReady = true;
+    doc.addEventListener("focusin", e => {
+      try {
+        if (savaIsDateInputEl(e.target)) open(e.target);
+        else if (isOpen() && !(pop && typeof pop.contains === "function" && pop.contains(e.target))) close();
+      } catch (err) {}
+    });
+    doc.addEventListener("click", e => { try { if (savaIsDateInputEl(e.target)) open(e.target); } catch (err) {} });
+    doc.addEventListener("mousedown", e => {
+      try {
+        if (!isOpen()) return;
+        const t = e.target;
+        if (t === input) return;
+        if (pop && typeof pop.contains === "function" && pop.contains(t)) return;
+        close();
+      } catch (err) {}
+    }, true);
+    doc.addEventListener("keydown", e => { try { if (e && e.key === "Escape" && isOpen()) close(); } catch (err) {} });
+    try {
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("resize", () => { try { if (isOpen()) position(); } catch (err) {} });
+        window.addEventListener("scroll", () => { try { if (isOpen()) position(); } catch (err) {} }, true);
+      }
+    } catch (err) {}
+    return true;
+  }
+  return { init, open, close, isOpen, grid: dpMonthGrid, applyPicked: dpApplyPickedDate, isDateInput: savaIsDateInputEl, todayISO: dpTodayISO };
+})();
+if (typeof window !== "undefined") window.SavaDatePicker = SavaDatePicker;
+try { SavaDatePicker.init(); } catch (e) {}
 function fmtSysTime(v) {
   if (!v) return "—";
   const s = String(v);
@@ -489,7 +676,7 @@ function fmtSysTime(v) {
   return date + " " + o.hour + ":" + o.minute;
 }
 if (typeof window !== "undefined") {
-  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, auditDateFields: [...AUDIT_DATE_FIELDS], auditDateText, updatedByLabel, fmtSysTime, fmtDateDMY, isoToDMY, parseDMYtoISO, normalizeDMYInput, cloneForDiff };
+  window.SavaSys = { SYS_FIELDS, CRM_ENTITY_TYPES, FIELD_LABELS, stampCollection, snapshotById, diffEntity, auditValue, auditDateFields: [...AUDIT_DATE_FIELDS], auditDateText, updatedByLabel, fmtSysTime, fmtDateDMY, isoToDMY, parseDMYtoISO, normalizeDMYInput, cloneForDiff, savaIsDateInputEl, dpMonthGrid, dpApplyPickedDate, dpTodayISO };
 }
 /* === Sắp xếp danh sách (Việc 6) — window.SavaSort: logic THUẦN dùng chung ===
    Một cơ chế sort DUY NHẤT cho mọi danh sách của app BD (index.html) và
