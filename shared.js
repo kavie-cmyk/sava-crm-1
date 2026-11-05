@@ -1765,6 +1765,59 @@ function dashScopeFilter(state, scopeId) {
   const companies = all.companies.filter(c => c && ids.has(c.id));
   return { companies, leads, deals, tasks, scoped: true, companyIds: Array.from(ids) };
 }
+/* === Trục MẢNG của bộ lọc chung khu Phân tích (thêm 2026-11-05) ===
+   Định nghĩa "bản ghi thuộc mảng nào" TÁI DÙNG ĐÚNG cơ chế sẵn có của
+   app, mỗi loại một khoá như các bề mặt tương ứng đang dùng:
+   - Deal:  d.line trực tiếp (như board/pipeline).
+   - Lead:  l.line trực tiếp (như bộ lọc mảng RIÊNG của phễu trước đợt
+     này — l.line === dashFunnelLine — và như tab mảng của view Lead
+     l.line === curLine trong filteredLeads).
+   - Công ty: c.roles[line] truthy (như tab mảng của view Công ty:
+     c.roles[curLine]; roles cũng là căn cứ isStudioCompany và dòng
+     migrate suy line của công ty). Công ty KHÔNG có field line riêng.
+   Bản ghi không thuộc mảng nào (line rỗng/thiếu, công ty không có
+   roles[line]) CHỈ xuất hiện khi trục Mảng = "" (Tất cả mảng): lọc một
+   mảng cụ thể thì bị loại — cùng ngữ nghĩa các tab mảng toàn app. */
+/* Việc (task) KHÔNG mang line: mảng của việc SUY TỪ ĐỐI TƯỢNG ĐƯỢC GẮN
+   (việc gắn tối đa 1 đối tượng — xem TASK_LINK_META ở index.html), theo
+   đúng tiền lệ khối "Việc cần làm" ở Tổng quan vốn lọc việc qua mảng
+   của deal được gắn ((deal).line === curLine), mở rộng cho mọi loại
+   liên kết: deal -> deal.line; lead -> lead.line; công ty ->
+   roles[line] của công ty; game -> own của game ("ours" = Game Studio,
+   "partner" = Publishing — đúng ánh xạ tab mảng của view Game); sự
+   kiện -> ev.line trực tiếp. Việc không gắn đối tượng nào, đối tượng
+   đích đã bị xoá, hoặc đối tượng không thuộc mảng đang xét -> KHÔNG
+   thuộc mảng đó (chỉ được tính khi trục Mảng = Tất cả mảng). */
+function dashTaskInLine(task, state, line) {
+  if (!task || !line) return false;
+  const s = state || {};
+  if (task.deal) { const d = (s.deals || []).find(x => x && x.id === task.deal); return !!d && d.line === line; }
+  if (task.lead) { const l = (s.leads || []).find(x => x && x.id === task.lead); return !!l && l.line === line; }
+  if (task.company) { const c = (s.companies || []).find(x => x && x.id === task.company); return !!(c && c.roles && c.roles[line]); }
+  if (task.game) { const g = (s.games || []).find(x => x && x.id === task.game); if (!g) return false; const gl = g.own === "ours" ? "game_studio" : g.own === "partner" ? "publishing" : null; return gl === line; }
+  if (task.event) { const ev = (s.events || []).find(x => x && x.id === task.event); return !!ev && ev.line === line; }
+  return false;
+}
+/* Lọc MỘT tập dashboard (đầu ra dashScopeFilter hoặc một tập {companies,
+   leads, deals, tasks} bất kỳ) theo MỘT mảng. line rỗng/null = "Tất cả
+   mảng": trả bản sao nguyên vẹn của tập (mỏ neo hồi quy của trục Mảng —
+   mọi số phải y hệt trước khi có trục này). state = state đầy đủ, chỉ
+   dùng để suy mảng của VIỆC qua đối tượng được gắn (dashTaskInLine). */
+function dashFilterByLine(sets, line, state) {
+  const sc = sets || {};
+  const out = {
+    companies: (sc.companies || []).slice(), leads: (sc.leads || []).slice(),
+    deals: (sc.deals || []).slice(), tasks: (sc.tasks || []).slice(),
+    scoped: !!sc.scoped, companyIds: sc.companyIds ? sc.companyIds.slice() : sc.companyIds,
+  };
+  if (!line) return out;
+  out.leads = out.leads.filter(l => l && l.line === line);
+  out.deals = out.deals.filter(d => d && d.line === line);
+  out.companies = out.companies.filter(c => c && c.roles && c.roles[line]);
+  out.tasks = out.tasks.filter(t => dashTaskInLine(t, state, line));
+  if (out.companyIds) out.companyIds = out.companies.map(c => c && c.id);
+  return out;
+}
 /* 3 tỉ lệ chuyển đổi tổng hợp trên MỘT tập đã lọc (Toàn hệ hoặc 1 BD):
    (a) Lead -> Deal = lead status "converted" / tổng lead;
    (b) Deal thắng = won / (won + lost) của tập deal;
@@ -1799,7 +1852,7 @@ function dashIsOverdueFallback(t, now) {
    id lạ xếp sau), cộng hàng "__none__" (Chưa gán) ở cuối. Các chỉ số cộng
    được (lead phụ trách, lead mới, converted, deal mở, won, lost, việc quá
    hạn) cộng dồn mọi hàng PHẢI bằng đúng toàn hệ. */
-function dashCompare(state, days, now, isOverdueFn, range) {
+function dashCompare(state, days, now, isOverdueFn, range, line) {
   const s = state || {};
   const overdue = typeof isOverdueFn === "function" ? isOverdueFn : (t => dashIsOverdueFallback(t, now));
   const memberOrder = memberList(s).map(m => m.id);
@@ -1811,9 +1864,21 @@ function dashCompare(state, days, now, isOverdueFn, range) {
   });
   const rowFor = id => {
     const none = id === "__none__";
-    const leads = (s.leads || []).filter(l => l && (none ? !l.ownerId : l.ownerId === id));
-    const deals = (s.deals || []).filter(d => d && (none ? !d.owner : d.owner === id));
-    const tasks = (s.tasks || []).filter(t => t && (none ? !t.assignee : t.assignee === id));
+    let leads = (s.leads || []).filter(l => l && (none ? !l.ownerId : l.ownerId === id));
+    let deals = (s.deals || []).filter(d => d && (none ? !d.owner : d.owner === id));
+    let tasks = (s.tasks || []).filter(t => t && (none ? !t.assignee : t.assignee === id));
+    /* Trục MẢNG của bộ lọc chung (2026-11-05, tham số line tuỳ chọn):
+       lọc TIẾP theo mảng TRƯỚC khi tách cột luồng/trạng thái — lead theo
+       l.line, deal theo d.line, việc suy từ đối tượng được gắn
+       (dashTaskInLine). Không truyền line (hoặc line rỗng) -> giữ nguyên
+       tập theo người như trước (mỏ neo hồi quy của trục Mảng). Danh sách
+       hàng (ids) vẫn lấy từ TOÀN state nên tập hàng không đổi theo mảng:
+       BD không có bản ghi ở mảng đang lọc hiện hàng 0 thay vì biến mất. */
+    if (line) {
+      leads = leads.filter(l => l.line === line);
+      deals = deals.filter(d => d.line === line);
+      tasks = tasks.filter(t => dashTaskInLine(t, s, line));
+    }
     /* Bộ lọc chung (2026-11-05): chỉ số DẠNG LUỒNG tính trên COHORT kỳ
        đang chọn (bản ghi tạo trong kỳ, trạng thái hiện tại) — leadNew,
        converted (+ leadRate trên mẫu cohort), won/lost (+ winRate trên
@@ -1835,7 +1900,7 @@ function dashCompare(state, days, now, isOverdueFn, range) {
   };
   return ids.map(rowFor).concat([rowFor("__none__")]);
 }
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashRangeWindow, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, }; }
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashRangeWindow, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashTaskInLine, dashFilterByLine, dashConversions, dashCompare, dashIsOverdueFallback, }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;
