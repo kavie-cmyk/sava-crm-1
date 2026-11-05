@@ -1188,6 +1188,15 @@ function vDash() {
    (ghi nhãn rõ ngay trên UI). Mọi con số qua helper thuần window.SavaDash
    (shared.js) — khu này CHỈ hiển thị, không đổi đường lưu nào. */
 let dashPeriodDays = 30, dashScope = "", dashFunnelLine = "", dashFunnelOwner = "";
+/* UI-state của khối "Biến động tuần" (xem weeklyMovementHTML ở dưới):
+   wmData = { payload, computed_at } của dòng dashboard_snapshots
+   key="weekly_movement" (null = chưa có); wmStatus = idle (chưa đọc) /
+   loading / ready / empty (chưa có snapshot hoặc payload rỗng) / error
+   (lỗi đọc) — empty và error đều hiện CÙNG một thông báo trống, các khối
+   khác của Tổng quan không bị ảnh hưởng; wmWeekIdx = chỉ số tuần đang
+   chọn trong payload.weeks (null = chưa chọn -> mặc định theo
+   wmDefaultWeekIndex: tuần chứa hôm nay, không có thì tuần cuối). */
+let wmData = null, wmStatus = "idle", wmWeekIdx = null;
 function setDashPeriod(v) { dashPeriodDays = v === "all" ? null : Number(v); render(); }
 function setDashScope(v) { dashScope = v || ""; render(); }
 function setDashFunnelLine(v) { dashFunnelLine = v || ""; render(); }
@@ -1310,7 +1319,92 @@ function dashAnalyticsHTML() {
     }).join("");
     compareHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>So sánh theo BD</h3><span class="dash-badge">bấm vào 1 BD để xem phạm vi của người đó</span></div><div class="dash-table-wrap"><table class="dash-table"><thead><tr><th>BD</th><th>Lead phụ trách</th><th>Lead mới trong kỳ</th><th>Lead đã chuyển đổi (tỉ lệ Lead→Deal)</th><th>Deal đang mở</th><th>Won / Lost (tỉ lệ thắng)</th><th>Việc quá hạn</th></tr></thead><tbody>${trs}</tbody></table></div><p class="dash-note">Việc quá hạn: việc chưa xong và đã qua hạn theo đúng logic hạn việc của app (isOverdue). Hàng “Chưa gán” gồm lead/deal/việc chưa có người phụ trách.</p></section>`;
   }
-  return `<div class="dash-wrap"><div class="section-heading dash-head"><div><h2>Phân tích</h2><p>KPI, xu hướng, phễu và tỉ lệ chuyển đổi — chỉ hiển thị, không đổi dữ kiện.</p></div></div>${controls}${kpis}${trendHTML}${funnelHTML}${dealHTML}${convHTML}${compareHTML}</div>`;
+  return `<div class="dash-wrap"><div class="section-heading dash-head"><div><h2>Phân tích</h2><p>KPI, xu hướng, phễu và tỉ lệ chuyển đổi — chỉ hiển thị, không đổi dữ kiện.</p></div></div>${controls}${kpis}${trendHTML}${funnelHTML}${dealHTML}${convHTML}${compareHTML}${weeklyMovementHTML()}</div>`;
+}
+/* ===== Khối BIẾN ĐỘNG TUẦN (cuối khu Phân tích, dưới mọi khối hiện có) =====
+   Đọc dòng dashboard_snapshots key="weekly_movement" qua ĐÚNG client
+   dùng chung của app (window.savaSupabase từ supabase-client.js — cùng
+   client mà supabase-auth gắn vào SavaData; dự phòng: client đã attach
+   trong SavaData._ctx). Chỉ ĐỌC, không ghi gì. Phạm vi: ĂN THEO ĐÚNG
+   dashScope đang chọn ở Tổng quan qua wmScopeKey (không có bộ chọn
+   phạm vi riêng): Toàn hệ -> "all", 1 BD -> "member:<id>", Chưa gán ->
+   "unassigned"; scope không có trong tuần -> toàn 0 (helper lo).
+   Số trên thẻ là của tuần đang chọn; dòng so sánh là với TUẦN LIỀN
+   TRƯỚC của nó trong snapshot. Màu ▲▼: tăng = xanh / giảm = đỏ, RIÊNG
+   Deal Lost đảo nghĩa (tăng = đỏ, giảm = xanh) — cờ invert trong
+   WM_METRIC_DEFS (shared.js). Tuần đầu của snapshot không có tuần liền
+   trước trong dữ kiện -> dòng so sánh ghi rõ điều đó, KHÔNG bịa số 0. */
+async function loadWeeklyMovement() {
+  if (wmStatus !== "idle") return;
+  wmStatus = "loading";
+  try {
+    let client = null;
+    try { client = (typeof window !== "undefined" && typeof window.savaSupabase === "function") ? window.savaSupabase() : null; } catch (e) { client = null; }
+    if (!client && typeof window !== "undefined" && window.SavaData && window.SavaData._ctx) client = window.SavaData._ctx.client || null;
+    if (!client || typeof client.from !== "function") throw new Error("Chưa có client Supabase");
+    const res = await client.from("dashboard_snapshots").select("payload,computed_at").eq("key", "weekly_movement");
+    if (res && res.error) throw res.error;
+    const row = res ? (Array.isArray(res.data) ? res.data[0] : res.data) : null;
+    const payload = row && row.payload && typeof row.payload === "object" ? row.payload : null;
+    const weeks = payload && Array.isArray(payload.weeks) ? payload.weeks.filter(w => w && typeof w.weekStart === "string" && /^\d{4}-\d{2}-\d{2}$/.test(w.weekStart)) : [];
+    if (!row || !payload || !weeks.length) { wmData = null; wmStatus = "empty"; }
+    else {
+      weeks.sort((a, b) => a.weekStart < b.weekStart ? -1 : a.weekStart > b.weekStart ? 1 : 0);
+      wmData = { payload: { version: payload.version, weeks }, computed_at: row.computed_at || null };
+      wmStatus = "ready";
+      const D = window.SavaDash;
+      wmWeekIdx = D && typeof D.wmDefaultWeekIndex === "function" ? D.wmDefaultWeekIndex(weeks, todayStr()) : weeks.length - 1;
+    }
+  } catch (e) { wmData = null; wmStatus = "error"; }
+  try { if (curView === "dash") render(); } catch (e) {}
+}
+function wmMoveWeek(delta) {
+  const weeks = wmData && wmData.payload && Array.isArray(wmData.payload.weeks) ? wmData.payload.weeks : [];
+  if (!weeks.length || wmWeekIdx === null || wmWeekIdx === undefined) return;
+  const n = Math.max(0, Math.min(weeks.length - 1, wmWeekIdx + (Number(delta) || 0)));
+  if (n === wmWeekIdx) return;
+  wmWeekIdx = n;
+  render();
+}
+function weeklyMovementHTML() {
+  const D = window.SavaDash;
+  const titleHTML = `<div class="panel-title"><h3>Biến động tuần</h3></div>`;
+  if (!D || typeof D.wmScopeKey !== "function") return `<section class="panel dash-panel dash-wm" id="wmBlock">${titleHTML}<div class="empty-state">Chưa có số liệu biến động tuần — số liệu được tính tự động lúc 18:00 hằng ngày.</div></section>`;
+  if (wmStatus === "idle") loadWeeklyMovement();
+  if (wmStatus === "idle" || wmStatus === "loading") return `<section class="panel dash-panel dash-wm" id="wmBlock">${titleHTML}<div class="empty-state">Đang tải số liệu biến động tuần…</div></section>`;
+  const weeks = wmStatus === "ready" && wmData && wmData.payload && Array.isArray(wmData.payload.weeks) ? wmData.payload.weeks : [];
+  if (wmStatus !== "ready" || !weeks.length) return `<section class="panel dash-panel dash-wm" id="wmBlock">${titleHTML}<div class="empty-state">Chưa có số liệu biến động tuần — số liệu được tính tự động lúc 18:00 hằng ngày.</div></section>`;
+  let idx = (typeof wmWeekIdx === "number" && wmWeekIdx >= 0 && wmWeekIdx < weeks.length) ? wmWeekIdx : D.wmDefaultWeekIndex(weeks, todayStr());
+  if (idx < 0) idx = weeks.length - 1;
+  const scopeKey = D.wmScopeKey(dashScope);
+  const curM = D.wmMetricsFor(weeks[idx], scopeKey);
+  const prevM = idx > 0 ? D.wmMetricsFor(weeks[idx - 1], scopeKey) : null;
+  const computedTxt = typeof D.wmComputedAtText === "function" ? D.wmComputedAtText(wmData.computed_at) : "";
+  const scopeName = dashScope ? memberName(S, dashScope) : "Toàn hệ";
+  const deltaHTML = def => {
+    if (!prevM) return `<span class="dash-wm-delta flat">Không có tuần liền trước trong dữ liệu</span>`;
+    const d = D.wmDelta(curM[def.key], prevM[def.key]);
+    if (d.diff === 0) return `<span class="dash-wm-delta flat">— 0${d.pct !== null ? " (0%)" : ""} so với tuần trước</span>`;
+    const good = def.invert ? d.diff < 0 : d.diff > 0;
+    const arrow = d.diff > 0 ? "▲" : "▼";
+    const diffTxt = (d.diff > 0 ? "+" : "") + d.diff;
+    const pctTxt = d.pct === null ? "" : ` (${d.pct > 0 ? "+" : ""}${Math.round(d.pct)}%)`;
+    return `<span class="dash-wm-delta ${good ? "good" : "bad"}">${arrow} ${diffTxt}${pctTxt}</span> <span class="dash-wm-prev">so với tuần trước (${d.prev})</span>`;
+  };
+  const cards = D.WM_METRIC_DEFS.map(def => `<div class="kpi dash-wm-card"><div class="k">${esc(def.label)}</div><div class="v">${curM[def.key]}</div><div class="s">${deltaHTML(def)}</div></div>`).join("");
+  const stageRows = D.wmStageRows(curM).map(r => {
+    const def = (typeof leadStatusDef === "function") ? leadStatusDef(r.key) : null;
+    const label = def ? def.label : r.label;
+    const netTxt = (r.net > 0 ? "+" : "") + r.net;
+    return `<tr><td>${esc(label)}</td><td class="numeric">${r.in}</td><td class="numeric">${r.out}</td><td class="numeric"><b>${netTxt}</b></td></tr>`;
+  }).join("");
+  return `<section class="panel dash-panel dash-wm" id="wmBlock"><div class="panel-title"><h3>Biến động tuần</h3><span class="dash-badge">${esc(scopeName)}</span></div>
+  ${computedTxt ? `<p class="dash-note dash-wm-computed">Số liệu tính tới ${esc(computedTxt)}</p>` : `<p class="dash-note dash-wm-computed">Chưa rõ thời điểm tính số liệu.</p>`}
+  <div class="dash-wm-weeknav"><button class="dash-chip" onclick="wmMoveWeek(-1)"${idx <= 0 ? " disabled" : ""} aria-label="Tuần trước">‹</button><span class="dash-wm-weeklabel">${esc(D.wmWeekLabel(weeks[idx].weekStart))}</span><button class="dash-chip" onclick="wmMoveWeek(1)"${idx >= weeks.length - 1 ? " disabled" : ""} aria-label="Tuần sau">›</button></div>
+  <div class="dash-wm-grid">${cards}</div>
+  <h4 class="dash-wm-subtitle">Biến động theo trạng thái của Lead</h4>
+  <div class="dash-table-wrap"><table class="dash-table dash-wm-table"><thead><tr><th>Trạng thái</th><th class="numeric">Vào</th><th class="numeric">Ra</th><th class="numeric">Ròng</th></tr></thead><tbody>${stageRows}</tbody></table></div>
+  <p class="dash-note">Số chuyển trạng thái lấy từ lịch sử thay đổi trong hệ thống, đầy đủ từ 31-10-2026. Các đợt nạp dữ liệu hàng loạt không tạo lịch sử chuyển trạng thái nên không tính vào biến động stage; lead/deal nạp hàng loạt vẫn được tính ở số mới tạo của tuần nạp.</p></section>`;
 }
 /* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ (YYYY-MM-DD)
    -> quá hạn khi dueDate < hôm nay (giờ local, so chuỗi cùng định dạng); không có

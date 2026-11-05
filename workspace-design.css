@@ -237,6 +237,19 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-table td {padding:9px 10px;border-bottom:1px solid #eef3f5;color:#294552}
 .dash-table tbody tr:hover {background:#f2f8f7}
 @media(max-width:900px){.dash-line-grid{grid-template-columns:1fr}.dash-conv-grid{grid-template-columns:1fr}.dash-funnel-row{grid-template-columns:minmax(96px,130px) 1fr minmax(110px,150px)}.dash-funnel-pct{grid-column:1/-1}.dash-funnel-start{grid-template-columns:1fr}}
+/* Biến động tuần (khối cuối khu Phân tích) — tiền tố dash-wm-, tái dùng .kpi/.dash-chip/.dash-table/.dash-badge/.dash-note ở trên */
+.dash-wm-weeknav {display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 14px}
+.dash-wm-weeklabel {font-size:13.5px;font-weight:700;color:#213846}
+.dash-wm-weeknav .dash-chip:disabled {opacity:.38;cursor:not-allowed}
+.dash-wm-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:6px}
+.dash-wm-card {min-width:0}
+.dash-wm-delta {font-weight:700;white-space:nowrap}
+.dash-wm-delta.good {color:#15803d}
+.dash-wm-delta.bad {color:#dc2626}
+.dash-wm-delta.flat {color:#82909a;font-weight:600;white-space:normal}
+.dash-wm-prev {color:#82909a}
+.dash-wm-subtitle {font-size:13.5px;margin:16px 0 6px;color:#294552}
+@media(max-width:900px){.dash-wm-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* ===== Searchable combobox cho select tham chiếu entity dài (tiền tố combo-) =====
    Select gốc vẫn giữ nguyên id/value và là nguồn sự thật mà các hàm save đọc;

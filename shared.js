@@ -1460,7 +1460,129 @@ function dashCompare(state, days, now, isOverdueFn) {
   };
   return ids.map(rowFor).concat([rowFor("__none__")]);
 }
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback }; }
+/* === Biến động tuần (Weekly Movement) — HELPER THUẦN ===
+   Nguồn dữ kiện: bảng Supabase dashboard_snapshots, dòng key =
+   "weekly_movement" (payload jsonb + computed_at) do phía máy chủ tính
+   sẵn; tầng hiển thị ở index.html chỉ ĐỌC qua client dùng chung
+   (window.savaSupabase) rồi đối chiếu qua các helper thuần dưới đây —
+   KHÔNG tự tính lại từ state CRM. Hợp đồng payload (version 1):
+     { version: 1, weeks: [ { weekStart: "YYYY-MM-DD" (thứ Hai, giờ
+       Asia/Saigon), scopes: { "all": metrics, "member:<memberId>":
+       metrics, "unassigned": metrics } } ] } — weeks tăng dần theo
+       weekStart, tuần cuối là tuần hiện tại.
+   metrics: leadsNew / leadsMovedUnique / dealsNew / dealsWon /
+   dealsLost / activitiesNew / tasksCompleted (số nguyên) + leadStages:
+   object 11 key trạng thái lead, mỗi key { in, out, net }.
+   Mọi helper đều chịu dữ kiện THIẾU/HỎNG: scope không có trong tuần ->
+   toàn 0; field thiếu -> 0; net thiếu -> tự suy in - out. */
+const WM_STAGE_KEYS = ["new", "sent_connect", "first_message", "first_email", "first_fu", "in_response", "in_reply", "discovery_meeting", "contacted", "converted", "not_yet_have_demand"];
+/* Nhãn stage: KHỚP ĐÚNG nhãn của LEAD_STATUSES phía index.html (nguồn sự
+   thật UI lead) — cùng cặp key<->nhãn với AUDIT_LEAD_STATUS_LABELS ở
+   trên, trừ "qualified" đã bỏ khỏi UI lead nên không có ở đây. */
+const WM_STAGE_LABELS = { new: "Mới", sent_connect: "Sent connect", first_message: "1st message", first_email: "1st email", first_fu: "1st FU", in_response: "In-response", in_reply: "In reply", discovery_meeting: "Discovery meeting", contacted: "Đã liên hệ", converted: "Đã chuyển đổi", not_yet_have_demand: "Not yet have demand" };
+/* 7 thẻ chỉ số của khối, theo đúng thứ tự trình bày. invert = đảo nghĩa
+   TỐT/XẤU khi lên màu ▲▼: riêng Deal Lost tăng là xấu (đỏ), giảm là tốt
+   (xanh); mọi thẻ còn lại tăng = tốt (xanh), giảm = xấu (đỏ). */
+const WM_METRIC_DEFS = [
+  { key: "leadsNew", label: "Lead mới tạo", invert: false },
+  { key: "leadsMovedUnique", label: "Lead chuyển trạng thái", invert: false },
+  { key: "dealsNew", label: "Deal mới", invert: false },
+  { key: "dealsWon", label: "Deal Won", invert: false },
+  { key: "dealsLost", label: "Deal Lost", invert: true },
+  { key: "activitiesNew", label: "Note/Hoạt động mới", invert: false },
+  { key: "tasksCompleted", label: "Việc hoàn thành", invert: false },
+];
+/* Ánh xạ phạm vi Tổng quan -> scope key trong snapshot: "" / null /
+   undefined (Toàn hệ) -> "all"; "__none__" / "unassigned" (Chưa gán,
+   nếu UI phạm vi có) -> "unassigned"; còn lại là member id -> "member:<id>". */
+function wmScopeKey(scopeId) {
+  if (scopeId === null || scopeId === undefined || scopeId === "") return "all";
+  if (scopeId === "__none__" || scopeId === "unassigned") return "unassigned";
+  return "member:" + scopeId;
+}
+function wmNum(v) { const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : 0; }
+function wmEmptyMetrics() {
+  const leadStages = {};
+  WM_STAGE_KEYS.forEach(k => { leadStages[k] = { in: 0, out: 0, net: 0 }; });
+  return { leadsNew: 0, leadsMovedUnique: 0, dealsNew: 0, dealsWon: 0, dealsLost: 0, activitiesNew: 0, tasksCompleted: 0, leadStages };
+}
+/* Chuẩn hoá 1 metrics thô từ payload: field thiếu/hỏng -> 0, leadStages
+   thiếu key -> {0,0,0}, net thiếu/không phải số -> in - out. Idempotent:
+   metrics đã chuẩn hoá chạy lại qua đây không đổi. */
+function wmNormalizeMetrics(raw) {
+  const out = wmEmptyMetrics();
+  if (!raw || typeof raw !== "object") return out;
+  WM_METRIC_DEFS.forEach(d => { out[d.key] = wmNum(raw[d.key]); });
+  const ls = raw.leadStages && typeof raw.leadStages === "object" ? raw.leadStages : {};
+  WM_STAGE_KEYS.forEach(k => {
+    const s = ls[k] && typeof ls[k] === "object" ? ls[k] : {};
+    const inn = wmNum(s.in), outt = wmNum(s.out);
+    const net = (s.net === null || s.net === undefined || !Number.isFinite(Number(s.net))) ? (inn - outt) : wmNum(s.net);
+    out.leadStages[k] = { in: inn, out: outt, net };
+  });
+  return out;
+}
+/* Metrics của 1 tuần cho 1 scope key; tuần/scope thiếu -> toàn 0 (không vỡ trang). */
+function wmMetricsFor(week, scopeKey) {
+  if (!week || typeof week !== "object" || !week.scopes || typeof week.scopes !== "object") return wmEmptyMetrics();
+  return wmNormalizeMetrics(week.scopes[scopeKey]);
+}
+/* Chênh so với tuần liền trước: diff tuyệt đối + % trên giá trị tuần
+   trước. Tuần trước = 0 -> pct = null (tầng hiển thị CHỈ hiện chênh
+   tuyệt đối, không chia cho 0, không hiện %). */
+function wmDelta(cur, prev) {
+  const c = wmNum(cur), p = wmNum(prev), diff = c - p;
+  return { cur: c, prev: p, diff, pct: p === 0 ? null : (diff / p) * 100 };
+}
+/* Cộng ngày trên chuỗi ISO yyyy-mm-dd theo THÀNH PHẦN (không qua múi
+   giờ) — cùng nguyên tắc fmtDateDMY với ngày thuần. */
+function wmAddDaysISO(iso, days) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+  if (!m) return "";
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function wmWeekEndISO(weekStart) { return wmAddDaysISO(weekStart, 6); }
+/* Nhãn tuần hiển thị: "Tuần dd-mm-yyyy → dd-mm-yyyy" (thứ Hai -> Chủ nhật). */
+function wmWeekLabel(weekStart) {
+  const a = fmtDateDMY(weekStart), b = fmtDateDMY(wmWeekEndISO(weekStart));
+  return (a && b) ? "Tuần " + a + " → " + b : "Tuần —";
+}
+/* Tuần MẶC ĐỊNH khi mở khối — quy ước nhất quán: tuần CHỨA ngày hôm nay
+   (todayISO dạng yyyy-mm-dd) nếu tuần đó có trong snapshot; không có
+   (snapshot cũ hơn / hôm nay ngoài cửa sổ) -> tuần CUỐI (mới nhất).
+   Danh sách rỗng -> -1. */
+function wmDefaultWeekIndex(weeks, todayISO) {
+  const list = Array.isArray(weeks) ? weeks : [];
+  if (!list.length) return -1;
+  if (typeof todayISO === "string" && /^\d{4}-\d{2}-\d{2}$/.test(todayISO)) {
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i] && list[i].weekStart;
+      if (typeof s === "string" && s <= todayISO && todayISO <= wmWeekEndISO(s)) return i;
+    }
+  }
+  return list.length - 1;
+}
+/* Mốc tính số liệu từ computed_at (timestamptz của dòng snapshot) ->
+   "HH:mm ngày dd-mm-yyyy" QUY VỀ GIỜ Asia/Saigon (Asia/Ho_Chi_Minh).
+   Ghi ĐÚNG giờ đã tính trong dữ kiện, không giả định mốc 18:00.
+   Thiếu/không đọc được -> "" để tầng hiển thị tự ghi chú. */
+function wmComputedAtText(computedAt) {
+  if (!computedAt) return "";
+  const dt = new Date(computedAt);
+  if (Number.isNaN(dt.getTime())) return "";
+  const o = {};
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hourCycle: "h23", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
+  return o.day ? (o.hour + ":" + o.minute + " ngày " + o.day + "-" + o.month + "-" + o.year) : "";
+}
+/* 11 hàng biến động stage theo ĐÚNG thứ tự WM_STAGE_KEYS (10 trạng thái
+   đường chính + not_yet_have_demand cuối), mỗi hàng {key,label,in,out,net}. */
+function wmStageRows(metrics) {
+  const m = wmNormalizeMetrics(metrics);
+  return WM_STAGE_KEYS.map(k => ({ key: k, label: WM_STAGE_LABELS[k] || k, in: m.leadStages[k].in, out: m.leadStages[k].out, net: m.leadStages[k].net }));
+}
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, WM_STAGE_KEYS, WM_STAGE_LABELS, WM_METRIC_DEFS, wmScopeKey, wmNum, wmEmptyMetrics, wmNormalizeMetrics, wmMetricsFor, wmDelta, wmAddDaysISO, wmWeekEndISO, wmWeekLabel, wmDefaultWeekIndex, wmComputedAtText, wmStageRows }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;
