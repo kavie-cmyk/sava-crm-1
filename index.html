@@ -132,13 +132,19 @@
   .task input { margin-top:2px; width:16px; height:16px; }
   .task.done .tt { text-decoration: line-through; color:var(--mut); }
   /* ===== View Lịch (Calendar) — tiền tố cal- =====
-     Việc = xanh dương #2563eb (đúng --acc của app), Sự kiện = tím #7c3aed
-     (phân biệt rõ với xanh dương, hài hoà EVENT_STATUSES/palette hiện có).
+     Việc = màu THEO NGƯỜI PHỤ TRÁCH (calMemberColor: hash FNV-1a xác định
+     từ member id vào CAL_TASK_PALETTE cố định; chưa gán = xám #64748b),
+     Sự kiện = tím #7c3aed (palette Việc KHÔNG chứa tím để không trùng).
+     Tín hiệu trạng thái giữ nguyên mức dễ đọc: việc quá hạn chưa xong ->
+     TOÀN DẢI đỏ #dc2626 (thắng màu người); việc đã xong -> giữ màu người
+     + tối màu + gạch ngang + ✓ (.cal-seg--done như cũ).
      Dải nhiều ngày = segment kéo qua các cột ngày trong tuần; việc 1 ngày
      và sự kiện 1 ngày đều là segment span 1 cột (chip gọn như nhau). */
   .cal-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
   .cal-head h3 { font-size:16px; margin:0; }
   .cal-legend { display:flex; gap:16px; flex-wrap:wrap; font-size:12.5px; color:var(--mut); margin-bottom:12px; align-items:center; }
+  .cal-people-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--txt); margin:-4px 0 12px; align-items:center; }
+  .cal-people-legend .cal-pl-title { font-weight:700; color:var(--mut); }
   .cal-dot { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
   .cal-grid { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:12px; }
   .cal-wdrow, .cal-weekdays, .cal-lane { display:grid; grid-template-columns:repeat(7, 1fr); }
@@ -2664,8 +2670,10 @@ function vTasksByMember() {
      dải >= hạn cũng là chip 1 ngày tại ngày hạn.
      Việc không có dueDate hợp lệ -> "Chưa có ngày" (hạn dạng chữ trong
      t.due/t.dueDate vẫn hiện ở panel đó, không biến mất).
-   Màu chip: Việc = xanh dương #2563eb (--acc của app), Sự kiện = tím
-   #7c3aed. Đã xong (việc) / Đã tham dự (sự kiện) -> tối màu + gạch ngang
+   Màu chip: Việc = màu theo NGƯỜI PHỤ TRÁCH (calMemberColor — palette
+   cố định + hash FNV-1a từ member id, ổn định mọi phiên; chưa gán = xám
+   #64748b; khi lọc 1 người, việc vẫn giữ màu của chính người đó), Sự
+   kiện = tím #7c3aed. Đã xong (việc) / Đã tham dự (sự kiện) -> tối màu + gạch ngang
    + ✓ trên CẢ dải; Đã huỷ -> xám hẳn + gạch ngang; Việc quá hạn chưa
    xong -> TOÀN DẢI nhuộm đỏ #dc2626 (màu quá hạn sẵn có của app, áp
    nhất quán cả dải thay vì chỉ đầu/đuôi); Sự kiện planned đã qua ngày
@@ -2705,6 +2713,27 @@ function calEventRange(ev) {
   return { start: s, end: e };
 }
 function calTaskState(t) { if (t && t.done) return "done"; if (isOverdue(t)) return "overdue"; return "open"; }
+/* ===== Màu Việc theo NGƯỜI PHỤ TRÁCH (chỉ hiển thị trên Lịch) =====
+   Cơ chế: PALETTE CỐ ĐỊNH 8 màu (không màu nào là tím #7c3aed của Sự
+   kiện, không màu nào là đỏ #dc2626 của quá hạn) + HASH XÁC ĐỊNH
+   FNV-1a 32-bit từ member id -> chỉ số palette (hash % 8). Cùng một id
+   LUÔN cho cùng một màu ở mọi phiên/mọi máy (không random, không phụ
+   thuộc thứ tự hay số lượng member), và member MỚI thêm sau này tự có
+   màu theo đúng quy tắc này mà KHÔNG làm đổi màu của member cũ (khác
+   gán-theo-thứ-tự: thêm người có thể xô lệch màu người cũ). Hai id khác
+   nhau về lý thuyết có thể trùng màu khi hash % 8 bằng nhau (chấp nhận:
+   tooltip + legend luôn ghi tên người; 3 member hiện tại cho 3 màu
+   khác nhau — zac -> #2563eb, hoangdaden -> #059669, yen -> #d97706).
+   Việc CHƯA GÁN (assignee rỗng/thiếu) -> xám trung tính #64748b.
+   Việc QUÁ HẠN chưa xong: màu hiển thị là ĐỎ #dc2626 thắng màu người
+   (calTaskSegColor) để tín hiệu quá hạn vẫn nổi bật ngay như trước;
+   tên người phụ trách của việc quá hạn vẫn có trong tooltip + legend. */
+const CAL_TASK_PALETTE = ["#db2777", "#0891b2", "#ea580c", "#0f766e", "#65a30d", "#2563eb", "#059669", "#d97706"];
+const CAL_TASK_UNASSIGNED_COLOR = "#64748b";
+const CAL_TASK_OVERDUE_COLOR = "#dc2626";
+function calColorHash(str) { let h = 0x811c9dc5; const s = String(str == null ? "" : str); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h >>> 0; }
+function calMemberColor(assignee) { if (!assignee) return CAL_TASK_UNASSIGNED_COLOR; return CAL_TASK_PALETTE[calColorHash(assignee) % CAL_TASK_PALETTE.length]; }
+function calTaskSegColor(it) { if (it && it.state === "overdue") return CAL_TASK_OVERDUE_COLOR; return calMemberColor(it && it.ref ? it.ref.assignee : ""); }
 function calEventState(ev) { const phase = eventStatusKey(ev); return { phase, warn: phase === "planned" && eventDaysInfo(ev).overdue }; }
 function calBuildItems() {
   const dated = [], undated = [];
@@ -2751,8 +2780,13 @@ function calWeekSegments(week, items) {
 }
 function calSegHTML(sg) {
   const it = sg.item, isTask = it.kind === "task";
-  let cls = "cal-seg " + (isTask ? "cal-seg--task" : "cal-seg--event"), prefix = "";
+  let cls = "cal-seg " + (isTask ? "cal-seg--task" : "cal-seg--event"), prefix = "", segStyle = "";
   if (isTask) {
+    /* Màu nền = màu người phụ trách (inline thắng class .cal-seg--task
+       vốn chỉ còn là màu dự phòng); đã xong giữ màu người + class done
+       (tối + gạch ngang + ✓); quá hạn -> calTaskSegColor trả ĐỎ thắng
+       màu người trên TOÀN dải như trước. */
+    segStyle = `background:${calTaskSegColor(it)};`;
     if (it.state === "done") { cls += " cal-seg--done"; prefix = "✓ "; }
     else if (it.state === "overdue") cls += " cal-seg--overdue";
   } else {
@@ -2762,7 +2796,8 @@ function calSegHTML(sg) {
   }
   const rangeTxt = fmtWhen(it.start) + (it.end !== it.start ? " – " + fmtWhen(it.end) : "");
   const onclick = isTask ? `editTask('${it.id}')` : `openEvent('${it.id}')`;
-  return `<div class="${cls}" style="grid-column:${sg.colStart + 1} / ${sg.colEnd + 2}" onclick="event.stopPropagation(); ${onclick}" title="${esc((isTask ? "Việc: " : "Sự kiện: ") + it.title + " · " + rangeTxt + (isTask ? " · Bấm để sửa việc" : " · Bấm để mở sự kiện"))}">${prefix}${esc(it.title)}</div>`;
+  const whoTxt = isTask ? " · Người phụ trách: " + (it.ref && it.ref.assignee ? memberName(S, it.ref.assignee) : "Chưa gán") : "";
+  return `<div class="${cls}" style="grid-column:${sg.colStart + 1} / ${sg.colEnd + 2};${segStyle}" onclick="event.stopPropagation(); ${onclick}" title="${esc((isTask ? "Việc: " : "Sự kiện: ") + it.title + " · " + rangeTxt + whoTxt + (isTask ? " · Bấm để sửa việc" : " · Bấm để mở sự kiện"))}">${prefix}${esc(it.title)}</div>`;
 }
 function calWeekHTML(week, items, maxLanes) {
   const segs = calWeekSegments(week, items);
@@ -2791,7 +2826,7 @@ function calItemStatusText(it) {
 }
 function calItemRowHTML(it) {
   const isTask = it.kind === "task";
-  const chip = isTask ? `<span class="chip" style="background:#2563eb">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed">🎪 Sự kiện</span>`;
+  const chip = isTask ? `<span class="chip" style="background:${calTaskSegColor(it)}">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed">🎪 Sự kiện</span>`;
   const rangeTxt = fmtWhen(it.start) + (it.end !== it.start ? " – " + fmtWhen(it.end) : "");
   const onclick = isTask ? `editTask('${it.id}')` : `openEvent('${it.id}')`;
   return `<div class="cal-itemrow" onclick="${onclick}" title="${isTask ? "Bấm để sửa việc" : "Bấm để mở sự kiện"}"><span style="font-weight:700">${esc(it.title)}</span>${chip}<span class="mut">${esc(rangeTxt)} · ${esc(calItemStatusText(it))}</span></div>`;
@@ -2805,11 +2840,31 @@ function calDayPanelHTML(dated) {
 function calUndatedHTML(undated) {
   const rows = undated.map(u => {
     const isTask = u.kind === "task";
-    const chip = isTask ? `<span class="chip" style="background:#2563eb">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed">🎪 Sự kiện</span>`;
+    const chip = isTask ? `<span class="chip" style="background:${calMemberColor(u.ref && u.ref.assignee)}" title="Người phụ trách: ${esc(u.ref && u.ref.assignee ? memberName(S, u.ref.assignee) : "Chưa gán")}">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed">🎪 Sự kiện</span>`;
     const onclick = isTask ? `editTask('${u.id}')` : `openEvent('${u.id}')`;
     return `<div class="cal-itemrow" onclick="${onclick}" title="${isTask ? "Bấm để sửa việc" : "Bấm để mở sự kiện"}"><span style="font-weight:700">${esc(u.title)}</span>${chip}<span class="mut">${esc(u.reason)}</span></div>`;
   }).join("");
   return `<section class="panel cal-undated"><div class="panel-title"><h3>📌 Chưa có ngày <span class="count-badge">${undated.length}</span></h3></div>${undated.length ? rows : `<div class="mut">Không có mục nào chưa có ngày — mọi việc đều có hạn ngày đọc được và mọi sự kiện đều có ngày đọc được.</div>`}<div class="mut" style="margin-top:8px">Mục ở đây chưa đặt được lên lịch (việc chưa có hạn ngày đọc được / sự kiện có ngày dạng chữ tự do). Bấm vào mục để mở chi tiết và bổ sung ngày.</div></section>`;
+}
+/* Chú thích màu theo người: CHỈ hiện khi trục người = "Tất cả" (đang lọc
+   1 người thì mọi việc hiện ra đều của người đó — màu của chính họ, ghi
+   ngay ở tooltip, không cần chú thích) và đang không lọc "Chỉ Sự kiện".
+   Liệt kê đúng những người CÓ việc chạm khoảng đang xem (tuần/tháng đang
+   hiển thị, tính cả phần dải kéo qua khoảng) theo thứ tự memberList,
+   "Chưa gán" (nếu có việc chưa gán trong khoảng) ở cuối. Việc quá hạn
+   trong khoảng vẫn tính cho người phụ trách của nó (dải của nó nhuộm đỏ
+   nhưng chủ việc không đổi). */
+function calPeopleLegendHTML(dated, rangeStart, rangeEnd) {
+  if (calMemberFilter || calKindFilter === "event") return "";
+  const inRange = (Array.isArray(dated) ? dated : []).filter(it => it.kind === "task" && it.start <= rangeEnd && rangeStart <= it.end);
+  if (!inRange.length) return "";
+  const present = new Set(inRange.map(it => (it.ref && it.ref.assignee) || ""));
+  const entries = [];
+  memberList(S).forEach(m => { if (present.has(m.id)) { entries.push({ color: calMemberColor(m.id), label: m.name }); present.delete(m.id); } });
+  [...present].filter(id => id !== "").sort().forEach(id => entries.push({ color: calMemberColor(id), label: memberName(S, id) }));
+  if (present.has("")) entries.push({ color: CAL_TASK_UNASSIGNED_COLOR, label: "Chưa gán" });
+  if (!entries.length) return "";
+  return `<div class="cal-people-legend"><span class="cal-pl-title">Màu việc theo người:</span>${entries.map(e => `<span><span class="cal-dot" style="background:${e.color}"></span>${esc(e.label)}</span>`).join("")}</div>`;
 }
 function vCalendar() {
   if (!calAnchor || !isValidDateStr(calAnchor)) calAnchor = todayStr();
@@ -2822,9 +2877,10 @@ function vCalendar() {
   const memberOpts = `<option value="" ${!calMemberFilter ? "selected" : ""}>Tất cả</option>` + memberList(S).map(m => `<option value="${esc(m.id)}" ${calMemberFilter === m.id ? "selected" : ""}>${esc(m.name)}${m.active ? "" : " (đã ngừng)"}</option>`).join("") + `<option value="__none__" ${calMemberFilter === "__none__" ? "selected" : ""}>Chưa gán</option>`;
   const head = `<div class="cal-head"><button class="btn ghost small" onclick="calNav(-1)" aria-label="Lùi">‹</button><button class="btn ghost small" onclick="calToday()">Hôm nay</button><button class="btn ghost small" onclick="calNav(1)" aria-label="Tiến">›</button><h3>${esc(title)}</h3>
     <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mut">Xem:</span><button class="btn ${calMode === "month" ? "" : "ghost"} small" onclick="calSetMode('month')">Tháng</button><button class="btn ${calMode === "week" ? "" : "ghost"} small" onclick="calSetMode('week')">Tuần</button><span class="mut">Loại:</span><button class="btn ${!calKindFilter ? "" : "ghost"} small" onclick="calSetKind('')" aria-pressed="${!calKindFilter}">Tất cả</button><button class="btn ${calKindFilter === "task" ? "" : "ghost"} small" onclick="calSetKind('task')" aria-pressed="${calKindFilter === "task"}">Chỉ Việc</button><button class="btn ${calKindFilter === "event" ? "" : "ghost"} small" onclick="calSetKind('event')" aria-pressed="${calKindFilter === "event"}">Chỉ Sự kiện</button><span class="mut">Việc theo:</span><select onchange="calSetMember(this.value)" style="min-width:150px" aria-label="Lọc việc theo người phụ trách">${memberOpts}</select></span></div>`;
-  const legend = `<div class="cal-legend"><span><span class="cal-dot" style="background:#2563eb"></span>Việc (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Hai bộ lọc Loại × Người kết hợp nhau (AND): lọc người chỉ áp cho Việc — Sự kiện không có người phụ trách nên vẫn hiện ở mọi lựa chọn người (trừ khi đang lọc “Chỉ Việc”); lọc loại áp cả cho panel ngày và panel “Chưa có ngày” bên dưới lịch. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó; bấm vào một Việc để sửa ngay, bấm vào một Sự kiện để mở chi tiết/sửa.</span></div>`;
+  const legend = `<div class="cal-legend"><span>Việc: màu theo người phụ trách (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Hai bộ lọc Loại × Người kết hợp nhau (AND): lọc người chỉ áp cho Việc — Sự kiện không có người phụ trách nên vẫn hiện ở mọi lựa chọn người (trừ khi đang lọc “Chỉ Việc”); lọc loại áp cả cho panel ngày và panel “Chưa có ngày” bên dưới lịch. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó; bấm vào một Việc để sửa ngay, bấm vào một Sự kiện để mở chi tiết/sửa.</span></div>`;
+  const peopleLegend = calPeopleLegendHTML(dated, weeks[0][0], weeks[weeks.length - 1][6]);
   const grid = `<div class="cal-grid"><div class="cal-wdrow">${wd.map(d => `<div>${d}</div>`).join("")}</div>${weeks.map(w => calWeekHTML(w, dated, maxLanes)).join("")}</div>`;
-  return head + legend + grid + calDayPanelHTML(dated) + calUndatedHTML(undated);
+  return head + legend + peopleLegend + grid + calDayPanelHTML(dated) + calUndatedHTML(undated);
 }
 function calSetMode(m) { calMode = m === "week" ? "week" : "month"; render(); }
 function calNav(dir) {
