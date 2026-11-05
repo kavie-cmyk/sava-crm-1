@@ -195,7 +195,7 @@ test('hành vi: thanh lọc chung là chỗ chọn DUY NHẤT cho Kỳ + Ngườ
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('dash-filterbar'), 'có thanh lọc chung ở đầu khu Phân tích');
   assert.equal((html.match(/onchange="setDashScope\(this\.value\)"/g) || []).length, 1, 'đúng 1 select trục Người trong khu Phân tích');
-  assert.equal((html.match(/onclick="setDashPeriod\(/g) || []).length, 4, 'đúng 1 cụm nút trục Kỳ (7/30/90/Tất cả)');
+  assert.equal((html.match(/onclick="setDashPeriod\(/g) || []).length, 5, 'đúng 1 cụm nút trục Kỳ (7/30/90/Tất cả/Tuỳ chỉnh — Tuỳ chỉnh thêm 05/11/2026)');
   assert.ok(!html.includes('Người Cũ'), 'member đã ngừng hoạt động KHÔNG xuất hiện ở trục Người');
   assert.ok(html.includes('<option value="__none__"') && html.includes('>Chưa gán</option>'), 'trục Người có lựa chọn Chưa gán');
   assert.ok(html.includes('Kỳ đang áp dụng: <b>30 ngày</b>'), 'caption bảng so sánh BD ghi rõ kỳ đang áp dụng (mặc định 30)');

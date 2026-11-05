@@ -1180,7 +1180,10 @@ function vDash() {
 /* ===== Khu PHÂN TÍCH (Dashboard) trong Tổng quan =====
    BỘ LỌC CHUNG (gộp 2026-11-05): MỘT thanh lọc duy nhất ở đầu khu Phân
    tích, hai trục — Kỳ (dashPeriodDays = 7 / 30 / 90 / null; null = "Tất
-   cả", mặc định 30) × Người (dashScope = "" Toàn hệ / member id /
+   cả", mặc định 30; hoặc kỳ "Tuỳ chỉnh" dashCustomActive + khoảng
+   dashCustomFrom..dashCustomTo — khi bật, khoảng tường minh THẮNG
+   dashPeriodDays ở mọi helper qua tham số range của SavaDash) × Người
+   (dashScope = "" Toàn hệ / member id /
    "__none__" Chưa gán). UI-state THUẦN trong phiên (không nằm trong S,
    không qua save(), cùng họ leadOwnerFilter): chuyển view qua lại rồi
    quay về Tổng quan KHÔNG reset lựa chọn.
@@ -1195,7 +1198,52 @@ function vDash() {
    đã gộp vào thanh chung). Mọi con số qua helper thuần window.SavaDash
    (shared.js) — khu này CHỈ hiển thị, không đổi đường lưu nào. */
 let dashPeriodDays = 30, dashScope = "", dashFunnelLine = "";
-function setDashPeriod(v) { dashPeriodDays = v === "all" ? null : Number(v); render(); }
+/* Kỳ "Tuỳ chỉnh" (bổ sung 05/11/2026): dashCustomActive = đang chọn kỳ
+   tuỳ chỉnh; dashCustomFrom/dashCustomTo = khoảng đang ÁP DỤNG, lưu ISO
+   yyyy-mm-dd (chuẩn lưu trữ nội bộ), hiển thị ở ô nhập qua isoToDMY.
+   Cả ba là UI-state thuần trong phiên như dashPeriodDays: chuyển view
+   không reset, và quay lại preset khác rồi chọn lại Tuỳ chỉnh vẫn giữ
+   khoảng đã nhập trong phiên. Khi mới bật Tuỳ chỉnh mà chưa có khoảng,
+   mặc định = 30 ngày gần nhất (Từ = hôm nay − 29, Đến = hôm nay) để mọi
+   khối có ngay một khoảng hợp lệ trong lúc người dùng sửa. */
+let dashCustomActive = false, dashCustomFrom = "", dashCustomTo = "";
+function dashDefaultCustomRange() {
+  const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 29);
+  const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  return { from: iso(from), to: iso(to) };
+}
+/* Khoảng tường minh ĐANG ÁP DỤNG cho SavaDash (null khi không ở chế độ
+   Tuỳ chỉnh hoặc khoảng lưu đang rỗng/sai — tầng nhập đã chặn nên thực
+   tế luôn hợp lệ khi dashCustomActive). */
+function dashActiveRange() {
+  if (!dashCustomActive) return null;
+  if (!dashCustomFrom || !dashCustomTo || dashCustomFrom > dashCustomTo) return null;
+  return { from: dashCustomFrom, to: dashCustomTo };
+}
+function setDashPeriod(v) {
+  if (v === "custom") {
+    dashCustomActive = true;
+    if (!dashCustomFrom || !dashCustomTo || dashCustomFrom > dashCustomTo) { const d = dashDefaultCustomRange(); dashCustomFrom = d.from; dashCustomTo = d.to; }
+    render(); return;
+  }
+  dashCustomActive = false;
+  dashPeriodDays = v === "all" ? null : Number(v);
+  render();
+}
+/* Áp khoảng từ hai ô nhập ngày của thanh lọc: đọc qua parseDMYtoISO
+   DÙNG CHUNG của app (chặn 31-02, tháng 13, dạng ISO/gạch chéo; nhận
+   gõ nhanh ddmmyyyy). Ngày sai hoặc Từ > Đến -> toast rõ + render()
+   dựng lại thanh lọc với khoảng ĐANG ÁP DỤNG cũ (không áp khoảng sai,
+   không để các khối tính ra tập rỗng im lặng). */
+function setDashCustomRange() {
+  const fEl = document.getElementById("dashCustomFrom"), tEl = document.getElementById("dashCustomTo");
+  if (!fEl || !tEl) return;
+  const pf = parseDMYtoISO(fEl.value), pt = parseDMYtoISO(tEl.value);
+  if (!pf.ok || !pt.ok || !pf.iso || !pt.iso) { toast("Ngày của kỳ Tuỳ chỉnh phải theo định dạng dd-mm-yyyy (vd 05-11-2026) và là ngày có thật — khoảng chưa được áp dụng"); render(); return; }
+  if (pf.iso > pt.iso) { toast("“Từ ngày” phải nhỏ hơn hoặc bằng “Đến ngày” — khoảng chưa được áp dụng"); render(); return; }
+  dashCustomFrom = pf.iso; dashCustomTo = pt.iso; dashCustomActive = true;
+  render();
+}
 function setDashScope(v) { dashScope = v || ""; render(); }
 function setDashFunnelLine(v) { dashFunnelLine = v || ""; render(); }
 function dashPctTxt(p) { return (p === null || p === undefined) ? "—" : fmtPctVal(p); }
@@ -1250,30 +1298,36 @@ function dashAnalyticsHTML() {
   /* Cohort kỳ đang chọn cho từng loại bản ghi (trục Kỳ × trục Người):
      mọi khối bên dưới tính trên các tập này; riêng thẻ KPI vẫn hiện số
      TỔNG hiện tại của tập theo Người (scoped) kèm phần "mới trong kỳ". */
-  const cCompanies = D.dashCohort(scoped.companies, dashPeriodDays, now);
-  const cLeads = D.dashCohort(scoped.leads, dashPeriodDays, now);
-  const cDeals = D.dashCohort(scoped.deals, dashPeriodDays, now);
-  const periodTxt = dashPeriodDays === null ? "từ trước tới nay (kỳ: Tất cả)" : `trong ${dashPeriodDays} ngày gần nhất`;
-  const periodLabel = dashPeriodDays === null ? "Tất cả" : `${dashPeriodDays} ngày`;
+  const range = dashActiveRange();
+  const cCompanies = D.dashCohort(scoped.companies, dashPeriodDays, now, range);
+  const cLeads = D.dashCohort(scoped.leads, dashPeriodDays, now, range);
+  const cDeals = D.dashCohort(scoped.deals, dashPeriodDays, now, range);
+  const periodTxt = range ? `từ ${isoToDMY(range.from)} đến ${isoToDMY(range.to)}` : dashPeriodDays === null ? "từ trước tới nay (kỳ: Tất cả)" : `trong ${dashPeriodDays} ngày gần nhất`;
+  const periodLabel = range ? `từ ${isoToDMY(range.from)} đến ${isoToDMY(range.to)}` : dashPeriodDays === null ? "Tất cả" : `${dashPeriodDays} ngày`;
   /* --- THANH LỌC CHUNG: Kỳ × Người (một chỗ chọn duy nhất) --- */
   const activeMembers = memberList(S).filter(m => m.active);
   let personOpts = `<option value="" ${!dashScope ? "selected" : ""}>Toàn hệ</option>` + activeMembers.map(m => `<option value="${esc(m.id)}" ${dashScope === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("");
   if (dashScope && dashScope !== "__none__" && !activeMembers.some(m => m.id === dashScope)) personOpts += `<option value="${esc(dashScope)}" selected>${esc(memberName(S, dashScope))} (đã ngừng)</option>`;
   personOpts += `<option value="__none__" ${dashScope === "__none__" ? "selected" : ""}>Chưa gán</option>`;
-  const periodBtns = [[7, "7 ngày"], [30, "30 ngày"], [90, "90 ngày"], [null, "Tất cả"]].map(([v, l]) => `<button class="dash-chip ${dashPeriodDays === v ? "on" : ""}" onclick="setDashPeriod('${v === null ? "all" : v}')">${l}</button>`).join("");
+  const periodBtns = [[7, "7 ngày"], [30, "30 ngày"], [90, "90 ngày"], [null, "Tất cả"]].map(([v, l]) => `<button class="dash-chip ${!dashCustomActive && dashPeriodDays === v ? "on" : ""}" onclick="setDashPeriod('${v === null ? "all" : v}')">${l}</button>`).join("")
+    + `<button class="dash-chip ${dashCustomActive ? "on" : ""}" onclick="setDashPeriod('custom')">Tuỳ chỉnh</button>`;
+  /* Hai ô ngày của kỳ Tuỳ chỉnh: ô text dd-mm-yyyy theo chuẩn app (placeholder
+     chứa "dd-mm-yyyy" nên blur dùng chung tự chuẩn hoá ddmmyyyy); đổi giá trị
+     -> setDashCustomRange validate + áp ngay, sai thì báo và giữ khoảng cũ. */
+  const customCtl = dashCustomActive ? `<div class="dash-ctl"><span class="dash-ctl-label">Từ ngày</span><input id="dashCustomFrom" class="dash-select dash-date-input" type="text" placeholder="dd-mm-yyyy" value="${esc(isoToDMY(dashCustomFrom))}" onchange="setDashCustomRange()" aria-label="Từ ngày — kỳ tuỳ chỉnh"><span class="dash-ctl-label">Đến ngày</span><input id="dashCustomTo" class="dash-select dash-date-input" type="text" placeholder="dd-mm-yyyy" value="${esc(isoToDMY(dashCustomTo))}" onchange="setDashCustomRange()" aria-label="Đến ngày — kỳ tuỳ chỉnh"></div>` : "";
   const scopeNote = dashScope === "__none__"
     ? ` Đang xem phạm vi <b>Chưa gán</b>: “công ty của BD” ở đây = tập công ty phân biệt của các lead chưa gán người phụ trách ∪ các deal chưa gán người phụ trách.`
     : dashScope ? ` Đang xem phạm vi của <b>${esc(memberName(S, dashScope))}</b>: “công ty của BD” = tập công ty phân biệt của các lead BD đó phụ trách ∪ các deal BD đó phụ trách (công ty không có trường người phụ trách riêng).` : "";
-  const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div><div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div></div>
+  const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div>${customCtl}<div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div></div>
   <p class="dash-note">Bộ lọc chung áp cho <b>toàn bộ khu Phân tích</b>: theo kỳ, chỉ tính các bản ghi <b>được tạo trong kỳ</b> — trạng thái lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay). Riêng số tổng hiện tại trên thẻ KPI là ảnh chụp hiện tại của tập theo Người, không đổi theo kỳ.${scopeNote}</p>`;
   /* --- Dải KPI --- */
-  const nC = D.dashCountNew(scoped.companies, dashPeriodDays, now), nL = D.dashCountNew(scoped.leads, dashPeriodDays, now), nD = D.dashCountNew(scoped.deals, dashPeriodDays, now);
+  const nC = D.dashCountNew(scoped.companies, dashPeriodDays, now, range), nL = D.dashCountNew(scoped.leads, dashPeriodDays, now, range), nD = D.dashCountNew(scoped.deals, dashPeriodDays, now, range);
   const openDeals = scoped.deals.filter(isOpen), wonDeals = scoped.deals.filter(d => d.stage === "won");
   const kpiCard = (label, value, sub, view, color) => `<div class="kpi dash-kpi" role="button" tabindex="0" onclick="setView('${view}')" onkeydown="if(event.key==='Enter')setView('${view}')" title="Bấm để mở view ${label}"><span class="dash-kpi-dot" style="background:${color}"></span><div class="k">${label}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
   const kpis = `<div class="kpis dash-kpis">${kpiCard("Công ty", scoped.companies.length, `+${nC.count} mới ${periodTxt}`, "companies", cols.company)}${kpiCard("Lead", scoped.leads.length, `+${nL.count} mới ${periodTxt}`, "leads", cols.lead)}${kpiCard("Deal đang mở", openDeals.length, `+${nD.count} deal mới ${periodTxt} · trên tổng ${scoped.deals.length} deal`, "board", cols.deal)}${kpiCard("Deal đã won", wonDeals.length, `Trên tổng ${scoped.deals.length} deal toàn tập`, "board", cols.deal)}</div>`;
   /* --- Xu hướng thêm mới --- */
-  const trend = D.dashTrend({ company: scoped.companies, lead: scoped.leads, deal: scoped.deals }, dashPeriodDays, now);
-  const trendHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Xu hướng thêm mới</h3><span class="dash-badge">${dashPeriodDays === null ? "Tất cả" : dashPeriodDays + " ngày"}</span></div>${dashTrendChartHTML(trend)}${trend.missing ? `<p class="dash-note">⚠️ ${trend.missing} bản ghi thiếu ngày tạo — không tính vào xu hướng.</p>` : ""}</section>`;
+  const trend = D.dashTrend({ company: scoped.companies, lead: scoped.leads, deal: scoped.deals }, dashPeriodDays, now, range);
+  const trendHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Xu hướng thêm mới</h3><span class="dash-badge">${range ? periodLabel : dashPeriodDays === null ? "Tất cả" : dashPeriodDays + " ngày"}</span></div>${dashTrendChartHTML(trend)}${trend.missing ? `<p class="dash-note">⚠️ ${trend.missing} bản ghi thiếu ngày tạo — không tính vào xu hướng.</p>` : ""}</section>`;
   /* --- Phễu Lead: cohort của thanh lọc chung (lead TẠO trong kỳ theo
      Người đang chọn) + lọc riêng theo MẢNG của phễu; phân bổ theo trạng
      thái HIỆN TẠI của các lead đó. --- */
@@ -1310,8 +1364,8 @@ function dashAnalyticsHTML() {
   const fSummary = funnel.total
     ? `<div class="dash-funnel-summary">Trong ${funnel.total} lead: ${funnel.summary.reachedContactedPlus} lead đã tới bước Đã liên hệ trở lên (${dashPctIntTxt(funnel.summary.reachedContactedPlusPct)}) · ${funnel.summary.converted} lead đã chuyển thành deal (${dashPctIntTxt(funnel.summary.convertedPct)})</div>`
     : `<div class="dash-funnel-summary">Chưa có lead nào trong phạm vi này.</div>`;
-  const funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">${dashPeriodDays === null ? "ảnh chụp hiện tại" : "theo kỳ đang chọn"}</span></h3><div class="dash-ctl"><select class="dash-select" onchange="setDashFunnelLine(this.value)" aria-label="Lọc phễu theo mảng">${fLineOpts}</select></div></div>
-  ${dashPeriodDays === null ? "" : `<p class="dash-note"><b>Lead tạo trong kỳ</b> (${periodLabel}) — theo trạng thái hiện tại. Bấm một dòng mở view Lead đã lọc đúng trạng thái + kỳ tạo + người phụ trách của thanh lọc chung.</p>`}
+  const funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">${dashPeriodDays === null && !range ? "ảnh chụp hiện tại" : "theo kỳ đang chọn"}</span></h3><div class="dash-ctl"><select class="dash-select" onchange="setDashFunnelLine(this.value)" aria-label="Lọc phễu theo mảng">${fLineOpts}</select></div></div>
+  ${dashPeriodDays === null && !range ? "" : `<p class="dash-note"><b>Lead tạo trong kỳ</b> (${periodLabel}) — theo trạng thái hiện tại. Bấm một dòng mở view Lead đã lọc đúng trạng thái + kỳ tạo + người phụ trách của thanh lọc chung.</p>`}
   <p class="dash-note">Số % lớn trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % nhỏ có mũi tên ↓ ngay dưới % lớn: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.</p>
   ${fStart}${fBody}${fExit}${fSummary}
   <p class="dash-note">Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead.</p>
@@ -1327,7 +1381,7 @@ function dashAnalyticsHTML() {
     const amt = Object.entries(r.openAmounts).map(([c, v]) => money(v, c)).join(" + ");
     return `<section class="panel dash-panel dash-line-card" style="--line-accent:${L.color}"><div class="panel-title"><h3>${esc(L.name)}</h3><span class="dash-badge">${r.openCount} deal đang mở</span></div><div class="dash-cols">${bars}</div><p class="dash-note">Tỉ lệ thắng: ${r.rate === null ? "Chưa có deal đóng" : `<b>${dashPctTxt(r.rate)}</b> (${r.won} won / ${r.lost} lost)`}${amt ? ` · Tổng giá trị deal đang mở: <b>${amt}</b>` : ""}</p></section>`;
   }).join("");
-  const dealHTML = `<div class="section-heading dash-subhead"><div><h2>Tiến trình Deal theo mảng</h2><p>${dashPeriodDays === null ? "Số deal đang ở từng stage theo đúng thứ tự pipeline của mảng — ảnh chụp hiện tại." : `Chỉ gồm deal tạo trong kỳ (${periodLabel}) — stage và tỉ lệ thắng theo hiện tại trong cùng nhóm deal đó.`}</p></div></div><div class="dash-line-grid">${lineCards}</div>`;
+  const dealHTML = `<div class="section-heading dash-subhead"><div><h2>Tiến trình Deal theo mảng</h2><p>${dashPeriodDays === null && !range ? "Số deal đang ở từng stage theo đúng thứ tự pipeline của mảng — ảnh chụp hiện tại." : `Chỉ gồm deal tạo trong kỳ (${periodLabel}) — stage và tỉ lệ thắng theo hiện tại trong cùng nhóm deal đó.`}</p></div></div><div class="dash-line-grid">${lineCards}</div>`;
   /* --- Thẻ tỉ lệ chuyển đổi: cùng cohort của thanh lọc chung —
      Lead→Deal từ lead của kỳ; thắng deal từ deal của kỳ; công ty có deal
      từ công ty TẠO trong kỳ (mẫu) và số công ty đó có ≥1 deal trong kỳ
@@ -1338,7 +1392,7 @@ function dashAnalyticsHTML() {
   /* --- Bảng so sánh BD (chỉ phạm vi Toàn hệ) --- */
   let compareHTML = "";
   if (!dashScope) {
-    const rows = D.dashCompare(S, dashPeriodDays, now, isOverdue);
+    const rows = D.dashCompare(S, dashPeriodDays, now, isOverdue, range);
     const trs = rows.map(r => {
       const name = r.none ? "Chưa gán" : memberName(S, r.id);
       const click = r.none ? "" : ` onclick="setDashScope('${esc(r.id)}')" style="cursor:pointer" title="Bấm để xem phạm vi của ${esc(name)}"`;
@@ -1615,12 +1669,27 @@ function setLeadStatusFilter(v) { leadStatusFilter = v || ""; render(); }
    (cùng cửa sổ cohort với Tổng quan, qua SavaDash.dashCohort). Phễu Lead
    ở Tổng quan đặt sẵn bộ lọc này khi bấm một dòng (mang đúng kỳ của
    thanh lọc chung sang); người dùng đổi/bỏ ngay bằng select "Ngày tạo"
-   ở đầu view Lead. */
+   ở đầu view Lead. Kỳ "Tuỳ chỉnh" của thanh lọc chung được chở sang
+   bằng leadCreatedRange (khoảng tường minh) thay cho số ngày. */
 let leadCreatedPeriodDays = null;
-function setLeadCreatedPeriodFilter(v) { leadCreatedPeriodDays = (v === "" || v === null || v === undefined) ? null : Number(v); render(); }
+/* Khoảng tạo TƯỜNG MINH chở sang từ kỳ "Tuỳ chỉnh" của thanh lọc chung
+   (dashOpenLeadStatus): { from, to } ISO yyyy-mm-dd, gồm cả hai đầu ngày
+   qua tham số range của SavaDash.dashCohort. Khi có khoảng này, nó THẮNG
+   leadCreatedPeriodDays; ở đầu view Lead nó hiện thành lựa chọn "Tuỳ
+   chỉnh: …" trong chính select "Ngày tạo" + một chip ghi rõ khoảng kèm
+   nút ✕ — nhìn thấy và gỡ được tại chỗ như mọi bộ lọc khác. */
+let leadCreatedRange = null;
+function setLeadCreatedPeriodFilter(v) {
+  if (v === "custom") { render(); return; } /* giữ nguyên khoảng tuỳ chỉnh đang mang sang */
+  leadCreatedRange = null;
+  leadCreatedPeriodDays = (v === "" || v === null || v === undefined) ? null : Number(v);
+  render();
+}
+function clearLeadCreatedRange() { leadCreatedRange = null; render(); }
 function leadInCreatedPeriod(l) {
-  if (leadCreatedPeriodDays === null) return true;
   const D = window.SavaDash;
+  if (leadCreatedRange) return D ? D.dashCohort([l], null, new Date(), leadCreatedRange).length === 1 : true;
+  if (leadCreatedPeriodDays === null) return true;
   return D ? D.dashCohort([l], leadCreatedPeriodDays, new Date()).length === 1 : true;
 }
 /* Nhảy từ một dòng phễu Lead (Tổng quan) sang view Lead đã lọc đúng CÙNG
@@ -1634,7 +1703,12 @@ function leadInCreatedPeriod(l) {
 function dashOpenLeadStatus(statusKey) {
   leadStatusFilter = statusKey || "";
   leadOwnerFilter = dashScope || "";
-  leadCreatedPeriodDays = dashPeriodDays;
+  /* Kỳ đang chọn ở thanh lọc chung: preset -> số ngày như cũ; "Tuỳ
+     chỉnh" -> khoảng tường minh qua leadCreatedRange (và xoá số ngày
+     để hai cơ chế không đè nhau). */
+  const rng = dashActiveRange();
+  leadCreatedRange = rng ? { from: rng.from, to: rng.to } : null;
+  leadCreatedPeriodDays = rng ? null : dashPeriodDays;
   leadViewMode = "block";
   if (statusKey) leadBlockCollapsed[statusKey] = false;
   setView("leads");
@@ -1671,8 +1745,10 @@ function leadViewHeadHTML() {
     `<option value="__none__" ${leadOwnerFilter === "__none__" ? "selected" : ""}>Chưa gán</option>`].join("");
   const statusOpts = [`<option value="" ${leadStatusFilter === "" ? "selected" : ""}>Tất cả trạng thái</option>`,
     ...LEAD_STATUSES.map(s => `<option value="${s.key}" ${leadStatusFilter === s.key ? "selected" : ""}>${esc(s.label)}</option>`)].join("");
-  const periodOpts = [`<option value="" ${leadCreatedPeriodDays === null ? "selected" : ""}>Mọi thời gian tạo</option>`,
-    ...[7, 30, 90].map(n => `<option value="${n}" ${leadCreatedPeriodDays === n ? "selected" : ""}>Tạo trong ${n} ngày</option>`)].join("");
+  const periodOpts = [`<option value="" ${leadCreatedPeriodDays === null && !leadCreatedRange ? "selected" : ""}>Mọi thời gian tạo</option>`,
+    ...[7, 30, 90].map(n => `<option value="${n}" ${leadCreatedPeriodDays === n ? "selected" : ""}>Tạo trong ${n} ngày</option>`),
+    ...(leadCreatedRange ? [`<option value="custom" selected>Tuỳ chỉnh: ${esc(isoToDMY(leadCreatedRange.from))} → ${esc(isoToDMY(leadCreatedRange.to))}</option>`] : [])].join("");
+  const periodChip = leadCreatedRange ? `<span class="chip" style="background:#0f766e" title="Bộ lọc ngày tạo theo khoảng tuỳ chỉnh mang từ Tổng quan">📅 Tạo từ ${esc(isoToDMY(leadCreatedRange.from))} đến ${esc(isoToDMY(leadCreatedRange.to))} <button type="button" onclick="clearLeadCreatedRange()" title="Bỏ lọc khoảng ngày tạo này" aria-label="Bỏ lọc khoảng ngày tạo" style="background:none;border:none;color:#fff;cursor:pointer;font:inherit;padding:0 0 0 4px">✕</button></span>` : "";
   return `<div class="lead-view-head"><button class="btn" onclick="editLead(null)">+ Thêm lead</button>
     <div class="tabs" role="group" aria-label="Chế độ xem lead">
       <button class="${leadViewMode === "block" ? "on" : ""}" onclick="setLeadViewMode('block')">▦ Block</button>
@@ -1680,12 +1756,12 @@ function leadViewHeadHTML() {
     </div>
     <select id="leadOwnerFilterSel" onchange="setLeadOwnerFilter(this.value)" title="Lọc theo người phụ trách" aria-label="Lọc theo người phụ trách">${ownerOpts}</select>
     <select id="leadStatusFilterSel" onchange="setLeadStatusFilter(this.value)" title="Lọc theo trạng thái" aria-label="Lọc theo trạng thái">${statusOpts}</select>
-    <select id="leadCreatedPeriodSel" onchange="setLeadCreatedPeriodFilter(this.value)" title="Lọc theo ngày tạo lead" aria-label="Lọc theo ngày tạo lead">${periodOpts}</select>
+    <select id="leadCreatedPeriodSel" onchange="setLeadCreatedPeriodFilter(this.value)" title="Lọc theo ngày tạo lead" aria-label="Lọc theo ngày tạo lead">${periodOpts}</select>${periodChip}
     ${sortBarHTML("leads")}</div>`;
 }
 /* Nhảy từ drawer member sang view Lead đã lọc sẵn theo member đó (bỏ lọc
    trạng thái để không giấu lead của member ngoài trạng thái đang lọc). */
-function viewLeadsOfMember(memberId) { leadOwnerFilter = memberId || ""; leadStatusFilter = ""; leadCreatedPeriodDays = null; closeDrawer(); setView("leads"); }
+function viewLeadsOfMember(memberId) { leadOwnerFilter = memberId || ""; leadStatusFilter = ""; leadCreatedPeriodDays = null; leadCreatedRange = null; closeDrawer(); setView("leads"); }
 /* ===== Phân trang + đóng/mở từng block trạng thái (CHỈ view Block) =====
    UI-state thuần tuý TRONG PHIÊN (không lưu localStorage, không nằm
    trong S, không qua save() — tải lại trang là về mặc định):
@@ -1737,13 +1813,13 @@ function vLeads() {
   const filtered = filteredLeads();
   /* Đổi từ khóa tìm kiếm / tab mảng / SORT (Việc 8: đổi sort cũng về
      trang 1 như đổi lọc) -> mọi block về trang 1 (đóng/mở giữ nguyên). */
-  const blockSig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter + "|" + leadCreatedPeriodDays + "|" + JSON.stringify(listSortState("leads"));
+  const blockSig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter + "|" + leadCreatedPeriodDays + "|" + JSON.stringify(leadCreatedRange) + "|" + JSON.stringify(listSortState("leads"));
   if (leadBlockFilterSig !== blockSig) { leadBlockFilterSig = blockSig; leadBlockPage = {}; }
   /* Đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước ẩn-cột-rỗng-khi-đang-lọc của vTasksByMember:
      khi đang lọc, block nào không còn lead khớp thì ẨN hẳn; khi không
      lọc, mọi block trạng thái đều hiện kể cả khi rỗng. */
-  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter || leadCreatedPeriodDays !== null;
+  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter || leadCreatedPeriodDays !== null || leadCreatedRange !== null;
   /* Việc 6: sort áp TRONG từng block/trạng thái TRƯỚC khi chia trang;
      STT chạy liên tục qua các trang trong block (info.from là vị trí
      1-based của lead đầu trang trong tập block đã lọc + sort). */
@@ -1864,10 +1940,10 @@ function vLeadsPipeline() {
   /* Đổi bộ lọc (từ khóa / tab mảng) -> số thẻ đang mở rộng của mọi cột
      quay về trang đầu; cùng bộ lọc thì giữ nguyên (Hiển thị thêm và
      kéo-thả render lại không làm mất phần đã mở rộng). */
-  const sig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter + "|" + leadCreatedPeriodDays;
+  const sig = curLine + "|" + query + "|" + leadOwnerFilter + "|" + leadStatusFilter + "|" + leadCreatedPeriodDays + "|" + JSON.stringify(leadCreatedRange);
   if (leadBoardFilterSig !== sig) { leadBoardFilterSig = sig; leadBoardShown = {}; }
   const filtered = filteredLeads();
-  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter || leadCreatedPeriodDays !== null;
+  const filtering = !!query || curLine !== "all" || !!leadOwnerFilter || !!leadStatusFilter || leadCreatedPeriodDays !== null || leadCreatedRange !== null;
   const unknownLeads = filtered.filter(l => !leadStatusDef(l.status));
   const cols = LEAD_STATUSES.map(def => {
     const inCol = applyListSort("leads", filtered.filter(l => l.status === def.key), l => leadDisplayName(l));

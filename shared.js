@@ -1286,16 +1286,44 @@ function dashPct(num, den) {
   if (!den || !Number.isFinite(den)) return null;
   return (num / den) * 100;
 }
+/* Khoảng ngày TƯỜNG MINH cho kỳ "Tuỳ chỉnh" của bộ lọc chung: range =
+   { from: "yyyy-mm-dd", to: "yyyy-mm-dd" } (ISO date-only, đúng định dạng
+   lưu trữ nội bộ của app). dashRangeWindow chuẩn hoá range thành cửa sổ
+   theo NGÀY LỊCH [from 00:00, to 23:59:59] — BAO GỒM cả hai đầu — dùng
+   cùng phép so theo đầu-ngày (dashDayStart, giờ địa phương của trình
+   duyệt = ICT với người dùng) như dashCohort/dashCountNew của preset,
+   nên một bản ghi có createdAt rơi vào bất kỳ giờ nào của ngày "to" đều
+   được tính. Range vắng (null/undefined) -> null (không áp khoảng);
+   range có mặt nhưng SAI (thiếu một đầu, không parse được, from > to)
+   -> { invalid: true } để caller cho kết quả RỖNG thay vì âm thầm bỏ lọc. */
+function dashRangeWindow(range) {
+  if (range === null || range === undefined) return null;
+  const parseDay = v => {
+    if (typeof v !== "string") return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim());
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return (d.getFullYear() === Number(m[1]) && d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3])) ? d : null;
+  };
+  const from = parseDay(range.from), to = parseDay(range.to);
+  if (!from || !to || from > to) return { invalid: true };
+  return { from, to, days: Math.round((to - from) / 86400000) + 1 };
+}
+function dashInWindow(dayStart, win) { return !!win && !win.invalid && dayStart >= win.from && dayStart <= win.to; }
 /* Đếm "mới trong kỳ": kỳ = days ngày gần nhất tính cả hôm nay (days = null
    -> "Tất cả": mọi bản ghi có createdAt hợp lệ). Bản ghi thiếu/rỗng/không
-   parse được createdAt bị LOẠI và đếm vào missing để UI ghi chú trung thực. */
-function dashCountNew(list, days, now) {
+   parse được createdAt bị LOẠI và đếm vào missing để UI ghi chú trung thực.
+   Có range tường minh (kỳ Tuỳ chỉnh) thì range THẮNG days: đếm bản ghi tạo
+   trong [from, to] bao gồm cả hai đầu ngày. */
+function dashCountNew(list, days, now, range) {
+  const win = dashRangeWindow(range);
   const nowD = dashDayStart(now || new Date());
   const start = (days === null || days === undefined) ? null : (() => { const s = new Date(nowD); s.setDate(s.getDate() - (days - 1)); return s; })();
   let count = 0, missing = 0;
   (list || []).forEach(e => {
     const d = dashParseDate(e && e.createdAt);
     if (!d) { missing++; return; }
+    if (win) { if (dashInWindow(dashDayStart(d), win)) count++; return; }
     if (!start || dashDayStart(d) >= start) count++;
   });
   return { count, missing };
@@ -1307,9 +1335,18 @@ function dashCountNew(list, days, now) {
    hồi quy — ở Tất cả mọi khối phải khớp hành vi trước đợt bộ lọc chung.
    Kỳ hữu hạn: bản ghi thiếu/không parse được createdAt bị loại (không
    chứng minh được là tạo trong kỳ). Trạng thái của bản ghi trong cohort
-   luôn lấy theo HIỆN TẠI (cohort chỉ lọc theo ngày tạo). */
-function dashCohort(list, days, now) {
+   luôn lấy theo HIỆN TẠI (cohort chỉ lọc theo ngày tạo).
+   Tham số range (kỳ "Tuỳ chỉnh", xem dashRangeWindow): khi có range HỢP
+   LỆ thì range thắng days — chỉ giữ bản ghi tạo trong [from, to] gồm cả
+   hai đầu ngày; range có mặt nhưng sai -> tập rỗng. Không truyền range
+   -> hành vi preset y hệt như trước (mỏ neo hồi quy không đổi). */
+function dashCohort(list, days, now, range) {
   const src = list || [];
+  const win = dashRangeWindow(range);
+  if (win) {
+    if (win.invalid) return [];
+    return src.filter(e => { const d = dashParseDate(e && e.createdAt); return !!d && dashInWindow(dashDayStart(d), win); });
+  }
   if (days === null || days === undefined) return src.slice();
   const nowD = dashDayStart(now || new Date());
   const start = new Date(nowD); start.setDate(start.getDate() - (days - 1));
@@ -1324,8 +1361,10 @@ function dashCohort(list, days, now) {
    Bản ghi thiếu createdAt: loại khỏi mọi bucket, đếm vào missing.
    Bản ghi có createdAt TRƯỚC cửa sổ kỳ (kỳ cố định): không vào bucket nào
    và không tính missing (chỉ nằm ngoài kỳ). */
-function dashTrend(sets, days, now) {
+function dashTrend(sets, days, now, range) {
   const nowD = dashDayStart(now || new Date());
+  const win = dashRangeWindow(range);
+  const rangeMode = !!win && !win.invalid;
   const keys = ["company", "lead", "deal"];
   const parsed = {}, allDates = [];
   let missing = 0;
@@ -1335,12 +1374,34 @@ function dashTrend(sets, days, now) {
       const d = dashParseDate(e && e.createdAt);
       if (!d) { missing++; return; }
       const dd = dashDayStart(d);
+      /* Kỳ Tuỳ chỉnh: chỉ ngày tạo TRONG khoảng mới vào bucket (bucket
+         tuần/tháng chứa ngày "to" có thể kéo dài quá "to" nên phải lọc
+         tường minh, không dựa vào biên bucket như preset). */
+      if (rangeMode && !dashInWindow(dd, win)) return;
       parsed[k].push(dd); allDates.push(dd);
     });
   });
   let gran, starts = [];
   const pushWeeks = (from, to) => { for (let t = new Date(from); t <= to; t.setDate(t.getDate() + 7)) starts.push(new Date(t)); };
-  if (days === 7 || days === 30) {
+  if (rangeMode) {
+    /* Cỡ bucket theo ĐỘ DÀI KHOẢNG, cùng thang với preset: ≤ 31 ngày ->
+       theo NGÀY (đúng 1 bucket/ngày trong khoảng); ≤ 730 ngày -> theo
+       TUẦN (thứ Hai, như kỳ 90); dài hơn -> theo THÁNG (như "Tất cả"
+       trải > 730 ngày). Bucket luôn phủ đủ khoảng kể cả khi không có
+       bản ghi nào (mọi bucket = 0, không lỗi render). */
+    if (win.days <= 31) {
+      gran = "day";
+      for (let t = new Date(win.from); t <= win.to; t.setDate(t.getDate() + 1)) starts.push(new Date(t));
+    } else if (win.days <= 730) {
+      gran = "week";
+      pushWeeks(dashMondayStart(win.from), win.to);
+    } else {
+      gran = "month";
+      let t = new Date(win.from.getFullYear(), win.from.getMonth(), 1);
+      const last = new Date(win.to.getFullYear(), win.to.getMonth(), 1);
+      while (t <= last) { starts.push(new Date(t)); t = new Date(t.getFullYear(), t.getMonth() + 1, 1); }
+    }
+  } else if (days === 7 || days === 30) {
     gran = "day";
     const s0 = new Date(nowD); s0.setDate(s0.getDate() - (days - 1));
     for (let i = 0; i < days; i++) { const t = new Date(s0); t.setDate(t.getDate() + i); starts.push(t); }
@@ -1366,7 +1427,7 @@ function dashTrend(sets, days, now) {
   const buckets = starts.map((s, i) => {
     let label;
     if (gran === "day") label = fmtDM(s);
-    else if (gran === "week") { const e = new Date(starts[i + 1] || new Date(s.getTime() + 7 * 86400000)); e.setDate(e.getDate() - 1); label = fmtDM(s) + "–" + fmtDM(e > nowD && days !== null && days !== undefined ? nowD : e); }
+    else if (gran === "week") { const e = new Date(starts[i + 1] || new Date(s.getTime() + 7 * 86400000)); e.setDate(e.getDate() - 1); const clipEnd = rangeMode ? win.to : nowD; label = fmtDM(s) + "–" + fmtDM(e > clipEnd && (rangeMode || (days !== null && days !== undefined)) ? clipEnd : e); }
     else label = String(s.getMonth() + 1).padStart(2, "0") + "-" + s.getFullYear();
     return { label, company: 0, lead: 0, deal: 0 };
   });
@@ -1551,7 +1612,7 @@ function dashIsOverdueFallback(t, now) {
    id lạ xếp sau), cộng hàng "__none__" (Chưa gán) ở cuối. Các chỉ số cộng
    được (lead phụ trách, lead mới, converted, deal mở, won, lost, việc quá
    hạn) cộng dồn mọi hàng PHẢI bằng đúng toàn hệ. */
-function dashCompare(state, days, now, isOverdueFn) {
+function dashCompare(state, days, now, isOverdueFn, range) {
   const s = state || {};
   const overdue = typeof isOverdueFn === "function" ? isOverdueFn : (t => dashIsOverdueFallback(t, now));
   const memberOrder = memberList(s).map(m => m.id);
@@ -1572,13 +1633,13 @@ function dashCompare(state, days, now, isOverdueFn) {
        cohort). Chỉ số DẠNG TRẠNG THÁI giữ nguyên hiện tại: leadTotal
        (đang phụ trách), open (deal đang mở), overdue (việc quá hạn).
        days = null -> dashCohort trả nguyên tập nên số khớp bản cũ. */
-    const cLeads = dashCohort(leads, days, now), cDeals = dashCohort(deals, days, now);
+    const cLeads = dashCohort(leads, days, now, range), cDeals = dashCohort(deals, days, now, range);
     const wr = dashWinRate(cDeals);
     const converted = cLeads.filter(l => l.status === "converted").length;
     return {
       id, none,
       leadTotal: leads.length,
-      leadNew: dashCountNew(leads, days, now).count,
+      leadNew: dashCountNew(leads, days, now, range).count,
       converted, leadRate: dashPct(converted, cLeads.length),
       open: deals.filter(d => isOpen(d)).length,
       won: wr.won, lost: wr.lost, winRate: wr.rate,
@@ -1587,7 +1648,7 @@ function dashCompare(state, days, now, isOverdueFn) {
   };
   return ids.map(rowFor).concat([rowFor("__none__")]);
 }
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, }; }
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashRangeWindow, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;
