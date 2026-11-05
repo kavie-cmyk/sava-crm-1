@@ -439,3 +439,218 @@ td.list-stt {color:#64748b;font-weight:600}
 .sava-dp-foot {display:flex;justify-content:flex-end;margin-top:6px}
 .sava-dp-todaybtn {border:none;background:none;color:#2563eb;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;padding:4px 6px;border-radius:6px}
 .sava-dp-todaybtn:hover {background:#eef4f6}
+
+/* Workspace surfaces and visual hierarchy. Existing controls retain their states and handlers. */
+:root {
+  --workspace-ink: #162830;
+  --workspace-muted: #536571;
+  --workspace-accent: #06757e;
+  --workspace-bg: #f4f6f8;
+  --workspace-border: #dfe6ea;
+  --workspace-soft: #e2f1f0;
+  --workspace-shadow: 0 1px 2px #16354306, 0 8px 24px #16354306;
+}
+.crm-shell .side,
+.publishing-shell .layout > aside {
+  background: #eaf0f3;
+  border-color: #dbe4e9;
+}
+.crm-shell .workspace-header,
+.publishing-shell .topbar {
+  background: #f9fbfce8;
+  box-shadow: 0 4px 14px #1d3b4910;
+}
+.workspace-switch {
+  background: #f7fafb;
+  border-color: #dce7eb;
+}
+.nav-heading,
+.publishing-shell aside > .eyebrow { color: #536a76; }
+.nav button,
+.publishing-shell .navigation button { color: #465d69; }
+.nav button.on,
+.publishing-shell .navigation button[aria-current=page],
+.mobile-nav button.on {
+  color: #075862;
+  background: #d9eeed;
+  box-shadow: inset 0 0 0 1px #c4e1e1;
+  font-weight: 650;
+}
+.nav button.on svg,
+.publishing-shell .navigation button[aria-current=page] .workspace-nav-icon { color: #075862; }
+.nav-card { background: #f8fbfc; }
+.nav-card:hover { border-color: #9fc4ca; }
+.publishing-shell #roleNav a,
+.crm-shell .role-link { color: #345967; font-weight: 600; }
+
+.toolbar h1,
+.publishing-shell #pageHead h2 {
+  font-size: clamp(1.75rem, 2.5vw, 2.125rem);
+  letter-spacing: -.037em;
+  line-height: 1.18;
+  font-weight: 710;
+}
+.page-description,
+.publishing-shell #pageHead .sub { color: var(--workspace-muted); }
+.linetabs { background: #e7edf1; }
+.linetabs button { color: #4b6371; }
+.linetabs button.on { color: #075862; }
+.crm-shell :is(.panel, .kpi, .gcard),
+.publishing-shell :is(.panel, .metric) { border-color: var(--workspace-border); }
+.crm-shell .kpi .k,
+.publishing-shell .metric small { color: #435a66; font-weight: 620; }
+.kpi .v,
+.publishing-shell .metric strong { color: var(--workspace-ink); font-variant-numeric: tabular-nums; }
+.kpi-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  top: 16px;
+  right: 16px;
+  border-radius: 10px;
+  background: #e9f3f4;
+  color: #28616e;
+}
+.kpi.attention .kpi-icon { background: #faf0dd; color: #795718; }
+.section-heading h2 { color: var(--workspace-ink); font-size: 1.125rem; font-weight: 680; }
+.line-panel .line-total strong { font-variant-numeric: tabular-nums; }
+.board .col { background: #e9eff2; }
+.dcard:hover { border-color: #b6ced4; }
+:is(.table-wrap, .dash-table-wrap, .imp-table-wrap, .table-scroll) > table th {
+  color: #3d5563;
+  background: #edf3f6;
+  font-weight: 650;
+}
+:is(.table-wrap, .dash-table-wrap, .imp-table-wrap, .table-scroll) > table tr:hover td { background-color: #f5fafb; }
+.crm-shell .btn:not(.ghost):not(.danger):hover,
+.publishing-shell .btn.primary:hover { background: #055f67; }
+button:disabled:active { transform: none; }
+
+/* Dashboard controls form one group, with the chart data kept in its own surface. */
+.dash-controls {
+  padding: 12px 14px;
+  background: #eaf0f3;
+  border: 1px solid var(--workspace-border);
+  border-radius: 12px;
+}
+.dash-chip { border-color: #c8d8df; }
+.dash-chip.on { background: #07656c; border-color: #07656c; }
+.dash-panel h3,
+.dash-conv h3 { color: var(--workspace-ink); }
+.dash-legend-note { color: var(--workspace-muted); }
+.dash-funnel-bar { background: #e4edf1; }
+.dash-funnel-start { background: #dfeeed; }
+.dash-conv { min-width: 0; }
+.dash-conv > div:last-child { min-width: 0; }
+.publishing-shell .badge.positive { color: #22684b; }
+.publishing-shell .badge.pending { color: #76571c; }
+.publishing-shell .badge.blocked { color: #983943; }
+.publishing-shell .dialog-head,
+.publishing-shell .dialog-foot { background: #f8fbfcec; }
+
+/* Sign-in keeps the account controls separate from the workspace identity. */
+html.sava-locked #savaAuthRoot {
+  gap: clamp(24px, 4vw, 64px);
+  background: radial-gradient(ellipse at 16% 18%, #deeeee, transparent 52%), #f3f6f8;
+}
+html.sava-locked .auth-context {
+  box-sizing: border-box;
+  max-width: 492px;
+  min-width: 0;
+  padding: clamp(28px, 4vw, 54px);
+  border-radius: 26px;
+  border: 1px solid #194a55;
+  background:
+    repeating-radial-gradient(ellipse at 122% -12%, transparent 0 36px, #bfeaea18 37px 38px, transparent 39px 54px),
+    linear-gradient(150deg, #0d3040 5%, #12404c 57%, #145e61);
+  box-shadow: 0 18px 52px #0e364322;
+}
+.auth-context .auth-mark {
+  background: #d8f3ee;
+  border-color: #d8f3ee;
+  color: #0d4b53;
+  margin-bottom: clamp(26px, 4vw, 50px);
+}
+.auth-context .auth-kicker { color: #a4d7d5; }
+.auth-context h2 { color: #f6fcfc; font-size: clamp(1.9rem, 3.15vw, 2.7rem); }
+.auth-context p { color: #d3e8ea; }
+.auth-lines span {
+  border-color: #a1c9cc54;
+  color: #e4f3f3;
+  background: #e8f7f214;
+}
+.sava-auth-card { border-radius: 24px; box-shadow: 0 12px 40px #1635430d; }
+.sava-auth-card h1 { font-weight: 710; color: var(--workspace-ink); }
+.sava-auth-card label { color: #405763; font-weight: 620; }
+.sava-auth-card .sava-auth-sub { font-size: 13px; }
+.sava-auth-card input { background: #f8fafb; border-color: #cad9e0; }
+.sava-auth-card input:focus { border-color: #06757e; box-shadow: 0 0 0 3px #06757e26; }
+.sava-auth-card button[type=submit] { background: var(--workspace-accent); }
+.sava-auth-card button[type=submit]:hover { background: #055f67; }
+
+@media (max-width: 700px) {
+  html.sava-locked #savaAuthRoot { gap: 15px; padding: 20px 16px 34px; }
+  html.sava-locked .auth-context { width: min(420px, 100%); padding: 22px 24px; border-radius: 20px; }
+  .auth-context .auth-mark { width: 36px; height: 36px; margin-bottom: 15px; font-size: 21px; }
+  .auth-context h2 { font-size: 1.5rem; margin-top: 6px; }
+  .sava-auth-card { padding: 24px; border-radius: 20px; }
+  .workspace-path { min-width: 0; }
+  .workspace-path strong { min-width: 0; }
+  .mobile-nav button { color: #47616e; }
+  .dash-funnel-row:not(.dash-funnel-start) { grid-template-columns: minmax(0, 1fr) minmax(38px, .65fr) minmax(0, 1fr); }
+  .dash-funnel-nm, .dash-funnel-num { overflow-wrap: anywhere; }
+  .dash-ctl { min-width: 0; }
+  .dash-select { max-width: 100%; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .crm-shell .workspace-header,
+  .publishing-shell .topbar,
+  .publishing-shell .dialog-head,
+  .publishing-shell .dialog-foot,
+  .crm-shell .mobile-nav {
+    background: #f9fbfc;
+    backdrop-filter: none;
+  }
+  html.sava-locked .auth-context { background: #103c49; }
+}
+@media (prefers-contrast: more) {
+  :root { --workspace-border: #9aadb8; }
+  .nav button.on,
+  .publishing-shell .navigation button[aria-current=page],
+  .mobile-nav button.on { box-shadow: inset 0 0 0 2px #075862; }
+}
+
+/* Motion follows existing UI states. Drawer and review-dialog springs run separately. */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --workspace-ease-out: cubic-bezier(.22, .8, .28, 1);
+    --workspace-ease-in: cubic-bezier(.5, 0, .75, .5);
+  }
+  .crm-shell :is(button, .btn, .dash-kpi),
+  .publishing-shell :is(button, .btn) {
+    transition: background-color 140ms, border-color 140ms, color 140ms,
+      box-shadow 140ms, transform 160ms var(--workspace-ease-out);
+  }
+  .crm-shell :is(button:not(:disabled):not([aria-disabled=true]), .btn:not(:disabled):not([aria-disabled=true]), .dash-kpi):active,
+  .publishing-shell :is(button:not(:disabled):not([aria-disabled=true]), .btn:not(:disabled):not([aria-disabled=true])):active {
+    transform: scale(.98);
+    transition-duration: 60ms;
+  }
+  .crm-shell #modal.on { animation: workspace-scrim-in 160ms ease-out; }
+  .crm-shell #modal.on > .box { animation: workspace-form-in 210ms var(--workspace-ease-out); }
+}
+
+@media (max-width: 900px) and (prefers-reduced-motion: no-preference) {
+  .crm-shell .side { transition: transform 195ms var(--workspace-ease-in); }
+  .crm-shell.side-open .side { transition: transform 240ms var(--workspace-ease-out); }
+  .crm-shell .side-scrim { transition: opacity 170ms ease-out; }
+}
+
+@keyframes workspace-scrim-in {
+  from { background-color: transparent; }
+}
+@keyframes workspace-form-in {
+  from { opacity: .8; transform: translateY(8px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
