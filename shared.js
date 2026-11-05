@@ -1300,6 +1300,21 @@ function dashCountNew(list, days, now) {
   });
   return { count, missing };
 }
+/* Cohort theo KỲ của bộ lọc chung (Tổng quan): chỉ giữ bản ghi ĐƯỢC TẠO
+   trong kỳ — cùng cửa sổ với dashCountNew (days ngày gồm hôm nay, tính
+   theo createdAt qua dashParseDate/dashDayStart). days = null ("Tất cả")
+   -> trả NGUYÊN danh sách (kể cả bản ghi thiếu createdAt): đây là mỏ neo
+   hồi quy — ở Tất cả mọi khối phải khớp hành vi trước đợt bộ lọc chung.
+   Kỳ hữu hạn: bản ghi thiếu/không parse được createdAt bị loại (không
+   chứng minh được là tạo trong kỳ). Trạng thái của bản ghi trong cohort
+   luôn lấy theo HIỆN TẠI (cohort chỉ lọc theo ngày tạo). */
+function dashCohort(list, days, now) {
+  const src = list || [];
+  if (days === null || days === undefined) return src.slice();
+  const nowD = dashDayStart(now || new Date());
+  const start = new Date(nowD); start.setDate(start.getDate() - (days - 1));
+  return src.filter(e => { const d = dashParseDate(e && e.createdAt); return !!d && dashDayStart(d) >= start; });
+}
 /* Xu hướng thêm mới — quy tắc bucket:
    - Kỳ 7 / 30 ngày -> theo NGÀY (đúng N bucket, bucket cuối = hôm nay).
    - Kỳ 90 ngày -> theo TUẦN (bucket tuần bắt đầu thứ Hai; tuần đầu là tuần
@@ -1489,9 +1504,13 @@ function dashScopeFilter(state, scopeId) {
   const s = state || {};
   const all = { companies: s.companies || [], leads: s.leads || [], deals: s.deals || [], tasks: s.tasks || [], scoped: false, companyIds: null };
   if (!scopeId) return all;
-  const leads = all.leads.filter(l => l && l.ownerId === scopeId);
-  const deals = all.deals.filter(d => d && d.owner === scopeId);
-  const tasks = all.tasks.filter(t => t && t.assignee === scopeId);
+  /* scopeId = "__none__" (trục Người = "Chưa gán" của bộ lọc chung):
+     lead/deal/việc CHƯA có người phụ trách; công ty vẫn = ∪ công ty của
+     các lead/deal chưa gán đó, đúng quy ước "công ty của BD". */
+  const none = scopeId === "__none__";
+  const leads = all.leads.filter(l => l && (none ? !l.ownerId : l.ownerId === scopeId));
+  const deals = all.deals.filter(d => d && (none ? !d.owner : d.owner === scopeId));
+  const tasks = all.tasks.filter(t => t && (none ? !t.assignee : t.assignee === scopeId));
   const ids = new Set();
   leads.forEach(l => { if (l.company) ids.add(l.company); });
   deals.forEach(d => { if (d.company) ids.add(d.company); });
@@ -1547,13 +1566,20 @@ function dashCompare(state, days, now, isOverdueFn) {
     const leads = (s.leads || []).filter(l => l && (none ? !l.ownerId : l.ownerId === id));
     const deals = (s.deals || []).filter(d => d && (none ? !d.owner : d.owner === id));
     const tasks = (s.tasks || []).filter(t => t && (none ? !t.assignee : t.assignee === id));
-    const wr = dashWinRate(deals);
-    const converted = leads.filter(l => l.status === "converted").length;
+    /* Bộ lọc chung (2026-11-05): chỉ số DẠNG LUỒNG tính trên COHORT kỳ
+       đang chọn (bản ghi tạo trong kỳ, trạng thái hiện tại) — leadNew,
+       converted (+ leadRate trên mẫu cohort), won/lost (+ winRate trên
+       cohort). Chỉ số DẠNG TRẠNG THÁI giữ nguyên hiện tại: leadTotal
+       (đang phụ trách), open (deal đang mở), overdue (việc quá hạn).
+       days = null -> dashCohort trả nguyên tập nên số khớp bản cũ. */
+    const cLeads = dashCohort(leads, days, now), cDeals = dashCohort(deals, days, now);
+    const wr = dashWinRate(cDeals);
+    const converted = cLeads.filter(l => l.status === "converted").length;
     return {
       id, none,
       leadTotal: leads.length,
       leadNew: dashCountNew(leads, days, now).count,
-      converted, leadRate: dashPct(converted, leads.length),
+      converted, leadRate: dashPct(converted, cLeads.length),
       open: deals.filter(d => isOpen(d)).length,
       won: wr.won, lost: wr.lost, winRate: wr.rate,
       overdue: tasks.filter(overdue).length,
@@ -1561,7 +1587,7 @@ function dashCompare(state, days, now, isOverdueFn) {
   };
   return ids.map(rowFor).concat([rowFor("__none__")]);
 }
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, }; }
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;

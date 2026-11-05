@@ -235,7 +235,7 @@ test('dashCompare: hàng theo BD + Chưa gán; tổng các chỉ số cộng đ�
   const byId = Object.fromEntries(rows.map(r => [r.id, r]));
   assert.ok(byId.yen && byId.hoang && byId.__none__, 'đủ hàng BD + Chưa gán');
   assert.equal(byId.yen.leadTotal, 2); assert.equal(byId.yen.leadNew, 1, 'l2 tạo 50 ngày trước -> ngoài kỳ 30');
-  assert.equal(byId.yen.converted, 1); assert.equal(byId.yen.leadRate, 50);
+  assert.equal(byId.yen.converted, 1); assert.equal(byId.yen.leadRate, 100, 'bộ lọc chung 2026-11-05: converted + leadRate là chỉ số LUỒNG trên cohort kỳ 30 — lead trong kỳ của Yến chỉ có l1 (converted) nên 1/1 = 100%; leadTotal ở trên vẫn là trạng thái hiện tại (2)');
   assert.equal(byId.yen.open, 1); assert.equal(byId.yen.overdue, 1, 't1 quá hạn; t2 đã xong không tính');
   assert.equal(byId.hoang.won, 1); assert.equal(byId.hoang.winRate, 100);
   assert.equal(byId.__none__.leadTotal, 1); assert.equal(byId.__none__.lost, 1); assert.equal(byId.__none__.overdue, 1, 'việc chưa gán quá hạn vào hàng Chưa gán');
@@ -254,7 +254,9 @@ test('tĩnh: vDash gắn dashAnalyticsHTML; đủ nhãn trung thực + điều k
   assert.ok(html.includes('Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead'), 'phễu phải có ghi chú trung thực nguyên văn');
   assert.ok(html.includes('ảnh chụp hiện tại'), 'phải ghi nhãn phễu/tỉ lệ là ảnh chụp hiện tại');
   assert.ok(html.includes('Chưa có deal đóng'));
-  assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('setDashFunnelLine') && html.includes('setDashFunnelOwner'));
+  assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('setDashFunnelLine'));
+  assert.ok(!html.includes('setDashFunnelOwner'), 'bộ lọc chung 2026-11-05: trục Người của phễu đã gộp vào thanh lọc chung — không còn select người riêng của phễu');
+  assert.ok(html.includes('dash-filterbar') && html.includes('leadCreatedPeriodSel') && html.includes('setLeadCreatedPeriodFilter'), 'thanh lọc chung + bộ lọc kỳ tạo nhìn thấy/gỡ được ở view Lead');
   assert.ok(html.includes('công ty của BD'), 'phải có chú thích định nghĩa công ty của BD khi scope != Toàn hệ');
   assert.ok(shared.includes('const DASH_COLORS'), 'bộ màu dùng chung định nghĩa một chỗ trong shared.js');
   assert.ok(css.includes('.dash-wrap') && css.includes('.dash-funnel-row') && css.includes('.dash-table'), 'CSS dash- phải có trong workspace-design.css');
@@ -380,5 +382,8 @@ test('hành vi: bấm một dòng phễu (dashOpenLeadStatus) mở view Lead l�
   run("dashOpenLeadStatus('not_yet_have_demand')");
   assert.deepEqual(JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)'))), [], 'dòng lối ra lọc đúng not_yet_have_demand (fixture không có lead nào)');
   run("dashOpenLeadStatus('')");
-  assert.equal(run('filteredLeads().length'), 4, 'dòng mốc bỏ lọc trạng thái -> thấy tất cả lead');
+  assert.equal(run('leadCreatedPeriodDays'), 30, 'bộ lọc chung: click phễu mang kỳ đang chọn (mặc định 30) sang view Lead');
+  assert.equal(run('filteredLeads().length'), 3, 'dòng mốc bỏ lọc trạng thái nhưng VẪN lọc kỳ tạo 30 ngày: l2 (50 ngày) bị loại');
+  run("setLeadCreatedPeriodFilter('')");
+  assert.equal(run('filteredLeads().length'), 4, 'gỡ bộ lọc kỳ tạo ở view Lead -> thấy tất cả lead');
 });
