@@ -110,12 +110,38 @@
       if (raw && !localStorage.getItem(backupKey)) localStorage.setItem(backupKey, raw);
     } catch (e) {}
   }
+  /* Phân trang (5/11/2026): PostgREST có trần mặc định 1.000 dòng cho
+     MỘT select — trước đây loadAll() nạp mỗi bảng bằng đúng 1 select
+     nên client nạp mới chỉ nhận 1.000 bản ghi CŨ NHẤT mỗi bảng (bảng
+     companies 4.174 / leads 6.637 dòng trên server mà drawer vẫn báo
+     mất bản ghi ở cuối, vd company của game Luna Mobile). Nay q() lặp
+     .range(from, from + 999) và nối các trang cho tới khi một trang
+     trả về ít hơn PAGE_SIZE dòng (trang cuối). Thứ tự do `build` đặt
+     (thường là created_at ASC) được áp TRƯỚC range ở mỗi trang nên
+     thứ tự toàn thể sau khi nối vẫn nguyên như một select dài; một
+     bảng có số dòng là bội số đúng của PAGE_SIZE tốn thêm đúng 1
+     request trả 0 dòng rồi dừng. Lỗi ở BẤT KỲ trang nào cũng ném ra
+     như cũ (trang đã nạp dở bị bỏ hết) — nhờ vậy qSafe() giữ nguyên
+     ngữ nghĩa "bảng lỗi -> []", kể cả khi lỗi ở trang 2 trở đi.
+     Guard `typeof range`: client Supabase thật luôn có .range();
+     các mock cũ trong test suite chưa mô phỏng .range() thì đi đường
+     1-select như trước (mock không có trần 1.000 nên kết quả không
+     đổi) thay vì vỡ TypeError. */
+  const PAGE_SIZE = 1000;
   async function q(table, build) {
-    let query = ctx.client.from(table).select('*');
-    if (build) query = build(query);
-    const { data, error } = await query;
-    if (error) throw new Error(table + ': ' + (error.message || error.code || 'lỗi không rõ'));
-    return data || [];
+    const all = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      let query = ctx.client.from(table).select('*');
+      if (build) query = build(query);
+      const paged = !!(query && typeof query.range === 'function');
+      if (paged) query = query.range(from, from + PAGE_SIZE - 1);
+      const { data, error } = await query;
+      if (error) throw new Error(table + ': ' + (error.message || error.code || 'lỗi không rõ'));
+      const page = data || [];
+      for (const row of page) all.push(row);
+      if (!paged || page.length < PAGE_SIZE) break;
+    }
+    return all;
   }
   async function qSafe(table, build) { try { return await q(table, build); } catch (e) { return []; } }
   function noteUpdated(table, rows) {
