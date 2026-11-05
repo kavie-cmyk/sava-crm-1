@@ -1366,6 +1366,39 @@ function dashTrend(sets, days, now) {
   keys.forEach(k => parsed[k].forEach(d => { const i = bucketIdx(d); if (i >= 0) buckets[i][k]++; }));
   return { granularity: gran, buckets, missing };
 }
+/* Chọn bucket nào được hiện NHÃN ở trục ngang của biểu đồ xu hướng
+   (dashTrendChartHTML, index.html) sao cho nhãn KHÔNG chồng nhau ở
+   bề rộng biểu đồ chartWidth (mặc định 760 — viewBox của SVG; vì SVG
+   co giãn đồng tỉ lệ, khoảng cách trong viewBox giữ nguyên tỉ lệ ở
+   mọi bề rộng hiển thị thật, kể cả ~390px):
+   - Nhãn trục đã rút gọn: ngày/tuần chỉ còn "dd-mm" (ngày bắt đầu
+     bucket) = 5 ký tự, tháng "mm-yyyy" = 7 ký tự. Ước lượng bề rộng
+     nhãn an toàn = số ký tự × 6 + đệm 12 (đơn vị viewBox, font 9px)
+     -> khe tối thiểu cho 1 nhãn: ngày/tuần 42, tháng 54.
+   - Số bucket <= số nhãn tối đa vừa khe -> hiện MỌI bucket.
+   - Nhiều hơn -> thưa đều theo bước ceil(n / maxLabels); bucket CUỐI
+     LUÔN có nhãn: nếu bucket cuối chưa nằm trong dãy thưa thì THAY
+     nhãn thưa gần nhất bằng nó (khoảng cách tới nhãn liền trước khi
+     đó vẫn >= 1 bước, không tạo cặp nhãn sát nhau gây chồng chữ).
+   Bucket bị ẩn nhãn vẫn vẽ cột + tooltip như cũ (và số trên đầu cột
+   theo quy tắc showNums hiện hành của tầng hiển thị). */
+function dashTrendLabelIndices(count, granularity, chartWidth) {
+  const n = Math.floor(Number(count) || 0);
+  if (n <= 0) return [];
+  const W = Number(chartWidth) > 0 ? Number(chartWidth) : 760;
+  const chars = granularity === "month" ? 7 : 5;
+  const minSlot = chars * 6 + 12;
+  const maxLabels = Math.max(1, Math.floor(W / minSlot));
+  if (n <= maxLabels) return Array.from({ length: n }, (_, i) => i);
+  const step = Math.ceil(n / maxLabels);
+  const idx = [];
+  for (let i = 0; i < n; i += step) idx.push(i);
+  const last = n - 1;
+  if (idx[idx.length - 1] !== last) {
+    if (idx.length > 1) idx[idx.length - 1] = last; else idx.push(last);
+  }
+  return idx;
+}
 /* Phễu Lead TÍCH LUỸ "đã tới bước này trở lên" từ trạng thái HIỆN TẠI
    (hệ thống không lưu lịch sử từng bước): số ở bước i = số lead có status
    ở vị trí >= i trong đường chính mainKeys (gồm "new" ở đầu; KHÔNG gồm
@@ -1635,7 +1668,7 @@ function wmComputedAtText(computedAt) {
   new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hourCycle: "h23", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
   return o.day ? (o.hour + ":" + o.minute + " ngày " + o.day + "-" + o.month + "-" + o.year) : "";
 }
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, WM_METRIC_DEFS, wmScopeKey, wmNum, wmEmptyMetrics, wmNormalizeMetrics, wmMetricsFor, wmDelta, wmAddDaysISO, wmWeekEndISO, wmWeekLabel, wmDefaultWeekIndex, wmComputedAtText }; }
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashConversions, dashCompare, dashIsOverdueFallback, WM_METRIC_DEFS, wmScopeKey, wmNum, wmEmptyMetrics, wmNormalizeMetrics, wmMetricsFor, wmDelta, wmAddDaysISO, wmWeekEndISO, wmWeekLabel, wmDefaultWeekIndex, wmComputedAtText }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;

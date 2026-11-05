@@ -1218,7 +1218,19 @@ function dashTrendChartHTML(trend) {
   const maxV = Math.max(1, ...bs.map(b => Math.max(b.company, b.lead, b.deal)));
   const W = 760, H = 246, top = 20, bottom = 26, plotH = H - top - bottom;
   const gw = W / bs.length, bw = Math.max(2, Math.min(11, gw / 4.2));
-  const showNums = bs.length <= 15, labelEvery = bs.length <= 15 ? 1 : Math.ceil(bs.length / 12);
+  const showNums = bs.length <= 15;
+  /* Nhãn trục ngang (sửa chồng chữ 05/11/2026): (1) RÚT GỌN — bucket
+     tuần vốn có nhãn khoảng "dd-mm–dd-mm" (11 ký tự, khe cột kỳ 90
+     ngày chỉ ~54 đơn vị nên các nhãn chạm/chồng nhau thành một vệt);
+     nhãn trục chỉ hiện ngày BẮT ĐẦU bucket "dd-mm" — vẫn xác định
+     đúng bucket (cột nhóm theo tuần + tooltip trên cột vẫn giữ nhãn
+     khoảng đầy đủ trong <title>). Ngày giữ nguyên "dd-mm", tháng giữ
+     nguyên "mm-yyyy". (2) THƯA NHÃN theo mật độ qua
+     SavaDash.dashTrendLabelIndices: chỉ hiện các bucket được chọn —
+     bucket cuối luôn có nhãn, các bucket ẩn nhãn vẫn có cột + số
+     trên đầu cột (khi showNums) như cũ. */
+  const axisLabel = b => trend.granularity === "week" ? String(b.label).split("–")[0] : b.label;
+  const labelIdx = new Set(D.dashTrendLabelIndices ? D.dashTrendLabelIndices(bs.length, trend.granularity, W) : bs.map((_, i) => i));
   const series = [["company", cols.company], ["lead", cols.lead], ["deal", cols.deal]];
   let svg = "";
   bs.forEach((b, i) => {
@@ -1228,7 +1240,7 @@ function dashTrendChartHTML(trend) {
       svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${color}"><title>${esc(b.label)} · ${k === "company" ? "Công ty" : k === "lead" ? "Lead" : "Deal"} mới: ${v}</title></rect>`;
       if (showNums && v) svg += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="9" fill="#475569">${v}</text>`;
     });
-    if (i % labelEvery === 0) svg += `<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#64748b">${esc(b.label)}</text>`;
+    if (labelIdx.has(i)) svg += `<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#64748b">${esc(axisLabel(b))}</text>`;
   });
   const granTxt = trend.granularity === "day" ? "theo ngày" : trend.granularity === "week" ? "theo tuần" : "theo tháng";
   return `<div class="dash-legend"><span><i style="background:${cols.company}"></i>Công ty mới</span><span><i style="background:${cols.lead}"></i>Lead mới</span><span><i style="background:${cols.deal}"></i>Deal mới</span><span class="dash-legend-note">Cột nhóm ${granTxt}</span></div><svg class="dash-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Biểu đồ xu hướng thêm mới">${svg}</svg>`;
