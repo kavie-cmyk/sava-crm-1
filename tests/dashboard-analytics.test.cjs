@@ -254,7 +254,7 @@ test('tĩnh: vDash gắn dashAnalyticsHTML; đủ nhãn trung thực + điều k
   assert.ok(html.includes('Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead'), 'phễu phải có ghi chú trung thực nguyên văn');
   assert.ok(html.includes('ảnh chụp hiện tại'), 'phải ghi nhãn phễu/tỉ lệ là ảnh chụp hiện tại');
   assert.ok(html.includes('Chưa có deal đóng'));
-  assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('setDashFunnelLine'));
+  assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('setDashLine'));
   assert.ok(!html.includes('setDashFunnelOwner'), 'bộ lọc chung 2026-11-05: trục Người của phễu đã gộp vào thanh lọc chung — không còn select người riêng của phễu');
   assert.ok(html.includes('dash-filterbar') && html.includes('leadCreatedPeriodSel') && html.includes('setLeadCreatedPeriodFilter'), 'thanh lọc chung + bộ lọc kỳ tạo nhìn thấy/gỡ được ở view Lead');
   assert.ok(html.includes('công ty của BD'), 'phải có chú thích định nghĩa công ty của BD khi scope != Toàn hệ');

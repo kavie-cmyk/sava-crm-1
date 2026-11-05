@@ -1315,11 +1315,6 @@ function setDashCustomRange() {
 }
 function setDashScope(v) { dashScope = v || ""; render(); }
 function setDashLine(v) { dashLine = v || ""; render(); }
-/* Tên cũ setDashFunnelLine (setter của select mảng RIÊNG trong đầu phễu)
-   giữ làm alias tương thích: select riêng đó đã GỠ khi trục Mảng hợp
-   nhất lên thanh lọc chung (2026-11-05) — gọi tên cũ nay đặt ĐÚNG trục
-   mảng chung dashLine, không còn đường lọc riêng nào của phễu. */
-function setDashFunnelLine(v) { setDashLine(v); }
 function dashPctTxt(p) { return (p === null || p === undefined) ? "—" : fmtPctVal(p); }
 /* % RIÊNG cho khối phễu Lead: làm tròn 0 chữ số thập phân (số nguyên) để
    tránh hiểu nhầm số lẻ — yêu cầu trình bày của bản chốt phễu. Ngoài khối

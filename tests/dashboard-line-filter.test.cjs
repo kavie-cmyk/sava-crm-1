@@ -266,9 +266,9 @@ test('hành vi: phễu click-through mang CẢ mảng sang view Lead qua curLine
   run("curView = 'dash'; setDashLine(''); dashOpenLeadStatus('converted')");
   assert.equal(run('curLine'), 'all');
   assert.deepEqual(leadIds(run), ['L2', 'L4'], 'converted mọi mảng: L2 (ai) + L4 (publishing)');
-  /* Giữ trong phiên + tên setter cũ là alias của trục chung: */
-  run("setView('dash'); setDashFunnelLine('ai')");
-  assert.equal(run('dashLine'), 'ai', 'setDashFunnelLine (tên cũ) đặt đúng trục mảng chung, không còn lọc riêng');
+  /* Giữ trong phiên: */
+  run("setView('dash'); setDashLine('ai')");
+  assert.equal(run('dashLine'), 'ai', 'setDashLine đặt đúng trục mảng chung');
   run("setView('leads'); setView('dash')");
   assert.equal(run('dashLine'), 'ai', 'lựa chọn mảng không reset khi chuyển view');
   const html = getEl('view').innerHTML;
