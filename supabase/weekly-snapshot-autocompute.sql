@@ -16,6 +16,18 @@
 -- 2.400 giá trị khớp tuyệt đối, 2 cặp chạy liên tiếp; bằng chứng ở
 -- hidden_files/weekly-snapshot/payload_python.json,
 -- payload_sql.json, compare_result.txt, cron_evidence.txt).
+--
+-- Đợt 05/11/2026 — GỠ leadStages (Zac chốt: bảng biến động theo
+-- trạng thái lead không cần thiết): payload mỗi ô chỉ còn 7 chỉ số;
+-- helper ws_lead_status_key (chỉ phục vụ leadStages) được drop ở
+-- dưới; leadsMovedUnique giữ nguyên cách tính (không dùng helper).
+-- Cổng tương đương cho bản gỡ: Python-mới vs SQL-mới, 2 cặp liên
+-- tiếp, 12 tuần x 5 scope x 7 chỉ số = 420 giá trị/cặp, lệch 0;
+-- payload mới khớp 420/420 với payload chính thức cũ ở 7 chỉ số.
+-- Bằng chứng: hidden_files/weekly-snapshot/
+-- payload_*_nostage_pair{1,2}.json, compare_result_nostage.txt,
+-- compare_equivalence_nostage.py (so bằng hàm probe + bảng probe
+-- tạm, không ghi đè dòng snapshot chính thức).
 -- Hàm chỉ ĐỌC các bảng nguồn; chỉ GHI dashboard_snapshots.
 -- KHÔNG đổi policy của dashboard_snapshots.
 -- Chạy file này qua Management API (SQL) — idempotent.
@@ -87,45 +99,15 @@ as $$
 $$;
 
 -- ============================================================
--- HÀM PHỤ: nhãn status của lead trong audit -> key.
--- Khớp lead_key_of(): map LEAD_LABEL_TO_KEY trước (gồm nhãn cũ
--- 'Đạt chuẩn' -> 'qualified'), key thô trùng 11 key hiện hành hoặc
--- 'qualified' thì dùng thẳng, còn lại NULL (bỏ qua ở leadStages
--- nhưng lead VẪN tính vào leadsMovedUnique — xử lý ở hàm chính).
+-- (ĐÃ GỠ 05/11/2026) Helper ws_lead_status_key (nhãn trạng thái
+-- lead -> key) chỉ phục vụ tính leadStages. Zac chốt gỡ bảng biến
+-- động theo trạng thái lead khỏi khối "Biến động tuần" nên helper
+-- thành mã chết -> drop luôn khỏi DB khi áp file này.
+-- leadsMovedUnique KHÔNG dùng helper này (đếm lead duy nhất có
+-- diff status bất kể nhãn, kể cả nhãn cũ 'Đạt chuẩn') nên định
+-- nghĩa đếm của 7 chỉ số còn lại không đổi.
 -- ============================================================
-create or replace function public.ws_lead_status_key(p_label text)
-returns text
-language sql
-immutable
-as $$
-  select case btrim(coalesce(p_label, ''))
-    when 'Mới' then 'new'
-    when 'Sent connect' then 'sent_connect'
-    when '1st message' then 'first_message'
-    when '1st email' then 'first_email'
-    when '1st FU' then 'first_fu'
-    when 'In-response' then 'in_response'
-    when 'In reply' then 'in_reply'
-    when 'Discovery meeting' then 'discovery_meeting'
-    when 'Đã liên hệ' then 'contacted'
-    when 'Đã chuyển đổi' then 'converted'
-    when 'Not yet have demand' then 'not_yet_have_demand'
-    when 'Đạt chuẩn' then 'qualified'
-    when 'new' then 'new'
-    when 'sent_connect' then 'sent_connect'
-    when 'first_message' then 'first_message'
-    when 'first_email' then 'first_email'
-    when 'first_fu' then 'first_fu'
-    when 'in_response' then 'in_response'
-    when 'in_reply' then 'in_reply'
-    when 'discovery_meeting' then 'discovery_meeting'
-    when 'contacted' then 'contacted'
-    when 'converted' then 'converted'
-    when 'not_yet_have_demand' then 'not_yet_have_demand'
-    when 'qualified' then 'qualified'
-    else null
-  end;
-$$;
+drop function if exists public.ws_lead_status_key(text);
 
 -- ============================================================
 -- HÀM CHÍNH: tính lại TOÀN BỘ payload 12 tuần của khối
@@ -300,33 +282,6 @@ begin
       and btrim(too) in ('Có', 'true', 'True')
     group by idx, scope
   ),
-  stage_in as (
-    select idx, scope, public.ws_lead_status_key(too) as k, count(*)::int as n
-    from trans_scoped
-    where entity_type = 'lead' and field = 'status'
-      and public.ws_lead_status_key(too) in (
-        'new', 'sent_connect', 'first_message', 'first_email', 'first_fu',
-        'in_response', 'in_reply', 'discovery_meeting', 'contacted',
-        'converted', 'not_yet_have_demand')
-    group by idx, scope, public.ws_lead_status_key(too)
-  ),
-  stage_out as (
-    select idx, scope, public.ws_lead_status_key(frm) as k, count(*)::int as n
-    from trans_scoped
-    where entity_type = 'lead' and field = 'status'
-      and public.ws_lead_status_key(frm) in (
-        'new', 'sent_connect', 'first_message', 'first_email', 'first_fu',
-        'in_response', 'in_reply', 'discovery_meeting', 'contacted',
-        'converted', 'not_yet_have_demand')
-    group by idx, scope, public.ws_lead_status_key(frm)
-  ),
-  stage_keys as (
-    select k from (values
-      ('new'), ('sent_connect'), ('first_message'), ('first_email'),
-      ('first_fu'), ('in_response'), ('in_reply'), ('discovery_meeting'),
-      ('contacted'), ('converted'), ('not_yet_have_demand')
-    ) as v(k)
-  ),
   cells as (
     select
       w.idx, w.week_start, s.scope,
@@ -343,18 +298,7 @@ begin
       coalesce((select n from created_agg c
         where c.idx = w.idx and c.scope = s.scope and c.kind = 'activitiesNew'), 0) as acts_new,
       coalesce((select n from task_agg m
-        where m.idx = w.idx and m.scope = s.scope), 0) as tasks_done,
-      (
-        select jsonb_object_agg(sk.k, jsonb_build_object(
-          'in', coalesce(si.n, 0),
-          'out', coalesce(so.n, 0),
-          'net', coalesce(si.n, 0) - coalesce(so.n, 0)))
-        from stage_keys sk
-        left join stage_in si
-          on si.idx = w.idx and si.scope = s.scope and si.k = sk.k
-        left join stage_out so
-          on so.idx = w.idx and so.scope = s.scope and so.k = sk.k
-      ) as lead_stages
+        where m.idx = w.idx and m.scope = s.scope), 0) as tasks_done
     from weeks w cross join scopes s
   ),
   cell_json as (
@@ -366,8 +310,7 @@ begin
         'dealsWon', deals_won,
         'dealsLost', deals_lost,
         'activitiesNew', acts_new,
-        'tasksCompleted', tasks_done,
-        'leadStages', lead_stages
+        'tasksCompleted', tasks_done
       ) as metrics
     from cells
   ),
