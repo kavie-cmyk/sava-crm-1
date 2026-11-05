@@ -383,7 +383,12 @@ test('C2: xoá Company/Game còn request Publishing tham chiếu -> CHẶN xoá,
 test('C9: Việc theo người — assignee là member đã xoá tách nhóm riêng, "Chưa gán" chỉ cho assignee rỗng', () => {
   const { run, getEl } = loadIndex();
   run("curView='tasksByMember'; taskMemberFilter='all'; query=''; render()");
-  const v = getEl('view').innerHTML;
+  /* View Việc HỢP NHẤT (5/11): phía trên khối Theo người nay là khối Lịch —
+     bộ lọc người của Lịch cũng có tuỳ chọn "Chưa gán" nên lát cắt phải bắt
+     đầu từ đúng khối Theo người (KPI "Tổng việc đang mở"), không quét từ
+     đầu view như khi Việc theo người còn là view riêng. */
+  const fullView = getEl('view').innerHTML;
+  const v = fullView.slice(fullView.indexOf('Tổng việc đang mở'));
   const ghostSec = sliceBetween(v, 'Thành viên đã xoá', 'Chưa gán');
   assert.ok(ghostSec.includes('Task Ghost Member') && !ghostSec.includes('Task Unassigned'));
   const noneSec = v.slice(v.indexOf('Chưa gán'));

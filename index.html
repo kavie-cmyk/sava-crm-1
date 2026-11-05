@@ -259,9 +259,7 @@
 <button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="events" class=""><i data-icon="meeting"></i><span>Sự kiện</span></button>
-<button data-view="calendar" class=""><i data-icon="meeting"></i><span>Lịch</span></button>
 <button data-view="tasks" class=""><i data-icon="check"></i><span>Việc</span></button>
-<button data-view="tasksByMember" class=""><i data-icon="team"></i><span>Việc theo người</span></button>
 <button data-view="members" class=""><i data-icon="company"></i><span>Thành viên</span></button>
 <button data-view="import" class="import-bd-only" style="display:none"><i data-icon="inbox"></i><span>Import</span></button>
 <button data-view="auditHistory" class="audit-admin-only" style="display:none"><i data-icon="clock"></i><span>Lịch sử tổng</span></button></nav>
@@ -292,9 +290,7 @@
 <button data-view="games" class="" aria-label="Games"><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class="" aria-label="Leads"><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="events" class="" aria-label="Sự kiện"><i data-icon="meeting"></i><span>Sự kiện</span></button>
-<button data-view="calendar" class="" aria-label="Lịch"><i data-icon="meeting"></i><span>Lịch</span></button>
 <button data-view="tasks" class="" aria-label="Việc"><i data-icon="check"></i><span>Việc</span></button>
-<button data-view="tasksByMember" class="" aria-label="Việc theo người"><i data-icon="team"></i><span>Việc theo người</span></button>
 <button data-view="members" class="" aria-label="Thành viên"><i data-icon="company"></i><span>Thành viên</span></button>
 <button data-view="import" class="import-bd-only" style="display:none" aria-label="Import"><i data-icon="inbox"></i><span>Import</span></button>
 <button data-view="auditHistory" class="audit-admin-only" style="display:none" aria-label="Lịch sử tổng"><i data-icon="clock"></i><span>Lịch sử tổng</span></button></nav>
@@ -987,7 +983,19 @@ function lineTabs() {
   el.innerHTML = mk("all","Tất cả","#83929d") + Object.entries(LINES).map(([k,v]) => mk(k, v.name, v.color)).join("");
 }
 function setLine(k) { curLine = k; render(); }
-function setView(v) { curView = v; render(); }
+/* View Việc HỢP NHẤT (gộp 5/11/2026): nav chỉ còn MỘT mục "Việc" (tasks)
+   chứa Calendar ở trên + danh sách việc ở dưới. Hai tên view CŨ —
+   "calendar" (Lịch làm việc riêng) và "tasksByMember" (Việc theo người
+   riêng) — được ÁNH XẠ về view hợp nhất ở đây và trong render(), nên mọi
+   đường dẫn/chip/deep-link/nút tắt còn dùng tên cũ đều mở đúng màn hình
+   hợp nhất thay vì link chết: "calendar" -> view hợp nhất (phần Lịch nằm
+   ngay phía trên cùng của màn hình, không cần cuộn thêm); "tasksByMember"
+   -> view hợp nhất với khối danh sách phía dưới ở chế độ Theo người. */
+function setView(v) {
+  if (v === "calendar") v = "tasks";
+  else if (v === "tasksByMember") { taskListMode = "bymember"; v = "tasks"; }
+  curView = v; render();
+}
 document.getElementById("nav").addEventListener("click", e => { const b = e.target.closest("button[data-view]"); if (b) setView(b.dataset.view); });
 document.getElementById("search").addEventListener("input", e => { query = e.target.value.trim().toLowerCase(); render(); });
 
@@ -1093,6 +1101,11 @@ function setAuditHistPage(key, page) { listPageState[key] = page; loadAuditHisto
 function toggleAuditHistBlock(key) { listCollapsedState[key] = !listCollapsedState[key]; loadAuditHistory(); }
 
 function render() {
+  /* Ánh xạ view cũ của màn hình Việc hợp nhất (như setView): mã/bookmark
+     trong phiên gán thẳng curView = "calendar" / "tasksByMember" vẫn mở
+     đúng màn hình hợp nhất thay vì sập vì không còn view riêng. */
+  if (curView === "calendar") curView = "tasks";
+  else if (curView === "tasksByMember") { taskListMode = "bymember"; curView = "tasks"; }
   lineTabs();
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === curView));
   /* P6: mục nav "Lịch sử tổng" CHỈ Admin thấy — ẩn/hiện theo vai ở mỗi lần
@@ -1100,8 +1113,8 @@ function render() {
   document.querySelectorAll(".audit-admin-only").forEach(el => { el.style.display = isAdminViewer() ? "" : "none"; });
   /* Mục nav "Import" hiện cho Admin + BD (isImportViewer), ẩn với vai khác — cùng mẫu gate theo vai của Lịch sử tổng. */
   document.querySelectorAll(".import-bd-only").forEach(el => { el.style.display = isImportViewer() ? "" : "none"; });
-  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Công ty & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", calendar:"Lịch làm việc", tasks:"Việc", tasksByMember:"Việc theo người", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
-  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", calendar:"Việc và sự kiện của team trên một lịch chung — việc kéo dải từ ngày bắt đầu tới hạn, sự kiện kéo dải theo ngày diễn ra.", tasks:"Những việc cần theo dõi và hoàn thành của team.", tasksByMember:"Admin xem khối lượng việc, việc quá hạn và phân bổ theo từng thành viên.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
+  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Công ty & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
+  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Lịch chung của team ở phía trên (việc + sự kiện, lọc theo loại và theo người) và danh sách việc ở phía dưới — xem dạng danh sách hoặc theo người.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
   /* Nút header "+ Thêm deal" là nút CỐ ĐỊNH toàn app trong toolbar (không
@@ -1111,7 +1124,7 @@ function render() {
      nguyên hành vi như cũ. */
   const headerAddBtn = document.getElementById("headerAddDealBtn");
   if (headerAddBtn) headerAddBtn.style.display = curView === "events" ? "none" : "";
-  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, events:vEvents, calendar:vCalendar, tasks:vTasks, tasksByMember:vTasksByMember, members:vMembers, import:vImport, auditHistory:vAuditHistory })[curView]();
+  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, events:vEvents, tasks:vTasks, members:vMembers, import:vImport, auditHistory:vAuditHistory })[curView]();
 }
 
 function pipelineValue(ds) {
@@ -2210,7 +2223,9 @@ function saveEvent(id) {
   if (id) { ev = existing; if (!ev) return; Object.assign(ev, data); }
   else { ev = { id: "ev" + Date.now(), ...data, companies: [], leads: [], deals: [] }; ensureEvents().push(ev); }
   save(); closeEdit();
-  if (curView === "events") render();
+  /* View Sự kiện riêng HOẶC view Việc hợp nhất (Lịch nằm ở phần trên của
+     view đó): dựng lại nền để lịch/danh sách phản ánh ngay sự kiện vừa sửa. */
+  if (curView === "events" || curView === "tasks") render();
   openEvent(ev.id);
   toast("Đã lưu sự kiện: " + name);
 }
@@ -2295,7 +2310,33 @@ function convertLead(id) {
   openDealFormForLead(l);
 }
 
+/* ===== View Việc HỢP NHẤT (gộp 5/11/2026 theo chốt của Zac) =====
+   MỘT màn hình cuộn dọc duy nhất sau nav "Việc":
+   - PHÍA TRÊN: Calendar (vCalendar — Việc + Sự kiện trên lịch chung, có
+     lọc đồng thời theo loại và theo người; xem khối Lịch bên dưới);
+   - PHÍA DƯỚI: khối danh sách việc, bên trong khối có chuyển nhỏ
+     Danh sách ⇄ Theo người (taskListMode).
+   taskListMode là UI-state THUẦN trong phiên (cùng họ leadViewMode:
+   không nằm trong S, không qua save(), không ghi localStorage) — rời
+   view rồi quay lại vẫn giữ chế độ đang chọn của khối danh sách.
+   vTasks() là hàm dựng DUY NHẤT của view: nó GHÉP HTML do vCalendar(),
+   vTasksList() và vTasksByMember() TRẢ VỀ — cả ba hàm đó không tự ghi
+   vào #view nữa. Lọc của Calendar (cal*) và lọc của khối danh sách
+   (query/sort/phân trang/taskMemberFilter) độc lập với nhau như cũ. */
+let taskListMode = "list";
+function setTaskListMode(mode) { taskListMode = mode === "bymember" ? "bymember" : "list"; render(); }
+function taskListHeadHTML() {
+  return `<div class="lead-view-head" style="margin-top:16px"><h3 style="margin:0">📋 Danh sách việc</h3>
+    <div class="tabs" role="group" aria-label="Chế độ xem danh sách việc">
+      <button class="${taskListMode === "list" ? "on" : ""}" onclick="setTaskListMode('list')">☰ Danh sách</button>
+      <button class="${taskListMode === "bymember" ? "on" : ""}" onclick="setTaskListMode('bymember')">👥 Theo người</button>
+    </div></div>`;
+}
 function vTasks() {
+  const listHTML = taskListMode === "bymember" ? vTasksByMember() : vTasksList();
+  document.getElementById("view").innerHTML = vCalendar() + taskListHeadHTML() + listHTML;
+}
+function vTasksList() {
   const filtered = S.tasks.filter(t => !query || t.title.toLowerCase().includes(query));
   const sortedTasks = applyListSort("tasks", filtered, t => t.title || "");
   /* Việc 8: phân trang việc 10/trang sau sort; STT liên tục qua trang. */
@@ -2305,10 +2346,12 @@ function vTasks() {
   const emptyMsg = !S.tasks.length
     ? '<div class="empty-state" style="margin-top:10px">Chưa có việc nào — bấm "+ Thêm việc" để tạo việc đầu tiên.</div>'
     : (!filtered.length ? '<div class="empty-state" style="margin-top:10px">Không có việc nào khớp tìm kiếm hiện tại.</div>' : "");
-  document.getElementById("view").innerHTML = `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${sortBarHTML("tasks")}${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành việc.</div></div>`;
+  return `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${sortBarHTML("tasks")}${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành việc.</div></div>`;
 }
 
-/* ===== Việc theo người (admin): gom task theo assignee + lọc trạng thái ===== */
+/* ===== Việc theo người (admin): gom task theo assignee + lọc trạng thái =====
+   Nay là chế độ "Theo người" của KHỐI DANH SÁCH phía dưới trong view Việc
+   hợp nhất (vTasks ghép ở trên): hàm TRẢ VỀ HTML, không tự ghi #view. */
 let taskMemberFilter = "all";
 function setTaskMemberFilter(v) { taskMemberFilter = v; render(); }
 function vTasksByMember() {
@@ -2359,18 +2402,32 @@ function vTasksByMember() {
       <div class="sum">Đang mở: <b>${open}</b> · Quá hạn: <b class="${od ? "overdue" : ""}">${od}</b> · Đã xong: <b>${done}</b> · Tổng sau lọc: <b>${shown.length}</b> việc</div>
       ${body}</div>`;
   }).join("");
-  document.getElementById("view").innerHTML = overview + filterBar +
+  return overview + filterBar +
     (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
 }
 
-/* ===== View Lịch (Calendar) — Việc + Sự kiện trên một lịch chung =====
-   Chỉ app BD (view này không tồn tại ở mkt.html / publishing.html).
+/* ===== Lịch (Calendar) — Việc + Sự kiện trên một lịch chung =====
+   Chỉ app BD (khối này không tồn tại ở mkt.html / publishing.html).
+   Từ 5/11/2026 khối Lịch là PHẦN TRÊN của view Việc hợp nhất (vTasks
+   ghép: Lịch ở trên, danh sách việc ở dưới) — vCalendar() TRẢ VỀ HTML,
+   không tự ghi #view. Bấm chip/dải Việc -> editTask (mở thẳng form sửa
+   việc); bấm dải Sự kiện -> openEvent (drawer sự kiện, đường vào sửa
+   như cũ); panel ngày + panel "Chưa có ngày" cùng quy tắc bấm-để-sửa.
+   Lưu việc (saveTask) / lưu sự kiện (saveEvent) đều render() lại nên
+   lịch vẽ lại đúng ngay sau khi sửa.
    UI-state THUẦN trong phiên (cùng họ taskMemberFilter / dashScope):
    calMode ("month" mặc định | "week"), calAnchor (ngày ISO neo — tháng/
    tuần đang xem suy ra từ nó), calMemberFilter ("" = Tất cả, member id,
-   "__none__" = Chưa gán — CHỈ áp cho Việc theo assignee như view Việc
-   theo người; Sự kiện luôn hiện tất cả), calSelectedDay (ngày ISO đang
-   mở panel chi tiết, "" = đóng). Không nằm trong S, không qua save().
+   "__none__" = Chưa gán — CHỈ áp cho Việc theo assignee; Sự kiện không
+   có người phụ trách nên luôn hiện ở mọi lựa chọn người),
+   calKindFilter ("" = Tất cả | "task" = Chỉ Việc | "event" = Chỉ Sự
+   kiện), calSelectedDay (ngày ISO đang mở panel chi tiết, "" = đóng).
+   Hai trục lọc kết hợp kiểu AND và áp NHẤT QUÁN cho lưới + panel chi
+   tiết ngày + panel "Chưa có ngày" (cả ba đều suy ra từ calBuildItems);
+   chuyển tháng/tuần (calNav/calSetMode) KHÔNG đụng lựa chọn lọc nên
+   lọc giữ nguyên trong phiên. Lọc của Lịch không ảnh hưởng khối danh
+   sách việc phía dưới (khối đó có lọc riêng). Không nằm trong S, không
+   qua save().
    Ngày tháng: tính toán thuần trên chuỗi ISO yyyy-mm-dd bằng số học UTC
    (không lệch múi giờ); hiển thị qua fmtWhen (dd-mm-yyyy) như toàn app.
    Tuần LUÔN bắt đầu Thứ 2. Trạng thái hiển thị TÁI DÙNG đúng quy ước sẵn
@@ -2395,7 +2452,7 @@ function vTasksByMember() {
    nhất quán cả dải thay vì chỉ đầu/đuôi); Sự kiện planned đã qua ngày
    -> giữ nền tím + viền vàng #f59e0b + tiền tố ⚠️ (đúng cặp màu cảnh báo
    của view Sự kiện). */
-let calMode = "month", calAnchor = "", calMemberFilter = "", calSelectedDay = "";
+let calMode = "month", calAnchor = "", calMemberFilter = "", calSelectedDay = "", calKindFilter = "";
 function calParseISO(iso) { if (!isValidDateStr(iso)) return null; const [y, m, d] = iso.split("-").map(Number); return { y, m, d }; }
 function calISOfromUTC(dt) { return dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0") + "-" + String(dt.getUTCDate()).padStart(2, "0"); }
 function calAddDays(iso, n) { const p = calParseISO(iso); if (!p) return ""; return calISOfromUTC(new Date(Date.UTC(p.y, p.m - 1, p.d + n))); }
@@ -2433,6 +2490,7 @@ function calEventState(ev) { const phase = eventStatusKey(ev); return { phase, w
 function calBuildItems() {
   const dated = [], undated = [];
   (Array.isArray(S.tasks) ? S.tasks : []).forEach(t => {
+    if (calKindFilter === "event") return; /* trục LOẠI: Chỉ Sự kiện -> bỏ mọi Việc (cả dated lẫn undated) */
     if (calMemberFilter) {
       if (calMemberFilter === "__none__") { if (t.assignee) return; }
       else if (t.assignee !== calMemberFilter) return;
@@ -2443,6 +2501,7 @@ function calBuildItems() {
     else undated.push({ kind: "task", id: t.id, title: t.title || "—", ref: t, reason: t.dueDate ? "Hạn không đọc được thành ngày: " + t.dueDate : (t.due ? "Hạn dạng chữ: " + t.due : "Chưa có hạn ngày") });
   });
   eventsList().forEach(ev => {
+    if (calKindFilter === "task") return; /* trục LOẠI: Chỉ Việc -> bỏ mọi Sự kiện; trục NGƯỜI không áp cho Sự kiện */
     if (query && !(ev.name || "").toLowerCase().includes(query)) return;
     const r = calEventRange(ev);
     if (r) { const st = calEventState(ev); dated.push({ kind: "event", id: ev.id, title: ev.name || "—", start: r.start, end: r.end, phase: st.phase, warn: st.warn, ref: ev }); }
@@ -2484,7 +2543,7 @@ function calSegHTML(sg) {
   }
   const rangeTxt = fmtWhen(it.start) + (it.end !== it.start ? " – " + fmtWhen(it.end) : "");
   const onclick = isTask ? `editTask('${it.id}')` : `openEvent('${it.id}')`;
-  return `<div class="${cls}" style="grid-column:${sg.colStart + 1} / ${sg.colEnd + 2}" onclick="event.stopPropagation(); ${onclick}" title="${esc((isTask ? "Việc: " : "Sự kiện: ") + it.title + " · " + rangeTxt)}">${prefix}${esc(it.title)}</div>`;
+  return `<div class="${cls}" style="grid-column:${sg.colStart + 1} / ${sg.colEnd + 2}" onclick="event.stopPropagation(); ${onclick}" title="${esc((isTask ? "Việc: " : "Sự kiện: ") + it.title + " · " + rangeTxt + (isTask ? " · Bấm để sửa việc" : " · Bấm để mở sự kiện"))}">${prefix}${esc(it.title)}</div>`;
 }
 function calWeekHTML(week, items, maxLanes) {
   const segs = calWeekSegments(week, items);
@@ -2516,7 +2575,7 @@ function calItemRowHTML(it) {
   const chip = isTask ? `<span class="chip" style="background:#2563eb">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed">🎪 Sự kiện</span>`;
   const rangeTxt = fmtWhen(it.start) + (it.end !== it.start ? " – " + fmtWhen(it.end) : "");
   const onclick = isTask ? `editTask('${it.id}')` : `openEvent('${it.id}')`;
-  return `<div class="cal-itemrow" onclick="${onclick}" title="Bấm để mở chi tiết"><span style="font-weight:700">${esc(it.title)}</span>${chip}<span class="mut">${esc(rangeTxt)} · ${esc(calItemStatusText(it))}</span></div>`;
+  return `<div class="cal-itemrow" onclick="${onclick}" title="${isTask ? "Bấm để sửa việc" : "Bấm để mở sự kiện"}"><span style="font-weight:700">${esc(it.title)}</span>${chip}<span class="mut">${esc(rangeTxt)} · ${esc(calItemStatusText(it))}</span></div>`;
 }
 function calDayPanelHTML(dated) {
   if (!calSelectedDay) return "";
@@ -2529,7 +2588,7 @@ function calUndatedHTML(undated) {
     const isTask = u.kind === "task";
     const chip = isTask ? `<span class="chip" style="background:#2563eb">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed">🎪 Sự kiện</span>`;
     const onclick = isTask ? `editTask('${u.id}')` : `openEvent('${u.id}')`;
-    return `<div class="cal-itemrow" onclick="${onclick}" title="Bấm để mở chi tiết"><span style="font-weight:700">${esc(u.title)}</span>${chip}<span class="mut">${esc(u.reason)}</span></div>`;
+    return `<div class="cal-itemrow" onclick="${onclick}" title="${isTask ? "Bấm để sửa việc" : "Bấm để mở sự kiện"}"><span style="font-weight:700">${esc(u.title)}</span>${chip}<span class="mut">${esc(u.reason)}</span></div>`;
   }).join("");
   return `<section class="panel cal-undated"><div class="panel-title"><h3>📌 Chưa có ngày <span class="count-badge">${undated.length}</span></h3></div>${undated.length ? rows : `<div class="mut">Không có mục nào chưa có ngày — mọi việc đều có hạn ngày đọc được và mọi sự kiện đều có ngày đọc được.</div>`}<div class="mut" style="margin-top:8px">Mục ở đây chưa đặt được lên lịch (việc chưa có hạn ngày đọc được / sự kiện có ngày dạng chữ tự do). Bấm vào mục để mở chi tiết và bổ sung ngày.</div></section>`;
 }
@@ -2543,10 +2602,10 @@ function vCalendar() {
   const wd = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"];
   const memberOpts = `<option value="" ${!calMemberFilter ? "selected" : ""}>Tất cả</option>` + memberList(S).map(m => `<option value="${esc(m.id)}" ${calMemberFilter === m.id ? "selected" : ""}>${esc(m.name)}${m.active ? "" : " (đã ngừng)"}</option>`).join("") + `<option value="__none__" ${calMemberFilter === "__none__" ? "selected" : ""}>Chưa gán</option>`;
   const head = `<div class="cal-head"><button class="btn ghost small" onclick="calNav(-1)" aria-label="Lùi">‹</button><button class="btn ghost small" onclick="calToday()">Hôm nay</button><button class="btn ghost small" onclick="calNav(1)" aria-label="Tiến">›</button><h3>${esc(title)}</h3>
-    <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mut">Xem:</span><button class="btn ${calMode === "month" ? "" : "ghost"} small" onclick="calSetMode('month')">Tháng</button><button class="btn ${calMode === "week" ? "" : "ghost"} small" onclick="calSetMode('week')">Tuần</button><span class="mut">Việc theo:</span><select onchange="calSetMember(this.value)" style="min-width:150px" aria-label="Lọc việc theo người phụ trách">${memberOpts}</select></span></div>`;
-  const legend = `<div class="cal-legend"><span><span class="cal-dot" style="background:#2563eb"></span>Việc (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Bộ lọc người chỉ áp cho Việc — Sự kiện luôn hiện tất cả. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó.</span></div>`;
+    <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mut">Xem:</span><button class="btn ${calMode === "month" ? "" : "ghost"} small" onclick="calSetMode('month')">Tháng</button><button class="btn ${calMode === "week" ? "" : "ghost"} small" onclick="calSetMode('week')">Tuần</button><span class="mut">Loại:</span><button class="btn ${!calKindFilter ? "" : "ghost"} small" onclick="calSetKind('')" aria-pressed="${!calKindFilter}">Tất cả</button><button class="btn ${calKindFilter === "task" ? "" : "ghost"} small" onclick="calSetKind('task')" aria-pressed="${calKindFilter === "task"}">Chỉ Việc</button><button class="btn ${calKindFilter === "event" ? "" : "ghost"} small" onclick="calSetKind('event')" aria-pressed="${calKindFilter === "event"}">Chỉ Sự kiện</button><span class="mut">Việc theo:</span><select onchange="calSetMember(this.value)" style="min-width:150px" aria-label="Lọc việc theo người phụ trách">${memberOpts}</select></span></div>`;
+  const legend = `<div class="cal-legend"><span><span class="cal-dot" style="background:#2563eb"></span>Việc (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Hai bộ lọc Loại × Người kết hợp nhau (AND): lọc người chỉ áp cho Việc — Sự kiện không có người phụ trách nên vẫn hiện ở mọi lựa chọn người (trừ khi đang lọc “Chỉ Việc”); lọc loại áp cả cho panel ngày và panel “Chưa có ngày” bên dưới lịch. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó; bấm vào một Việc để sửa ngay, bấm vào một Sự kiện để mở chi tiết/sửa.</span></div>`;
   const grid = `<div class="cal-grid"><div class="cal-wdrow">${wd.map(d => `<div>${d}</div>`).join("")}</div>${weeks.map(w => calWeekHTML(w, dated, maxLanes)).join("")}</div>`;
-  document.getElementById("view").innerHTML = head + legend + grid + calDayPanelHTML(dated) + calUndatedHTML(undated);
+  return head + legend + grid + calDayPanelHTML(dated) + calUndatedHTML(undated);
 }
 function calSetMode(m) { calMode = m === "week" ? "week" : "month"; render(); }
 function calNav(dir) {
@@ -2562,6 +2621,7 @@ function calNav(dir) {
 }
 function calToday() { calAnchor = todayStr(); calSelectedDay = todayStr(); render(); }
 function calSetMember(v) { calMemberFilter = v || ""; render(); }
+function calSetKind(v) { calKindFilter = v === "task" || v === "event" ? v : ""; render(); }
 function calOpenDay(iso) { calSelectedDay = iso; render(); }
 function calCloseDay() { calSelectedDay = ""; render(); }
 function calNewTask() { if (!calSelectedDay) return; editTask(null, null, null, { startDate: calSelectedDay, dueDate: calSelectedDay }); }

@@ -1,6 +1,13 @@
-/* View Lịch (Calendar) trong app BD + field Ngày bắt đầu (startDate) của Việc:
-   - View "Lịch" mới (nav desktop + mobile, title/description, dispatch trong
-     render()); KHÔNG có ở mkt.html / publishing.html.
+/* Lịch (Calendar) trong app BD + field Ngày bắt đầu (startDate) của Việc:
+   - Từ 5/11/2026: Lịch KHÔNG còn là view riêng — nav chỉ còn 1 mục "Việc"
+     mở MÀN HÌNH HỢP NHẤT (Lịch ở trên + danh sách việc ở dưới, khối danh
+     sách có chuyển nhỏ Danh sách ⇄ Theo người qua taskListMode); tên view
+     cũ "calendar"/"tasksByMember" được setView/render ánh xạ về hợp nhất.
+     KHÔNG có ở mkt.html / publishing.html.
+   - Lịch lọc ĐỒNG THỜI 2 trục kết hợp AND: loại (calKindFilter: "" Tất cả
+     / "task" Chỉ Việc / "event" Chỉ Sự kiện) × người (calMemberFilter,
+     chỉ áp cho Việc); cả hai áp nhất quán cho lưới + panel ngày + panel
+     "Chưa có ngày" qua calBuildItems, và giữ nguyên khi chuyển tháng/tuần.
    - Chế độ Tháng (mặc định) + Tuần; tuần bắt đầu Thứ 2; điều hướng ‹ Hôm nay ›.
    - Việc: dải startDate -> dueDate; CHƯA đặt startDate -> đầu dải = chính
      ngày hạn (startDate ?? dueDate, KHÔNG dùng createdAt — Zac chốt lại
@@ -85,11 +92,16 @@ function loadIndex(state) {
 }
 
 /* ---------- Tĩnh: nav / phạm vi app BD ---------- */
-test('tĩnh: nav có view Lịch (desktop + mobile), render() dispatch vCalendar; mkt/publishing KHÔNG có view Lịch', () => {
+test('tĩnh: nav CHỈ còn 1 mục Việc (desktop + mobile) cho màn hình hợp nhất; không còn nav Lịch/Việc theo người riêng; mkt/publishing KHÔNG có Lịch', () => {
   const idx = read('index.html');
-  assert.equal((idx.match(/data-view="calendar"/g) || []).length, 2, 'phải có nút Lịch ở nav desktop + mobile-nav');
-  assert.ok(idx.includes('calendar:"Lịch làm việc"') || idx.includes("calendar:\"Lịch làm việc\""), 'thiếu tiêu đề view Lịch');
-  assert.ok(idx.includes('calendar:vCalendar'), 'render() phải dispatch sang vCalendar');
+  assert.equal((idx.match(/data-view="tasks"/g) || []).length, 2, 'phải có đúng nút Việc ở nav desktop + mobile-nav');
+  assert.equal((idx.match(/data-view="calendar"/g) || []).length, 0, 'nav Lịch riêng phải bị gỡ');
+  assert.equal((idx.match(/data-view="tasksByMember"/g) || []).length, 0, 'nav Việc theo người riêng phải bị gỡ (đã thành chuyển nhỏ trong khối danh sách)');
+  assert.ok(idx.includes('tasks:"Việc"'), 'tiêu đề view hợp nhất phải là "Việc"');
+  assert.ok(idx.includes('tasks:vTasks'), 'render() phải dispatch view hợp nhất sang vTasks');
+  assert.ok(idx.includes('vCalendar() + taskListHeadHTML() + listHTML'), 'vTasks phải ghép Lịch (trên) + đầu khối danh sách + danh sách (dưới)');
+  assert.ok(idx.includes("setTaskListMode('list')") && idx.includes("setTaskListMode('bymember')"), 'khối danh sách phải có chuyển nhỏ Danh sách ⇄ Theo người');
+  assert.ok(idx.includes("if (v === \"calendar\")") && idx.includes('taskListMode = "bymember"'), 'setView/render phải ánh xạ tên view cũ calendar/tasksByMember về view hợp nhất');
   assert.ok(idx.includes('id="e_tstartDate" type="text" placeholder="dd-mm-yyyy"'), 'form việc phải có ô Ngày bắt đầu dạng text dd-mm-yyyy');
   for (const f of ['mkt.html', 'publishing.html', 'publishing.js']) {
     assert.ok(!read(f).includes('data-view="calendar"'), f + ' không được có view Lịch');
@@ -321,6 +333,100 @@ test('calNewTask / calNewEvent: tạo mới từ panel ngày điền sẵn ĐÚN
   h.run("calSelectedDay = '" + day + "'; calNewEvent();");
   const eform = h.getEl('editBox').innerHTML;
   assert.ok(eform.includes('value="' + dmyOf(day) + '"'), 'sự kiện mới từ Lịch: Ngày bắt đầu điền sẵn ngày đang chọn');
+});
+
+/* ---------- View Việc HỢP NHẤT: Lịch trên + danh sách dưới (5/11/2026) ---------- */
+test('hợp nhất: view Việc hiện Lịch Ở TRÊN + khối danh sách Ở DƯỚI trên cùng một trang; mặc định khối dưới là Danh sách', () => {
+  const h = loadIndex();
+  h.run("calAnchor = todayStr(); curView = 'tasks'; render();");
+  const view = h.getEl('view').innerHTML;
+  const iCal = view.indexOf('cal-grid'), iHead = view.indexOf('Danh sách việc'), iList = view.indexOf('Việc của cả team');
+  assert.ok(iCal > -1 && iHead > iCal && iList > iHead, 'thứ tự phải là: lưới lịch -> đầu khối danh sách -> danh sách việc');
+  assert.equal(h.getEl('viewTitle').textContent, 'Việc', 'tiêu đề view hợp nhất là "Việc"');
+  assert.ok(view.includes("setTaskListMode('bymember')"), 'khối danh sách phải có nút chuyển sang Theo người');
+  assert.equal(h.run('taskListMode'), 'list', 'chế độ mặc định của khối danh sách là Danh sách');
+});
+
+test('hợp nhất: chuyển nhỏ trong khối danh sách Danh sách ⇄ Theo người; rời view rồi quay lại VẪN giữ chế độ', () => {
+  const h = loadIndex();
+  h.run("curView = 'tasks'; render(); setTaskListMode('bymember');");
+  let view = h.getEl('view').innerHTML;
+  assert.ok(view.includes('Tổng việc đang mở') && view.includes('Lọc theo trạng thái:'), 'chế độ Theo người phải hiện đúng nội dung Việc theo người cũ');
+  assert.ok(view.includes('cal-grid'), 'Lịch vẫn ở phía trên khi khối dưới ở chế độ Theo người');
+  h.run("setView('dash'); setView('tasks');");
+  view = h.getEl('view').innerHTML;
+  assert.ok(view.includes('Tổng việc đang mở'), 'quay lại view Việc phải giữ chế độ Theo người đã chọn');
+  h.run("setTaskListMode('list');");
+  assert.ok(h.getEl('view').innerHTML.includes('Việc của cả team'), 'chuyển về Danh sách phải hiện lại danh sách việc');
+});
+
+test('hợp nhất: tên view cũ calendar/tasksByMember (setView + gán thẳng curView) mở đúng màn hình hợp nhất', () => {
+  const h = loadIndex();
+  h.run("setView('calendar');");
+  assert.equal(h.run('curView'), 'tasks', 'setView(calendar) phải ánh xạ sang tasks');
+  assert.ok(h.getEl('view').innerHTML.includes('cal-grid'), 'mở qua tên cũ calendar vẫn thấy Lịch ở phần trên');
+  h.run("curView = 'tasksByMember'; render();");
+  assert.equal(h.run('curView'), 'tasks', 'gán thẳng curView=tasksByMember phải được render() ánh xạ sang tasks');
+  assert.ok(h.getEl('view').innerHTML.includes('Tổng việc đang mở'), 'mở qua tên cũ tasksByMember: khối dưới ở chế độ Theo người');
+  h.run("setView('tasksByMember');");
+  assert.equal(h.run('taskListMode'), 'bymember');
+});
+
+/* ---------- Lọc 2 trục của Lịch: loại × người (AND) ---------- */
+test('calBuildItems: trục LOẠI — Chỉ Việc bỏ hết Sự kiện, Chỉ Sự kiện bỏ hết Việc (cả dated lẫn Chưa có ngày)', () => {
+  const h = loadIndex();
+  h.run("calKindFilter = 'task'");
+  let b = h.run('calBuildItems()');
+  assert.ok(b.dated.length && b.dated.every(i => i.kind === 'task'), 'Chỉ Việc: dated chỉ còn việc');
+  assert.deepEqual([...b.undated.map(u => u.id)], ['tNoDate'], 'Chỉ Việc: panel Chưa có ngày chỉ còn việc chưa có hạn');
+  h.run("calKindFilter = 'event'");
+  b = h.run('calBuildItems()');
+  assert.ok(b.dated.length && b.dated.every(i => i.kind === 'event'), 'Chỉ Sự kiện: dated chỉ còn sự kiện');
+  assert.deepEqual([...b.undated.map(u => u.id)], ['evFree'], 'Chỉ Sự kiện: panel Chưa có ngày chỉ còn sự kiện ngày chữ');
+  h.run("calKindFilter = ''");
+  b = h.run('calBuildItems()');
+  assert.ok(b.dated.some(i => i.kind === 'task') && b.dated.some(i => i.kind === 'event'), 'Tất cả: cả việc lẫn sự kiện');
+});
+
+test('lọc AND: Chỉ Việc + theo Linh -> chỉ việc của Linh; Chỉ Sự kiện + theo Linh -> chỉ sự kiện (lọc người KHÔNG ẩn sự kiện)', () => {
+  const h = loadIndex();
+  h.run("calKindFilter = 'task'; calMemberFilter = 'linh';");
+  let b = h.run('calBuildItems()');
+  assert.ok(b.dated.length && b.dated.every(i => i.kind === 'task' && i.ref.assignee === 'linh'), 'Chỉ Việc + Linh: chỉ việc của Linh');
+  h.run("calKindFilter = 'event'; calMemberFilter = 'linh';");
+  b = h.run('calBuildItems()');
+  assert.ok(b.dated.length && b.dated.every(i => i.kind === 'event'), 'Chỉ Sự kiện + Linh: chỉ sự kiện, lọc người không ẩn sự kiện');
+  assert.ok(!b.undated.some(u => u.kind === 'task'), 'Chỉ Sự kiện + Linh: không còn việc nào kể cả ở Chưa có ngày');
+});
+
+test('lọc loại áp nhất quán cho panel ngày + panel Chưa có ngày khi render; lọc của Lịch KHÔNG đụng khối danh sách bên dưới', () => {
+  const h = loadIndex();
+  const midDay = iso(2);
+  h.run("calAnchor = todayStr(); calMode = 'month'; calSelectedDay = '" + midDay + "'; calKindFilter = 'task'; curView = 'tasks'; render();");
+  let view = h.getEl('view').innerHTML;
+  const panel = view.slice(view.indexOf('cal-daypanel'), view.indexOf('cal-undated'));
+  assert.ok(panel.includes('Việc Của Linh') && !panel.includes('Expo'), 'panel ngày khi lọc Chỉ Việc: chỉ việc, không sự kiện');
+  const undated = view.slice(view.indexOf('cal-undated'), view.indexOf('Danh sách việc'));
+  assert.ok(undated.includes('Việc Chưa Có Hạn') && !undated.includes('Expo Ngày Chữ'), 'panel Chưa có ngày khi lọc Chỉ Việc: không liệt kê sự kiện');
+  const below = view.slice(view.indexOf('Danh sách việc'));
+  assert.ok(below.includes('Việc Dải Dài'), 'khối danh sách bên dưới không bị lọc loại của Lịch ẩn việc');
+  h.run("calKindFilter = 'event'; render();");
+  view = h.getEl('view').innerHTML;
+  const panel2 = view.slice(view.indexOf('cal-daypanel'), view.indexOf('cal-undated'));
+  assert.ok(panel2.includes('Expo Nhiều Ngày') && !panel2.includes('Việc Của Linh'), 'panel ngày khi lọc Chỉ Sự kiện: chỉ sự kiện');
+});
+
+test('lọc 2 trục + chế độ Tháng/Tuần + tháng đang xem GIỮ NGUYÊN khi chuyển tháng/tuần và khi đổi chế độ khối danh sách', () => {
+  const h = loadIndex();
+  h.run("curView = 'tasks'; calKindFilter = 'task'; calMemberFilter = 'linh'; calSetMode('week'); calNav(1);");
+  assert.equal(h.run('calKindFilter'), 'task', 'chuyển tuần không được reset lọc loại');
+  assert.equal(h.run('calMemberFilter'), 'linh', 'chuyển tuần không được reset lọc người');
+  assert.equal(h.run('calMode'), 'week', 'chế độ Tuần giữ nguyên');
+  h.run("setTaskListMode('bymember'); setTaskListMode('list');");
+  assert.equal(h.run('calKindFilter'), 'task', 'đổi chế độ khối danh sách không đụng lọc của Lịch');
+  const view = h.getEl('view').innerHTML;
+  assert.ok(view.includes('Tuần '), 'vẫn đang xem Tuần sau các lần chuyển');
+  assert.ok(view.includes('calSetKind'), 'khối điều khiển Lịch phải có nút chọn loại cạnh lọc người');
 });
 
 /* ---------- Adapter: startDate qua legacy_extra, round-trip nguyên vẹn ---------- */
