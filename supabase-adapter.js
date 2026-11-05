@@ -168,6 +168,12 @@
      được giữ NGUYÊN VĂN trong legacy_extra dưới khoá 'dueDate_raw' khi ghi
      và khôi phục nguyên vẹn khi đọc (xem hai chiều bên dưới) — đúng tinh
      thần cặp raw/date: raw luôn thắng khi đọc lại (pairBack). */
+  /* task.startDate (Ngày bắt đầu của việc, thêm cho view Lịch 5/11/2026)
+     CỐ Ý không nằm trong TASK_KNOWN: bảng tasks không có cột start_date,
+     field đi qua legacy_extra của tasks khi ghi (extrasOf) và được
+     mergeExtras khôi phục khi đọc — đúng mẫu t.company/t.lead/t.game/
+     t.event ở trên, KHÔNG cần cột/SQL mới. Đừng thêm 'startDate' vào
+     TASK_KNOWN khi chưa có cột thật, extrasOf sẽ làm rơi field. */
   const TASK_KNOWN = ['id', 'title', 'assignee', 'deal', 'due', 'dueDate', 'done', 'overdue'];
   const ACTIVITY_KNOWN = ['id', 'deal', 'lead', 'game', 'event', 'type', 'who', 'when', 'text', 'url'];
   const MEMBER_KNOWN = ['id', 'name', 'role', 'active'];
