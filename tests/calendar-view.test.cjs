@@ -238,6 +238,39 @@ test('vCalendar (Tuần): chỉ 1 tuần, tuần bắt đầu Thứ 2, hiện đ
   assert.ok(view.includes('Thứ 2') && view.includes('Chủ nhật'), 'hàng thứ phải từ Thứ 2 tới Chủ nhật');
 });
 
+/* ---------- Giai đoạn 2 (5/11): hôm nay nổi bật HẲN — chỉ trình bày ---------- */
+test('tĩnh: CSS ô hôm nay nổi bật hẳn — nền #dbeafe + viền đặc 2px #2563eb + vòng tròn đặc số trắng đậm + nhãn "Hôm nay"; ô tháng kề không bị mờ; màu chip giữ nguyên', () => {
+  const idx = read('index.html');
+  assert.ok(idx.includes('.cal-day--today { background:#dbeafe; box-shadow:inset 0 0 0 2px #2563eb; flex-wrap:wrap; }'), 'ô hôm nay: nền xanh-100 đậm hẳn + viền đặc 2px màu nhấn (inset, không đổi kích thước ô) + nhãn tự xuống dòng khi ô Tháng chật');
+  assert.ok(idx.includes('.cal-day--today:hover { background:#bfdbfe; }'), 'hover ô hôm nay không được bị .cal-day:hover rửa về nền xám nhạt');
+  assert.match(idx, /\.cal-day--today \.cal-daynum \{[^}]*background:#2563eb; color:#fff; font-weight:800;/, 'số ngày hôm nay: vòng tròn đặc màu nhấn + số trắng đậm');
+  assert.match(idx, /\.cal-today-label \{[^}]*font-weight:800; color:#1d4ed8;[^}]*white-space:nowrap;/, 'nhãn "Hôm nay": chữ đậm màu nhấn đậm, không vỡ chữ');
+  assert.match(idx, /\.cal-day--today\.cal-day--other \{ opacity:1; \}/, 'hôm nay thuộc tháng kề phải thắng opacity:.42 của .cal-day--other');
+  /* Chip trong ô hôm nay giữ nguyên màu bão hoà (tương phản không bị phá bởi nền #dbeafe nhạt) */
+  assert.ok(idx.includes('.cal-seg--task { background:#2563eb; }'), 'chip Việc giữ nguyên màu');
+  assert.ok(idx.includes('.cal-seg--event { background:#7c3aed; }'), 'chip Sự kiện giữ nguyên màu');
+  assert.ok(idx.includes('.cal-seg--overdue { background:#dc2626; }'), 'chip quá hạn giữ nguyên màu đỏ');
+});
+
+test('vCalendar: nhãn chữ "Hôm nay" cạnh số ngày ở CẢ Tháng lẫn Tuần; hôm nay thuộc tháng kề vẫn mang đủ today + nhãn (không mờ)', () => {
+  const h = loadIndex();
+  const todayCell = view => view.match(/<div class="cal-day cal-day--today[^"]*"[^>]*>[\s\S]*?<\/div>/);
+  for (const mode of ['month', 'week']) {
+    h.run("calAnchor = todayStr(); calMode = '" + mode + "'; calSelectedDay = ''; curView = 'calendar'; render();");
+    const cell = todayCell(h.getEl('view').innerHTML);
+    assert.ok(cell, 'chế độ ' + mode + ': phải có ô .cal-day--today');
+    assert.ok(cell[0].includes('<span class="cal-daynum">'), 'chế độ ' + mode + ': ô hôm nay phải có số ngày (vòng tròn đặc qua CSS)');
+    assert.ok(cell[0].includes('<span class="cal-today-label">Hôm nay</span>'), 'chế độ ' + mode + ': ô hôm nay phải có nhãn chữ "Hôm nay" cạnh số ngày');
+  }
+  /* Hôm nay nằm trong tuần đang xem nhưng anchor thuộc tháng khác -> ô mang
+     cả --today lẫn --other; CSS .cal-day--today.cal-day--other (test tĩnh
+     ở trên) giữ opacity:1 nên vẫn nổi bật nguyên vẹn. */
+  const html = h.run("calMode = 'month'; calAnchor = calAddDays(todayStr(), 40); calWeekHTML(calWeekDates(todayStr()), [], 3)");
+  const spill = todayCell(html);
+  assert.ok(spill && spill[0].includes('cal-day--other'), 'ô hôm nay thuộc tháng kề phải mang cả cal-day--other');
+  assert.ok(spill[0].includes('<span class="cal-today-label">Hôm nay</span>'), 'ô hôm nay thuộc tháng kề vẫn phải có nhãn "Hôm nay"');
+});
+
 /* ---------- Form việc: startDate ---------- */
 test('editTask/saveTask: ô Ngày bắt đầu hiện dd-mm-yyyy; lưu startDate hợp lệ; sửa startDate đổi dải; startDate > dueDate bị CHẶN', () => {
   const h = loadIndex();

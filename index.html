@@ -149,9 +149,21 @@
   .cal-day { min-height:30px; padding:3px 5px; border-radius:8px; cursor:pointer; display:flex; align-items:flex-start; gap:5px; }
   .cal-day:hover { background:#f1f5f9; }
   .cal-daynum { font-size:12.5px; font-weight:600; width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; flex:none; }
-  .cal-day--today .cal-daynum { background:#2563eb; color:#fff; }
-  .cal-day--today { background:#eff6ff; }
+  /* Hôm nay nổi bật HẲN (5/11): nền #dbeafe (xanh-100, đậm hơn hẳn nền
+     thường/trắng), viền đặc 2px màu nhấn #2563eb bằng box-shadow inset
+     (không làm đổi kích thước ô), số ngày trong vòng tròn ĐẶC #2563eb +
+     chữ trắng đậm, kèm nhãn chữ "Hôm nay" (.cal-today-label). flex-wrap
+     để nhãn tự xuống dòng khi ô lưới Tháng chật thay vì tràn ngang phá
+     layout/chip. Nền ô vẫn đủ nhạt nên các chip Việc (#2563eb) / Sự kiện
+     (#7c3aed) / quá hạn (#dc2626) ở các làn bên dưới giữ nguyên tương phản. */
+  .cal-day--today { background:#dbeafe; box-shadow:inset 0 0 0 2px #2563eb; flex-wrap:wrap; }
+  .cal-day--today:hover { background:#bfdbfe; }
+  .cal-day--today .cal-daynum { background:#2563eb; color:#fff; font-weight:800; font-size:13px; width:24px; height:24px; box-shadow:0 1px 3px rgba(37,99,235,.45); }
+  .cal-today-label { font-size:11px; font-weight:800; color:#1d4ed8; white-space:nowrap; line-height:24px; }
   .cal-day--other { opacity:.42; }
+  /* Hôm nay rơi vào ô thuộc tháng kề (ô mờ đầu/cuối lưới): vẫn nổi bật
+     nguyên vẹn như ô trong tháng, KHÔNG bị opacity của .cal-day--other làm mờ. */
+  .cal-day--today.cal-day--other { opacity:1; }
   .cal-day--sel { outline:2px solid #2563eb; outline-offset:-2px; }
   .cal-more { font-size:11px; font-weight:700; color:#2563eb; margin-top:3px; }
   .cal-lane { gap:3px; margin-top:3px; }
@@ -2483,7 +2495,7 @@ function calWeekHTML(week, items, maxLanes) {
     const onDay = calItemsOn(items, iso).length;
     const visible = segs.filter(s => s.lane < maxLanes && s.colStart <= ci && ci <= s.colEnd).length;
     const hidden = onDay - visible;
-    return `<div class="cal-day${iso === today ? " cal-day--today" : ""}${other ? " cal-day--other" : ""}${iso === calSelectedDay ? " cal-day--sel" : ""}" onclick="calOpenDay('${iso}')" title="Xem chi tiết ngày ${esc(fmtWhen(iso))}"><span class="cal-daynum">${p.d}</span>${hidden > 0 ? `<span class="cal-more">+${hidden} nữa</span>` : ""}</div>`;
+    return `<div class="cal-day${iso === today ? " cal-day--today" : ""}${other ? " cal-day--other" : ""}${iso === calSelectedDay ? " cal-day--sel" : ""}" onclick="calOpenDay('${iso}')" title="Xem chi tiết ngày ${esc(fmtWhen(iso))}"><span class="cal-daynum">${p.d}</span>${iso === today ? `<span class="cal-today-label">Hôm nay</span>` : ""}${hidden > 0 ? `<span class="cal-more">+${hidden} nữa</span>` : ""}</div>`;
   }).join("");
   const laneNums = [...new Set(segs.map(s => s.lane))].filter(l => l < maxLanes).sort((a, b) => a - b);
   const lanesHTML = laneNums.map(l => `<div class="cal-lane">${segs.filter(s => s.lane === l).map(calSegHTML).join("")}</div>`).join("");
