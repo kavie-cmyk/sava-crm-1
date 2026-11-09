@@ -1223,7 +1223,7 @@ function vDash() {
     }).join('');
     return `<section class="panel line-panel" style="--line-accent:${L.color}"><div class="line-panel-heading"><span class="line-symbol">${SavaUI.icon(icons[k])}</span><div><h3>${L.name}</h3><p>${L.target}</p></div><button class="icon-button line-open" onclick="curLine='${k}';setView('board')" aria-label="Mở pipeline ${L.name}">${SavaUI.icon('arrow')}</button></div><div class="line-total"><strong>${open.length}</strong><span>deal đang mở</span></div><div class="line-value">${GAME_LINES.includes(k)?'Hợp tác theo thỏa thuận rev share':pipelineValue(open)+' · Giá trị dự kiến'}</div>${rows}</section>`;
   }).join('');
-  const scopedTasks = S.tasks.filter(t=>!t.done&&(curLine==='all'||(S.deals.find(x=>x.id===t.deal)||{}).line===curLine)&&(!query||(t.title+' '+(S.deals.find(x=>x.id===t.deal)||{}).title).toLowerCase().includes(query)));
+  const scopedTasks = visibleTasks().filter(t=>!t.done&&(curLine==='all'||(S.deals.find(x=>x.id===t.deal)||{}).line===curLine)&&(!query||(t.title+' '+(S.deals.find(x=>x.id===t.deal)||{}).title).toLowerCase().includes(query)));
   const tasks = scopedTasks.slice(0,5).map(taskRow).join('') || '<div class="empty-state">Không có việc phù hợp.</div>';
   const activityIcons = {Meeting:'meeting',Note:'note',Call:'call',Email:'mail',Demo:'cube'};
   /* Hoạt động gần nhất ở Tổng quan: hoạt động qua deal lọc theo mảng như
@@ -1368,7 +1368,11 @@ function dashAnalyticsHTML() {
   const D = window.SavaDash;
   if (!D) return "";
   const cols = D.DASH_COLORS, now = new Date();
-  const scoped = D.dashScopeFilter(S, dashScope);
+  /* Siết quyền Việc (09/11/2026): non-Admin tính Phân tích trên tập việc
+     ĐÃ LỌC theo người xem (dashState) — số việc/quá hạn của người khác
+     không lộ qua KPI/bảng so sánh; Admin giữ nguyên S. */
+  const dashState = taskPrivacyActive() ? Object.assign({}, S, { tasks: visibleTasks() }) : S;
+  const scoped = D.dashScopeFilter(dashState, dashScope);
   /* Áp trục MẢNG lên tập theo Người: lineScoped là tập NỀN của mọi khối
      (KPI tổng + xu hướng dùng thẳng tập này; các khối cohort lọc tiếp
      theo kỳ trên nó). dashLine = "" -> dashFilterByLine trả bản sao
@@ -1479,7 +1483,7 @@ function dashAnalyticsHTML() {
   /* --- Bảng so sánh BD (chỉ phạm vi Toàn hệ) --- */
   let compareHTML = "";
   if (!dashScope) {
-    const rows = D.dashCompare(S, dashPeriodDays, now, isOverdue, range, dashLine);
+    const rows = D.dashCompare(dashState, dashPeriodDays, now, isOverdue, range, dashLine);
     const trs = rows.map(r => {
       const name = r.none ? "Chưa gán" : memberName(S, r.id);
       const click = r.none ? "" : ` onclick="setDashScope('${esc(r.id)}')" style="cursor:pointer" title="Bấm để xem phạm vi của ${esc(name)}"`;
@@ -1555,7 +1559,7 @@ function taskLinkChipHTML(t) {
   if (!l.target) return `<span class="chip" style="background:#64748b">${l.icon} ${esc(l.noun)}: ${esc(l.label)}</span>`;
   return `<a href="#" onclick="${l.open}('${l.id}');return false" title="Mở ${esc(l.noun)} gắn với việc này"><span class="chip" style="background:#0ea5e9">${l.icon} ${esc(l.noun)}: ${esc(l.label)}</span></a>`;
 }
-function tasksForLink(type, id) { return S.tasks.filter(t => t && t[type] === id); }
+function tasksForLink(type, id) { return visibleTasks().filter(t => t && t[type] === id); }
 /* Dòng việc trong mục "Việc liên quan" của drawer: tiêu đề + người phụ trách
    + hạn + trạng thái (quá hạn theo isOverdue như mọi bề mặt); bấm tiêu đề
    hoặc nút sửa đều mở ĐÚNG form sửa việc sẵn có (editTask). */
@@ -1584,7 +1588,7 @@ function taskRow(t, stt) {
   const chip = taskLinkChipHTML(t);
   return `<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')">${stt === undefined || stt === null ? "" : `<span class="list-stt mut">#${stt}</span>`}<div><div class="tt" style="cursor:pointer" ${d?`onclick="openDeal('${d.id}')" title="Mở deal gắn với việc"`:''} ${d?'':`onclick="editTask('${t.id}')" title="Bấm để sửa việc"`}>${esc(t.title)}</div><div class="mut">${chip?`${chip}<br>`:''}${memberLinkHTML(t.assignee)} · <span class="${od?'overdue':''}">${esc(dueLabel)}${od?' · Quá hạn':''}</span>${sysShortDate(t.updatedAt) ? " · " + sysUpdatedSpan(t) : ""}</div></div><div class="task-actions" style="margin-left:auto;display:flex;gap:4px;flex:none"><button class="btn ghost small" title="Sửa việc" aria-label="Sửa việc" onclick="editTask('${t.id}')">${SavaUI.icon('edit')}</button><button class="btn ghost small" title="Xóa việc" aria-label="Xóa việc" onclick="deleteTask('${t.id}')">${SavaUI.icon('trash')}</button></div></div>`;
 }
-function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); t.done = !t.done; save(); render(); refreshDrawer(); }
+function toggleTask(id) { const t = S.tasks.find(x=>x.id===id); if (!t || !canViewTask(t)) return; t.done = !t.done; save(); render(); refreshDrawer(); }
 
 function vBoard() {
   const line = curLine === "all" ? "game_studio" : curLine;
@@ -2459,7 +2463,7 @@ function deleteEvent(id) {
   const nc = Array.isArray(ev.companies) ? ev.companies.length : 0;
   const nl = Array.isArray(ev.leads) ? ev.leads.length : 0;
   const nd = Array.isArray(ev.deals) ? ev.deals.length : 0;
-  const nTask = S.tasks.filter(t => t.event === id).length;
+  const nTask = visibleTasks().filter(t => t.event === id).length;
   const nAct = S.activities.filter(a => a.event === id).length;
   if (!confirm(`Xoá hẳn sự kiện "${ev.name}"?\n\nSự kiện đang gắn ${nc} công ty, ${nl} lead và ${nd} deal — xoá sự kiện sẽ gỡ ${nc} liên kết công ty, ${nl} liên kết lead và ${nd} liên kết deal này, nhưng các công ty, lead và deal đó vẫn giữ nguyên trong CRM.` + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với sự kiện này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với sự kiện).` : "") + (nAct ? `\n\n${nAct} hoạt động gắn TRỰC TIẾP vào sự kiện này sẽ bị xoá theo sự kiện.` : "") + `\n\nKhông khôi phục được.`)) return;
   S.events = eventsList().filter(x => x.id !== id);
@@ -2467,7 +2471,7 @@ function deleteEvent(id) {
      activities.event_id ON DELETE CASCADE ở DB); hoạt động qua deal/lead/game liên kết giữ nguyên. */
   S.activities = S.activities.filter(a => a.event !== id);
   /* Việc gắn trực tiếp với sự kiện: gỡ liên kết, KHÔNG xoá việc — cùng quy ước xoá company/lead/game/deal. */
-  S.tasks.forEach(t => { if (t.event === id) delete t.event; });
+  S.tasks.forEach(t => { if (t.event === id && canViewTask(t)) delete t.event; });
   save(); closeDrawer(); render(); toast("Đã xoá sự kiện: " + (ev.name || ""));
 }
 /* --- Phía entity: hiển thị nguồn sự kiện (suy ra từ S.events) --- */
@@ -2562,16 +2566,17 @@ function vTasks() {
   document.getElementById("view").innerHTML = vCalendar() + taskListHeadHTML() + listHTML;
 }
 function vTasksList() {
-  const filtered = S.tasks.filter(t => !query || t.title.toLowerCase().includes(query));
+  const myTasks = visibleTasks();
+  const filtered = myTasks.filter(t => !query || t.title.toLowerCase().includes(query));
   const sortedTasks = applyListSort("tasks", filtered, t => t.title || "");
   /* Việc 8: phân trang việc 10/trang sau sort; STT liên tục qua trang. */
   pagerSyncFilter("tasks", query + "|" + JSON.stringify(listSortState("tasks")));
   const { info: taskPageInfo, pageItems: pageTasks } = listPageSlice("tasks", sortedTasks);
   const list = pageTasks.map((t, pIdx) => taskRow(t, taskPageInfo.start + pIdx + 1)).join("") + listPagerHTML("tasks", taskPageInfo, "việc");
-  const emptyMsg = !S.tasks.length
+  const emptyMsg = !myTasks.length
     ? '<div class="empty-state" style="margin-top:10px">Chưa có việc nào — bấm "+ Thêm việc" để tạo việc đầu tiên.</div>'
     : (!filtered.length ? '<div class="empty-state" style="margin-top:10px">Không có việc nào khớp tìm kiếm hiện tại.</div>' : "");
-  return `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${sortBarHTML("tasks")}${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành việc.</div></div>`;
+  return `<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin-bottom:0">${taskPrivacyActive() ? "Việc của tôi" : `Việc của cả team (${memberList(S).filter(m => m.active).length} thành viên đang hoạt động)`}</h3><button class="btn" onclick="editTask(null)">+ Thêm việc</button></div>${sortBarHTML("tasks")}${list}${emptyMsg}<div class="mut" style="margin-top:8px">Đánh dấu ô bên trái để hoàn thành việc.</div></div>`;
 }
 
 /* ===== Việc theo người (admin): gom task theo assignee + lọc trạng thái =====
@@ -2586,20 +2591,24 @@ function vTasksByMember() {
   const memberIds = new Set(members.map(m => m.id));
   /* Nhóm: member đang hoạt động -> member đã ngừng nhưng còn task -> Chưa gán */
   const groups = [];
-  members.filter(m => m.active).forEach(m => groups.push({ key: m.id, name: m.name, inactive: false, isMember: true, tasks: S.tasks.filter(t => t.assignee === m.id) }));
-  members.filter(m => !m.active).forEach(m => { const ts = S.tasks.filter(t => t.assignee === m.id); if (ts.length) groups.push({ key: m.id, name: m.name, inactive: true, isMember: true, tasks: ts }); });
+  members.filter(m => m.active).forEach(m => groups.push({ key: m.id, name: m.name, inactive: false, isMember: true, tasks: visibleTasks().filter(t => t.assignee === m.id) }));
+  members.filter(m => !m.active).forEach(m => { const ts = visibleTasks().filter(t => t.assignee === m.id); if (ts.length) groups.push({ key: m.id, name: m.name, inactive: true, isMember: true, tasks: ts }); });
   /* FIX-C1 C9: assignee trỏ tới member ĐÃ BỊ XOÁ (id không còn trong memberList)
      tách nhóm riêng "Thành viên đã xoá" — "Chưa gán" chỉ dành cho assignee rỗng. */
-  const deletedTasks = S.tasks.filter(t => t.assignee && !memberIds.has(t.assignee));
+  const deletedTasks = visibleTasks().filter(t => t.assignee && !memberIds.has(t.assignee));
   if (deletedTasks.length) groups.push({ key: "__deleted__", name: "Thành viên đã xoá", inactive: false, isMember: false, deleted: true, tasks: deletedTasks });
-  groups.push({ key: "__none__", name: "Chưa gán", inactive: false, isMember: false, tasks: S.tasks.filter(t => !t.assignee) });
+  groups.push({ key: "__none__", name: "Chưa gán", inactive: false, isMember: false, tasks: visibleTasks().filter(t => !t.assignee) });
+  /* Siết quyền Việc (09/11/2026): non-Admin ở chế độ Theo người CHỈ thấy
+     nhóm của chính mình (việc người khác đã bị visibleTasks lọc sạch từ
+     trước; nhóm "Chưa gán"/người khác rỗng cũng không hiện làm cột). */
+  if (taskPrivacyActive()) { const meId = String((authCurrentUser() || {}).memberId || ""); for (let gi = groups.length - 1; gi >= 0; gi--) if (groups[gi].key !== meId) groups.splice(gi, 1); }
   /* Tổng quan nhanh */
-  const openTasks = S.tasks.filter(t => !t.done);
-  const overdueCount = S.tasks.filter(t => isOverdue(t)).length;
+  const openTasks = visibleTasks().filter(t => !t.done);
+  const overdueCount = visibleTasks().filter(t => isOverdue(t)).length;
   let busiest = null;
   groups.forEach(g => { const n = g.tasks.filter(t => !t.done).length; if (n > 0 && (!busiest || n > busiest.n)) busiest = { name: g.name, n }; });
   const overview = `<div class="kpis kpis-3">
-    <div class="kpi"><div class="k">Tổng việc đang mở</div><div class="v">${openTasks.length}</div><div class="s">Trên tổng ${S.tasks.length} việc</div></div>
+    <div class="kpi"><div class="k">Tổng việc đang mở</div><div class="v">${openTasks.length}</div><div class="s">Trên tổng ${visibleTasks().length} việc</div></div>
     <div class="kpi"><div class="k">Tổng việc quá hạn</div><div class="v">${overdueCount}</div><div class="s">Tính động theo hạn ngày (isOverdue)</div></div>
     <div class="kpi"><div class="k">Người quá tải nhất</div><div class="v" style="font-size:17px">${busiest ? esc(busiest.name) : "—"}</div><div class="s">${busiest ? busiest.n + " việc đang mở" : "Không có việc đang mở"}</div></div>
   </div>`;
@@ -2737,7 +2746,7 @@ function calTaskSegColor(it) { if (it && it.state === "overdue") return CAL_TASK
 function calEventState(ev) { const phase = eventStatusKey(ev); return { phase, warn: phase === "planned" && eventDaysInfo(ev).overdue }; }
 function calBuildItems() {
   const dated = [], undated = [];
-  (Array.isArray(S.tasks) ? S.tasks : []).forEach(t => {
+  visibleTasks().forEach(t => {
     if (calKindFilter === "event") return; /* trục LOẠI: Chỉ Sự kiện -> bỏ mọi Việc (cả dated lẫn undated) */
     if (calMemberFilter) {
       if (calMemberFilter === "__none__") { if (t.assignee) return; }
@@ -3256,6 +3265,7 @@ function impRemoveBatch(idx) {
   S.games.forEach(g => { if (g.company && delComps.has(String(g.company))) delete g.company; });
   S.leads.forEach(l => { if (l.company && delComps.has(String(l.company))) l.company = ""; });
   S.tasks.forEach(t => {
+    if (!canViewTask(t)) return;
     if (t.lead && delLeads.has(String(t.lead))) delete t.lead;
     if (t.company && delComps.has(String(t.company))) delete t.company;
   });
@@ -3380,6 +3390,31 @@ function authCurrentUser() { try { return (window.SavaAuth && typeof window.Sava
 function isAdminViewer() { const u = authCurrentUser(); return !!(u && u.role === "admin"); }
 /* View Import hiện cho Admin + BD (vai auth "admin"/"bd"); MKT/vai khác không thấy mục nav và không mở được view. */
 function isImportViewer() { const u = authCurrentUser(); return !!(u && (u.role === "admin" || u.role === "bd")); }
+/* ===== Siết quyền XEM Việc theo người phụ trách (Zac chốt 09/11/2026) =====
+   Chỉ đạo: mỗi BD/MKT chỉ thấy việc của chính mình; việc chưa gán chỉ Admin
+   thấy; Admin thấy tất cả. Tầng dữ liệu (RLS tasks trên Supabase) là chốt
+   chính — server chỉ trả việc của người đăng nhập (hoặc mọi việc cho Admin).
+   Bộ lọc ở đây là lớp render/store tương ứng: S.tasks có thể còn sót việc
+   của người khác từ CACHE localStorage của trình duyệt dùng chung (bản nhẹ
+   vẫn chứa tasks) hoặc từ phiên đăng nhập trước trên cùng máy — mọi bề mặt
+   hiển thị việc đều đi qua visibleTasks()/canViewTask() nên việc của người
+   khác không bao giờ được render cho non-Admin, kể cả khi còn trong cache.
+   Danh tính lấy từ ĐÚNG nguồn duy nhất SavaAuth.currentUser() (như
+   defaultOwnerId/isAdminViewer). Chưa resolve được danh tính (u == null —
+   cửa sổ boot trước khi auth proceed, hoặc môi trường không có auth như
+   test/offline) thì giữ hành vi cũ (thấy tất cả): lúc đó cổng auth chưa cho
+   vào app nên không có bề mặt nào lộ; ngay khi có danh tính non-Admin, lọc
+   áp dụng tức thì ở mọi lần render. */
+function taskPrivacyActive() { const u = authCurrentUser(); return !!(u && u.role !== "admin"); }
+function canViewTask(t) {
+  if (!t) return false;
+  const u = authCurrentUser();
+  if (!u) return true;
+  if (u.role === "admin") return true;
+  if (!u.memberId) return false;
+  return String(t.assignee || "") === String(u.memberId);
+}
+function visibleTasks() { return (Array.isArray(S.tasks) ? S.tasks : []).filter(canViewTask); }
 function memberHasAccount(m) {
   if (memberFnStatus) return !!(memberFnStatus[m.id] && memberFnStatus[m.id].has_account);
   return !!(memberProfiles && memberProfiles[m.id]);
@@ -3416,7 +3451,7 @@ function vMembers() {
   pagerSyncFilter("members", JSON.stringify(listSortState("members")));
   const { info: memPageInfo, pageItems: pageMembers } = listPageSlice("members", sortedMembers);
   const rows = pageMembers.map((m, pIdx) => { const idx = memPageInfo.start + pIdx;
-    const openTasks = S.tasks.filter(t => t.assignee === m.id && !t.done).length;
+    const openTasks = visibleTasks().filter(t => t.assignee === m.id && !t.done).length;
     const dealCount = S.deals.filter(d => d.owner === m.id).length;
     let acctCell = "", actions = "";
     if (admin) {
@@ -3660,7 +3695,7 @@ function openMember(id) {
   const m = memberList(S).find(x => x.id === id); if (!m) return;
   if (isAdminViewer() && memberProfiles === null && !memberAcctLoading) refreshMemberAccounts();
   drawerCtx = { type: "member", id };
-  const tasks = S.tasks.filter(t => t.assignee === id);
+  const tasks = visibleTasks().filter(t => t.assignee === id);
   const openTasks = tasks.filter(t => !t.done);
   const odTasks = tasks.filter(t => isOverdue(t));
   const deals = S.deals.filter(d => d.owner === id);
@@ -4347,7 +4382,7 @@ function openCompany(id) {
   /* FIX-C1 A5: việc đang treo = việc mở gắn TRỰC TIẾP công ty này CỘNG việc mở
      qua các deal của công ty, khử trùng lặp theo id việc — kv và section dùng
      cùng một tập này. */
-  const tasks = [...new Map(S.tasks.filter(t => !t.done && (t.company === id || dealIds.includes(t.deal))).map(t => [t.id, t])).values()];
+  const tasks = [...new Map(visibleTasks().filter(t => !t.done && (t.company === id || dealIds.includes(t.deal))).map(t => [t.id, t])).values()];
   /* Việc 8: mọi danh sách con của drawer công ty phân trang 10/trang:
      lead của công ty, deal của công ty, game liên quan, việc đang treo
      và hoạt động gần nhất (key riêng theo từng công ty + từng mục). */
@@ -5795,7 +5830,7 @@ function performDeleteDeal(id) {
   unlinkEntityFromAllEvents("deals", id); /* sự kiện giữ nguyên, chỉ gỡ liên kết tới deal đã xoá */
   linkedLeadIds.forEach(revertLeadIfOrphaned); /* C2: xóa deal -> lead converted mồ côi tự hồi "contacted" */
   S.activities = S.activities.filter(a => a.deal !== id);
-  S.tasks.forEach(t => { if (t.deal === id) delete t.deal; });
+  S.tasks.forEach(t => { if (t.deal === id && canViewTask(t)) delete t.deal; });
   save(); closeDrawer(); render(); toast("Đã xóa deal: " + d.title);
 }
 function deleteDeal(id) {
@@ -6311,7 +6346,7 @@ function saveCompany(id) {
 function deleteCompany(id) {
   const c = comp(id); if (!c.id) return;
   const n = S.deals.filter(d => d.company === id).length;
-  const nTask = S.tasks.filter(t => t.company === id).length;
+  const nTask = visibleTasks().filter(t => t.company === id).length;
   const pubN = publishingRequestCount("company", id);
   /* FIX-C1 C2 (CRITICAL): còn request Publishing tham chiếu -> CHẶN xoá hẳn.
      DB là ON DELETE RESTRICT và syncCrm chạy trước syncPub: xoá local ở đây
@@ -6323,7 +6358,7 @@ function deleteCompany(id) {
   S.deals.forEach(d => { if (d.company === id) delete d.company; });
   S.games.forEach(g => { if (g.company === id) delete g.company; });
   /* Việc gắn trực tiếp với công ty: gỡ liên kết như deal/game ở trên — TUYỆT ĐỐI không xoá việc. */
-  S.tasks.forEach(t => { if (t.company === id) delete t.company; });
+  S.tasks.forEach(t => { if (t.company === id && canViewTask(t)) delete t.company; });
   // Lead trỏ tới công ty đã xóa: gỡ gắn (company = "" = chủ động chưa gắn, migration không tự tạo lại) -> giao diện hiện "— (chưa gắn công ty)".
   S.leads.forEach(l => { if (l.company === id) l.company = ""; });
   save(); closeDrawer(); render(); toast("Đã xóa công ty: " + c.name);
@@ -6450,7 +6485,7 @@ function deleteGame(id) {
   /* FIX-C1 C2 (CRITICAL): còn request Publishing tham chiếu -> CHẶN xoá hẳn
      (lý do như deleteCompany: ON DELETE RESTRICT + thứ tự sync). */
   if (pubN > 0) { toast(`⚠️ Không xoá được game "${g.title}" — còn ${pubN} yêu cầu đánh giá trong module Publishing đang tham chiếu tới game này. Hãy xoá các yêu cầu đó ở module Publishing trước, rồi mới xoá game ở đây.`); return; }
-  const nTask = S.tasks.filter(t => t.game === id).length;
+  const nTask = visibleTasks().filter(t => t.game === id).length;
   if (!confirm(`Xóa hẳn game "${g.title}"?` + (n ? `\n\nHậu quả: ${n} deal sẽ mất game gắn kèm` + (pubDealN ? ` — gồm ${pubDealN} deal Publishing (deal Publishing bắt buộc có game, sẽ phải gắn lại game khác)` : "") + `.` : "") + (nTask ? `\n\n${nTask} việc đang gắn trực tiếp với game này sẽ bị gỡ liên kết (việc vẫn còn, chỉ mất gắn với game).` : "") + `\n\nKhông khôi phục được.`)) return;
   S.games = S.games.filter(x => x.id !== id);
   S.deals.forEach(d => { if (d.game === id) delete d.game; });
@@ -6458,7 +6493,7 @@ function deleteGame(id) {
      activities.game_id ON DELETE CASCADE ở DB); hoạt động qua deal giữ nguyên. */
   S.activities = S.activities.filter(a => a.game !== id);
   /* Việc gắn trực tiếp với game: gỡ liên kết, không xoá việc (như deal ở trên). */
-  S.tasks.forEach(t => { if (t.game === id) delete t.game; });
+  S.tasks.forEach(t => { if (t.game === id && canViewTask(t)) delete t.game; });
   save(); closeDrawer(); render(); toast("Đã xóa game: " + g.title);
 }
 
@@ -6582,7 +6617,7 @@ function saveLead(id) {
 }
 function deleteLead(id) {
   const l = S.leads.find(x => x.id === id); if (!l) return;
-  const nTask = S.tasks.filter(t => t.lead === id).length;
+  const nTask = visibleTasks().filter(t => t.lead === id).length;
   /* FIX-C1 A13: confirm phải kê khai số deal sẽ bị gỡ lead này + cảnh báo
      mất ★ Đầu mối chính của công ty (nếu lead đang là main). */
   const nDeal = dealsForLead(id).length;
@@ -6596,7 +6631,7 @@ function deleteLead(id) {
   // Quan hệ deal↔lead chỉ nằm ở deal.leads -> gỡ id lead khỏi mọi deal.
   S.deals.forEach(d => { if (Array.isArray(d.leads)) d.leads = d.leads.filter(x => x !== id); });
   // Việc gắn trực tiếp với lead: gỡ liên kết, không xoá việc (cùng quy ước gỡ liên kết khi xoá deal/company/game).
-  S.tasks.forEach(t => { if (t.lead === id) delete t.lead; });
+  S.tasks.forEach(t => { if (t.lead === id && canViewTask(t)) delete t.lead; });
   save(); closeDrawer(); render(); toast("Đã xóa lead: " + l.name);
 }
 
@@ -6640,6 +6675,7 @@ function taskLinkSelectHTML(curVal) {
 function editTask(id, linkType, linkId, prefill) {
   const t = id ? S.tasks.find(x => x.id === id) : { title: "", assignee: defaultOwnerId(), due: "", dueDate: (prefill && prefill.dueDate) || "", startDate: (prefill && prefill.startDate) || "", deal: "", done: false };
   if (id && !t) return;
+  if (id && !canViewTask(t)) { toast("Việc này không thuộc quyền xem của bạn."); return; }
   const curLink = id ? taskLinkOf(t) : (linkType && linkId && TASK_LINK_META[linkType] ? { type: linkType, id: linkId, target: taskLinkTarget(linkType, linkId), label: taskLinkLabel(linkType, taskLinkTarget(linkType, linkId)), icon: TASK_LINK_META[linkType].icon, noun: TASK_LINK_META[linkType].noun } : null);
   const curVal = curLink ? curLink.type + ":" + curLink.id : "";
   const chipLine = curLink ? `<div style="margin-bottom:10px">🔗 Việc này gắn với: <span class="chip" style="background:#0ea5e9">${curLink.icon} ${esc(curLink.noun)}: ${esc(curLink.label)}</span> <span class="mut">(đổi hoặc gỡ liên kết ở ô "Gắn với đối tượng" bên dưới)</span></div>` : "";
@@ -6690,7 +6726,7 @@ function saveTask(id) {
   save(); closeEdit(); render(); refreshDrawer(); toast("Đã lưu việc: " + title);
 }
 function deleteTask(id) {
-  const t = S.tasks.find(x => x.id === id); if (!t) return;
+  const t = S.tasks.find(x => x.id === id); if (!t || !canViewTask(t)) return;
   if (!confirm(`Xóa việc "${t.title}"?`)) return;
   S.tasks = S.tasks.filter(x => x.id !== id);
   save(); render(); refreshDrawer(); toast("Đã xóa việc: " + t.title);

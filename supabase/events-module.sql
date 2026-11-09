@@ -31,10 +31,14 @@
 --     entity đích (tiền lệ task link qua legacy_extra), và loại đối tượng
 --     đích thay đổi theo entity_type nên FK đa hình không đặt được.
 --     Riêng event_id CÓ FK cascade: xoá event là DB tự xoá links của nó.
---   * Quyền: chỉ Admin + BD (như deals/deal_leads). MKT và anon KHÔNG có
---     policy nào trên 2 bảng này — không đọc/ghi được kể cả gọi API trực
---     tiếp. Bảng tạo SAU blanket grant ở policies.sql nên grant ở đây
---     phải tường minh.
+--   * Quyền (bản gốc): chỉ Admin + BD (như deals/deal_leads). MKT và anon
+--     KHÔNG có policy nào trên 2 bảng này — không đọc/ghi được kể cả gọi
+--     API trực tiếp. Bảng tạo SAU blanket grant ở policies.sql nên grant
+--     ở đây phải tường minh.
+--     CẬP NHẬT 09/11/2026 (Zac chốt "sự kiện có thể xem chung"): SELECT
+--     trên events đã nới cho Admin/BD/MKT (policy events_select_shared);
+--     ghi events + toàn bộ event_links vẫn chỉ Admin+BD — xem mục 3 dưới
+--     và supabase/task-privacy-events-shared.sql.
 --   * audit_log: mở rộng CHECK entity_type thêm 'event' để lịch sử chỉnh
 --     sửa của sự kiện (stampCollection qua CRM_ENTITY_TYPES trong
 --     shared.js) ghi được; các loại cũ giữ nguyên.
@@ -84,17 +88,35 @@ create index if not exists event_links_event_id_idx
   on public.event_links (event_id);
 
 -- ----------------------------------------------------------------------------
--- 3) RLS + policy: chỉ Admin + BD toàn quyền (mẫu deal_leads_all_bd trong
---    policies.sql). MKT/anon: không policy nào.
+-- 3) RLS + policy: events SELECT xem chung Admin/BD/MKT (09/11/2026),
+--    ghi events + event_links vẫn chỉ Admin + BD toàn quyền (mẫu
+--    deal_leads_all_bd trong policies.sql). Anon: không policy nào.
 -- ----------------------------------------------------------------------------
 alter table public.events      enable row level security;
 alter table public.event_links enable row level security;
 
+-- SELECT sự kiện đã NỚI XEM CHUNG cho Admin/BD/MKT theo chỉ đạo Zac
+-- 09/11/2026 (bản áp thật ở supabase/task-privacy-events-shared.sql);
+-- ghi (insert/update/delete) vẫn chỉ Admin+BD như cũ. event_links giữ
+-- nguyên chỉ Admin+BD ở ngay dưới.
 drop policy if exists events_all_bd on public.events;
-create policy events_all_bd on public.events
-  for all to authenticated
+drop policy if exists events_select_shared on public.events;
+create policy events_select_shared on public.events
+  for select to authenticated
+  using (public.has_crm_role(array['admin', 'bd', 'mkt']));
+drop policy if exists events_insert_bd on public.events;
+create policy events_insert_bd on public.events
+  for insert to authenticated
+  with check (public.has_crm_role(array['admin', 'bd']));
+drop policy if exists events_update_bd on public.events;
+create policy events_update_bd on public.events
+  for update to authenticated
   using (public.has_crm_role(array['admin', 'bd']))
   with check (public.has_crm_role(array['admin', 'bd']));
+drop policy if exists events_delete_bd on public.events;
+create policy events_delete_bd on public.events
+  for delete to authenticated
+  using (public.has_crm_role(array['admin', 'bd']));
 
 drop policy if exists event_links_all_bd on public.event_links;
 create policy event_links_all_bd on public.event_links

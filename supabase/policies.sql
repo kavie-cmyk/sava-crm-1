@@ -180,25 +180,41 @@ create policy activities_all_bd on public.activities
   using (public.has_crm_role(array['admin', 'bd']))
   with check (public.has_crm_role(array['admin', 'bd']));
 
--- TASKS: mặc định AN TOÀN của giai đoạn 1 (F4) — chỉ Admin + BD. Tiêu đề
--- việc + deal_id của task gắn deal sẽ lộ thông tin deal cho người được giao
--- nếu cho đọc theo assignee, nên MKT (và mọi vai khác) KHÔNG đọc được task
--- nào ở giai đoạn này, kể cả task giao cho chính mình. Nếu sau này Zac muốn
--- MKT có danh sách việc riêng, giai đoạn 2 phải thiết kế lại dữ liệu việc
--- an toàn cho MKT (không kèm deal_id/tiêu đề lộ deal) rồi mới mở policy —
--- không nới policy này trước khi có thiết kế đó (điểm cần Zac quyết, xem
--- DESIGN.md mục 6).
+-- TASKS: RIÊNG TƯ THEO NGƯỜI PHỤ TRÁCH (Zac chốt 09/11/2026 — bản gốc ở
+-- supabase/task-privacy-events-shared.sql, file đó là nguồn áp lên project
+-- thật; khối này giữ cho cài mới khớp trạng thái thật):
+--   * SELECT/UPDATE/DELETE: Admin thấy tất cả; BD/MKT chỉ thấy/sửa/xoá
+--     việc có assignee_id = current_member_id() của chính mình; việc chưa
+--     gán (assignee_id NULL) chỉ Admin thấy. (Giai đoạn 1 vốn chỉ admin+bd
+--     toàn quyền và MKT không đọc được việc nào — đã bị chỉ đạo 09/11/2026
+--     thay thế.)
+--   * INSERT giữ nguyên admin+bd, KHÔNG điều kiện trên assignee_id: người
+--     tạo gán việc cho bất kỳ ai; sau khi gán chỉ người được gán + Admin
+--     còn thấy việc đó.
 create policy tasks_select on public.tasks
   for select to authenticated
-  using (public.has_crm_role(array['admin', 'bd']));
+  using (
+    public.has_crm_role(array['admin'])
+    or (public.has_crm_role(array['bd', 'mkt']) and assignee_id = public.current_member_id())
+  );
 create policy tasks_insert on public.tasks
   for insert to authenticated with check (public.has_crm_role(array['admin', 'bd']));
 create policy tasks_update on public.tasks
   for update to authenticated
-  using (public.has_crm_role(array['admin', 'bd']))
-  with check (public.has_crm_role(array['admin', 'bd']));
+  using (
+    public.has_crm_role(array['admin'])
+    or (public.has_crm_role(array['bd', 'mkt']) and assignee_id = public.current_member_id())
+  )
+  with check (
+    public.has_crm_role(array['admin'])
+    or (public.has_crm_role(array['bd', 'mkt']) and assignee_id = public.current_member_id())
+  );
 create policy tasks_delete on public.tasks
-  for delete to authenticated using (public.has_crm_role(array['admin', 'bd']));
+  for delete to authenticated
+  using (
+    public.has_crm_role(array['admin'])
+    or (public.has_crm_role(array['bd', 'mkt']) and assignee_id = public.current_member_id())
+  );
 
 -- ============================================================================
 -- PUBLISHING REQUESTS — phần KHÔNG nhạy cảm:

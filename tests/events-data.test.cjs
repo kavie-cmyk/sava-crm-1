@@ -11,7 +11,9 @@
      legacy_extra mà vật hoá thành dòng event_links (entity_type tương
      ứng company/lead/deal) và gom lại đúng 3 mảng khi đọc.
    - supabase/events-module.sql (tĩnh): 2 bảng + trigger + index, RLS
-     admin+bd cho cả hai, grant tường minh, CHECK audit_log thêm 'event'.
+     (cập nhật 09/11/2026: events SELECT xem chung admin/bd/mkt, ghi vẫn
+     admin+bd; event_links vẫn admin+bd), grant tường minh, CHECK
+     audit_log thêm 'event'.
    - supabase-data.js (tĩnh): loadAll fetch events + event_links qua
      qSafe và truyền vào crmRowsToState; syncCrm có ['events','id'] trong
      order + 'events' trong CONFLICT_TABLES + khối xử lý event_links
@@ -162,20 +164,32 @@ test('SQL: events-module.sql có đúng 2 bảng + cột + trigger + index theo 
     'trigger events_set_updated_at phải dùng lại public.set_updated_at()');
 });
 
-test('SQL: RLS admin+bd cho cả hai bảng (mẫu deal_leads_all_bd), grant tường minh, không policy cho mkt/anon', () => {
+test('SQL: RLS events — SELECT xem chung admin/bd/mkt (09/11/2026), ghi chỉ admin+bd; event_links vẫn admin+bd toàn quyền; grant tường minh', () => {
   const sql = read('supabase/events-module.sql');
   assert.ok(sql.includes('alter table public.events      enable row level security;'), 'events chưa bật RLS');
   assert.ok(sql.includes('alter table public.event_links enable row level security;'), 'event_links chưa bật RLS');
-  for (const [policy, table] of [['events_all_bd', 'public.events'], ['event_links_all_bd', 'public.event_links']]) {
-    assert.ok(new RegExp('drop policy if exists ' + policy + ' on ' + table.replace('.', '\\.')).test(sql),
-      policy + ' phải drop-if-exists trước khi tạo');
+  /* events: policy FOR ALL cũ (events_all_bd) đã thay bằng 4 policy theo
+     operation — select_shared (admin/bd/mkt) + insert/update/delete (admin/bd). */
+  assert.ok(sql.includes('drop policy if exists events_all_bd on public.events;'), 'phải drop policy FOR ALL cũ của events');
+  const selSeg = sql.slice(sql.indexOf('create policy events_select_shared'));
+  const selBody = selSeg.slice(0, selSeg.indexOf(';'));
+  assert.ok(selBody.includes('for select to authenticated'), 'events_select_shared phải for select');
+  assert.ok(selBody.includes("using (public.has_crm_role(array['admin', 'bd', 'mkt']))"), 'events SELECT phải cho admin/bd/mkt xem chung');
+  for (const [policy, cmd] of [['events_insert_bd', 'insert'], ['events_update_bd', 'update'], ['events_delete_bd', 'delete']]) {
+    assert.ok(new RegExp('drop policy if exists ' + policy + ' on public\\.events').test(sql), policy + ' phải drop-if-exists trước khi tạo');
     const seg = sql.slice(sql.indexOf('create policy ' + policy));
     const body = seg.slice(0, seg.indexOf(';'));
-    assert.ok(body.includes('for all to authenticated'), policy + ' phải for all to authenticated');
-    assert.ok(body.includes("using (public.has_crm_role(array['admin', 'bd']))"), policy + ' thiếu using has_crm_role(admin,bd)');
-    assert.ok(body.includes("with check (public.has_crm_role(array['admin', 'bd']))"), policy + ' thiếu with check has_crm_role(admin,bd)');
-    assert.ok(!body.includes("'mkt'"), policy + ' không được cấp cho mkt');
+    assert.ok(body.includes('for ' + cmd + ' to authenticated'), policy + ' phải for ' + cmd);
+    assert.ok(body.includes("has_crm_role(array['admin', 'bd'])"), policy + ' chỉ admin+bd');
+    assert.ok(!body.includes("'mkt'"), policy + ' không được cấp ghi cho mkt');
   }
+  /* event_links: giữ nguyên policy toàn quyền admin+bd, không mở cho mkt. */
+  const seg = sql.slice(sql.indexOf('create policy event_links_all_bd'));
+  const body = seg.slice(0, seg.indexOf(';'));
+  assert.ok(body.includes('for all to authenticated'), 'event_links_all_bd phải for all to authenticated');
+  assert.ok(body.includes("using (public.has_crm_role(array['admin', 'bd']))"), 'event_links thiếu using has_crm_role(admin,bd)');
+  assert.ok(body.includes("with check (public.has_crm_role(array['admin', 'bd']))"), 'event_links thiếu with check has_crm_role(admin,bd)');
+  assert.ok(!body.includes("'mkt'"), 'event_links không được cấp cho mkt');
   assert.ok(sql.includes('grant select, insert, update, delete on public.events, public.event_links to authenticated;'),
     'thiếu grant tường minh cho 2 bảng mới');
 });

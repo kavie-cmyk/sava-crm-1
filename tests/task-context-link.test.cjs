@@ -237,5 +237,5 @@ test('tĩnh: chỉ MỘT form việc (editTask) trong index.html; phía MKT khô
     assert.ok(!src.includes('editTask') && !src.includes('Việc liên quan') && !src.includes('taskLink'), f + ' không được render việc cho MKT');
   }
   const policies = read('supabase/policies.sql');
-  assert.ok(/create policy tasks_select[\s\S]*?has_crm_role\(array\['admin', 'bd'\]\)/.test(policies), 'policy tasks vẫn chỉ admin+bd');
+  assert.ok(/create policy tasks_select[\s\S]*?assignee_id = public\.current_member_id\(\)/.test(policies), 'policy tasks_select phải siết theo người phụ trách (09/11/2026): admin tất cả, bd/mkt chỉ việc của mình');
 });
