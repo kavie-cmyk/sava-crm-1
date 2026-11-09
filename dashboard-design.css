@@ -832,6 +832,71 @@
   padding: 3px 5px;
   border-radius: 6px;
 }
+/* Bấm xuyên từ Báo cáo hoạt động: toàn dòng hoạt động bấm được (mở drawer
+   của chủ + highlight), dòng legend Cơ cấu + ô số loại trong bảng thành
+   viên thành nút trong suốt giữ nguyên trình bày cũ, danh sách lọc theo
+   loại + chip xoá lọc. */
+.ex-recent-item.ex-clickable {
+  cursor: pointer;
+  border-radius: 8px;
+}
+.ex-recent-item.ex-clickable:hover {
+  background: #f4f8ff;
+}
+.ex-legend-btn,
+.ex-cell-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: left;
+}
+.ex-cell-btn {
+  display: inline-block;
+  margin: 0;
+}
+.ex-legend-click li {
+  display: block;
+  padding: 0;
+}
+.ex-legend-click .ex-legend-btn {
+  display: grid;
+  grid-template-columns: 8px minmax(35px, 1fr) max-content max-content;
+  gap: 5px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 4px;
+  margin: 0;
+}
+.ex-legend-btn:hover,
+.ex-cell-btn:hover {
+  background: #eef4ff;
+  text-decoration: underline;
+}
+.ex-act-type-list {
+  margin-bottom: 14px;
+}
+.ex-chip-clear {
+  border: 1px solid #f2b8a0;
+  background: #fff4ec;
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ex-chip-clear:hover {
+  background: #ffe8d6;
+}
 .ex-activity-bottom {
   display: grid;
   grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr);

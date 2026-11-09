@@ -117,6 +117,12 @@
   .tl { border-left:2px solid var(--line); margin:8px 0 0 6px; padding-left:14px; }
   .tl .ev { margin-bottom:12px; font-size:13px; }
   .tl .ev .when { color:var(--mut); font-size:12px; }
+  /* Highlight hoạt động đích khi mở drawer TỪ một hoạt động ở Dashboard
+     (dashOpenActivity gắn lớp này lên đúng hàng act-row-<id> rồi tự gỡ
+     sau vài giây): nền hổ phách + viền trái đậm để mắt bắt ngay đúng
+     hoạt động giữa timeline dài. */
+  .tl.act-highlight { background:#fff7ed; border-left:3px solid #f59e0b; border-radius:0 10px 10px 0; box-shadow:0 0 0 1px #fed7aa; animation:actHighlightPulse 1.2s ease-in-out 2; }
+  @keyframes actHighlightPulse { 0%,100% { background:#fff7ed; } 50% { background:#ffedd5; } }
   select, .drawer input { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; }
   .drawer textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; font-family:inherit; min-height:60px; }
   /* Modal + toast */
@@ -200,7 +206,7 @@
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
 <link rel="stylesheet" href="workspace-design.css?v=20261105.1&amp;ui=4">
-<link rel="stylesheet" href="dashboard-design.css?v=20261109.2">
+<link rel="stylesheet" href="dashboard-design.css?v=20261109.3">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1236,9 +1242,8 @@ function vDash() {
   const actOwnerTitle = a => { const o = activityOwnerOf(a); return o && o.target ? activityOwnerLabel(o) : ""; };
   const activities = S.activities.filter(a=>(curLine==='all'||actOwnerLine(a)===curLine)&&(!query||(a.text+' '+actOwnerTitle(a)).toLowerCase().includes(query))).slice(0,4).map(a=>{
     const o = activityOwnerOf(a);
-    const openFn = o ? (o.kind==='deal'?'openDeal':o.kind==='lead'?'openLead':o.kind==='event'?'openEvent':'openGame') : '';
     const head = o ? (o.kind==='deal' ? (o.target?o.target.title:a.type) : (o.kind==='lead'?'📥 Lead: ':o.kind==='event'?'🎪 Sự kiện: ':'🎮 Game: ')+activityOwnerLabel(o)) : a.type;
-    return `<div class="activity-item" ${o&&o.target?`onclick="${openFn}('${o.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(head)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
+    return `<div class="activity-item" ${o&&o.target?`onclick="dashOpenActivity('${a.id}')" title="Bấm để mở hồ sơ của chủ hoạt động và highlight hoạt động này"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(head)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
   const dashActDeals = S.deals.filter(d => curLine === 'all' || d.line === curLine);
   document.getElementById('view').innerHTML = dashAnalyticsHTML() + `<details class="ex-legacy-operations"><summary>Pipeline chi tiết, việc cần làm & ghi hoạt động</summary>` + kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + `</details>`;
@@ -1498,12 +1503,35 @@ function dashAnalyticsHTML() {
 }
 /* Read-only dashboard presentation. Filters are session UI state. */
 let dashboardMode = 'overview', dashboardPipeline = '';
+/* Lọc theo LOẠI hoạt động ở Báo cáo hoạt động: "" = tất cả loại; còn lại =
+   đúng 1 key của DASHBOARD_ACTIVITY_TYPES (email/message/meeting/call/other).
+   UI-state thuần trong phiên như dashboardMode: bấm thẻ KPI của một loại /
+   dòng Cơ cấu hoạt động / đoạn cột Xu hướng / ô loại trong bảng theo thành
+   viên -> đặt lọc này (bấm lại đúng loại đang lọc = bỏ lọc); danh sách các
+   hoạt động thuộc loại đó — trong ĐÚNG phạm vi bộ lọc chung Kỳ × Người ×
+   Mảng qua dashboardActivityModel — hiện ngay dưới dải KPI kèm chip ghi rõ
+   loại đang lọc và nút xoá lọc (dashboardActivityTypeListHTML).
+   resetDashboardFilters xoá cả lọc này. */
+let dashboardActivityTypeFilter = '';
+function setDashboardActivityType(key) {
+  const valid = DASHBOARD_ACTIVITY_TYPES.some(t => t.key === key);
+  dashboardActivityTypeFilter = valid && dashboardActivityTypeFilter !== key ? key : '';
+  dashboardMode = 'activity';
+  render();
+}
+function clearDashboardActivityType() { dashboardActivityTypeFilter = ''; render(); }
+function setDashboardActivityTypeForMember(key, memberId) {
+  dashScope = memberId || '';
+  dashboardActivityTypeFilter = DASHBOARD_ACTIVITY_TYPES.some(t => t.key === key) ? key : '';
+  dashboardMode = 'activity';
+  render();
+}
 function setDashboardMode(mode) { dashboardMode = mode === 'activity' ? 'activity' : 'overview'; render(); }
 function setDashboardPipeline(line) { dashboardPipeline = Object.prototype.hasOwnProperty.call(LINES, line) ? line : ''; render(); }
 function resetDashboardFilters() {
   dashPeriodDays = 30; dashScope = ''; dashLine = '';
   dashCustomActive = false; dashCustomFrom = ''; dashCustomTo = '';
-  dashboardPipeline = ''; render();
+  dashboardPipeline = ''; dashboardActivityTypeFilter = ''; render();
 }
 function dashboardNumber(n) { return Number(n || 0).toLocaleString('vi-VN'); }
 function dashboardHeading(title, subtitle, icon, extra) {
@@ -1652,26 +1680,54 @@ function dashboardActivityChart(model) {
     const fullDate = fmtWhen(b.date.toISOString());
     const rects = DASHBOARD_ACTIVITY_TYPES.map(type => {
       const h = b.counts[type.key] / max * plotH; y -= h;
-      return `<rect x="${x - barW / 2}" y="${y}" width="${barW}" height="${h}" fill="${type.color}"><title>${fullDate} · ${type.label}: ${b.counts[type.key]}</title></rect>`;
+      return `<rect x="${x - barW / 2}" y="${y}" width="${barW}" height="${h}" fill="${type.color}" ${h > 0 ? `onclick="setDashboardActivityType('${type.key}')" style="cursor:pointer"` : ''}><title>${fullDate} · ${type.label}: ${b.counts[type.key]} — bấm để xem danh sách loại này</title></rect>`;
     }).join('');
     const label = model.granularity === 'month' ? String(b.date.getMonth() + 1).padStart(2, '0') + '-' + b.date.getFullYear() : String(b.date.getDate()).padStart(2, '0') + '-' + String(b.date.getMonth() + 1).padStart(2, '0');
     return rects + (labels.has(i) ? `<text x="${x}" y="${height - 8}" text-anchor="middle" fill="#66748d" font-size="10">${label}</text>` : '');
   }).join('');
   return `<svg class="ex-activity-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Số hoạt động theo ${model.granularity === 'day' ? 'ngày' : model.granularity === 'week' ? 'tuần' : 'tháng'}">${grid}${bars}</svg><div class="ex-chart-key">${DASHBOARD_ACTIVITY_TYPES.map(t => `<span><i class="ex-dot" style="background:${t.color}"></i>${t.label}</span>`).join('')}</div>`;
 }
+/* Một dòng hoạt động ở Dashboard (khối "Hoạt động gần nhất" + danh sách lọc
+   theo loại dùng CHUNG): TOÀN DÒNG bấm được khi chủ của hoạt động còn tồn
+   tại -> dashOpenActivity mở drawer của đúng chủ (deal/lead/game/event) và
+   highlight đúng hoạt động này trong drawer (ở đó đã sẵn nút/link mở cuộc
+   hội thoại Gmail/Messenger/Drive đã ghim). Chủ đã xoá -> dòng tĩnh, không
+   handler (không lộ đường mở vào đối tượng không còn). */
+function dashboardActivityRowHTML(record) {
+  const a = record.activity, type = DASHBOARD_ACTIVITY_TYPES.find(t => t.key === record.type), owner = activityOwnerOf(a);
+  const clickable = !!(owner && owner.target);
+  const ownerTxt = owner && owner.target ? activityOwnerLabel(owner) : '';
+  return `<div class="ex-recent-item${clickable ? ' ex-clickable' : ''}" ${clickable ? `role="button" tabindex="0" onclick="dashOpenActivity('${esc(a.id)}')" onkeydown="if(event.key==='Enter')dashOpenActivity('${esc(a.id)}')" title="Bấm để mở hồ sơ của chủ hoạt động và highlight hoạt động này"` : ''}><span class="ex-recent-icon" style="--ex-color:${type.color}">${SavaUI.icon(type.icon)}</span><div><strong>${esc(a.text || a.type)}</strong><p>${esc(memberName(S, a.who) || 'Chưa gán')} · ${esc(record.date ? fmtWhen(record.date.toISOString()) : 'Chưa có ngày')}${ownerTxt ? ' · ' + esc(ownerTxt) : ''}</p></div><span class="ex-type-label" style="--ex-color:${type.color}">${esc(a.type || 'Khác')}</span></div>`;
+}
 function dashboardRecentActivityHTML(records) {
   const sorted = records.slice().sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0)).slice(0, 4);
-  const rows = sorted.map(record => {
-    const a = record.activity, type = DASHBOARD_ACTIVITY_TYPES.find(t => t.key === record.type), owner = activityOwnerOf(a);
-    const target = owner && owner.target ? owner.kind === 'deal' ? 'openDeal' : owner.kind === 'lead' ? 'openLead' : owner.kind === 'event' ? 'openEvent' : 'openGame' : '';
-    return `<div class="ex-recent-item"><span class="ex-recent-icon" style="--ex-color:${type.color}">${SavaUI.icon(type.icon)}</span><div>${target ? `<button onclick="${target}('${esc(owner.id)}')">${esc(a.text || a.type)}</button>` : `<strong>${esc(a.text || a.type)}</strong>`}<p>${esc(memberName(S, a.who) || 'Chưa gán')} · ${esc(record.date ? fmtWhen(record.date.toISOString()) : 'Chưa có ngày')}</p></div><span class="ex-type-label" style="--ex-color:${type.color}">${esc(a.type || 'Khác')}</span></div>`;
-  }).join('');
-  return `<section class="ex-panel ex-recent">${dashboardHeading('Hoạt động gần nhất', 'Trong kỳ và phạm vi đang chọn', 'clock')}${rows || '<p class="ex-empty">Chưa có hoạt động trong phạm vi này.</p>'}</section>`;
+  const rows = sorted.map(dashboardActivityRowHTML).join('');
+  return `<section class="ex-panel ex-recent">${dashboardHeading('Hoạt động gần nhất', 'Trong kỳ và phạm vi đang chọn · bấm một dòng để mở chủ của hoạt động', 'clock')}${rows || '<p class="ex-empty">Chưa có hoạt động trong phạm vi này.</p>'}</section>`;
+}
+/* Danh sách hoạt động của ĐÚNG MỘT LOẠI đang lọc (dashboardActivityTypeFilter):
+   tập lấy từ model.records — tức ĐÃ qua bộ lọc chung Kỳ × Người × Mảng của
+   Dashboard (dashboardActivityModel) — sắp mới nhất trước, phân trang
+   10/trang bằng cơ chế pager dùng chung của app (key "dashacttype:<key>"),
+   mỗi dòng bấm tiếp được qua dashboardActivityRowHTML/dashOpenActivity.
+   Đầu khối có chip ghi rõ loại đang lọc + phạm vi chung đang áp và nút ✕
+   xoá lọc để quay lại toàn bộ — đúng mẫu chip của phễu Lead mang sang view
+   Lead. Không lọc loại -> không render gì. */
+function dashboardActivityTypeListHTML(model) {
+  if (!dashboardActivityTypeFilter) return '';
+  const type = DASHBOARD_ACTIVITY_TYPES.find(t => t.key === dashboardActivityTypeFilter);
+  if (!type) return '';
+  const filtered = model.records.filter(r => r.type === type.key).slice().sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
+  const key = 'dashacttype:' + type.key;
+  const slice = (typeof listPageSlice === 'function') ? listPageSlice(key, filtered) : { info: null, pageItems: filtered.slice(0, 10) };
+  const rows = slice.pageItems.map(dashboardActivityRowHTML).join('');
+  const pager = slice.info && typeof listPagerHTML === 'function' ? listPagerHTML(key, slice.info, 'hoạt động') : '';
+  const scopeTxt = `Kỳ: ${dashCustomActive ? 'Tuỳ chỉnh' : dashPeriodDays === null ? 'Tất cả' : dashPeriodDays + ' ngày'} · Người: ${dashScope === '__none__' ? 'Chưa gán' : dashScope ? esc(memberName(S, dashScope)) : 'Toàn hệ'} · Mảng: ${dashLine ? esc((LINES[dashLine] || {}).name || dashLine) : 'Tất cả mảng'}`;
+  return `<section class="ex-panel ex-act-type-list">${dashboardHeading('Hoạt động loại: ' + esc(type.label), 'Trong đúng phạm vi bộ lọc chung · mới nhất trước · bấm một dòng để mở drawer của chủ và highlight hoạt động', type.icon, `<button class="ex-chip-clear" onclick="clearDashboardActivityType()" title="Bỏ lọc loại này, xem lại toàn bộ báo cáo hoạt động">✕ Đang lọc: ${esc(type.label)}</button>`)}<p class="ex-footnote">${dashboardNumber(filtered.length)} hoạt động · ${scopeTxt}</p>${rows || '<p class="ex-empty">Chưa có hoạt động loại này trong phạm vi đang chọn.</p>'}${pager}</section>`;
 }
 function dashboardActivityHTML(ctx) {
   const model = dashboardActivityModel(ctx.now), total = model.records.length;
-  const cards = dashboardKpi('Tổng hoạt động', dashboardNumber(total), 'Ghi nhận trong kỳ đang chọn', 'chart', '#087de4', "setDashboardMode('activity')") + DASHBOARD_ACTIVITY_TYPES.filter(t => t.key !== 'other').map(t => dashboardKpi(t.label, dashboardNumber(model.counts[t.key]), 'Hoạt động được ghi nhận', t.icon, t.color, "setDashboardMode('activity')")).join('');
-  const items = DASHBOARD_ACTIVITY_TYPES.map(t => ({ label: t.label, value: model.counts[t.key], color: t.color }));
+  const cards = dashboardKpi('Tổng hoạt động', dashboardNumber(total), 'Ghi nhận trong kỳ đang chọn · bấm để bỏ lọc loại', 'chart', '#087de4', "clearDashboardActivityType()") + DASHBOARD_ACTIVITY_TYPES.filter(t => t.key !== 'other').map(t => dashboardKpi(t.label, dashboardNumber(model.counts[t.key]), 'Bấm để xem danh sách loại này', t.icon, t.color, "setDashboardActivityType('" + t.key + "')")).join('');
+  const items = DASHBOARD_ACTIVITY_TYPES.map(t => ({ key: t.key, label: t.label, value: model.counts[t.key], color: t.color }));
   const people = new Map();
   model.records.forEach(r => {
     const id = r.activity.who || '__none__';
@@ -1679,12 +1735,13 @@ function dashboardActivityHTML(ctx) {
     const row = people.get(id); row.total++; row[r.type]++;
   });
   const rows = [...people.values()].sort((a, b) => b.total - a.total);
-  const teamRows = rows.map(r => `<tr><td><button class="ex-person" onclick="setDashScope('${esc(r.id)}')">${esc(r.id === '__none__' ? 'Chưa gán' : memberName(S, r.id))}</button></td><td><b>${dashboardNumber(r.total)}</b></td>${DASHBOARD_ACTIVITY_TYPES.map(t => `<td>${dashboardNumber(r[t.key])}</td>`).join('')}</tr>`).join('');
+  const teamRows = rows.map(r => `<tr><td><button class="ex-person" onclick="setDashScope('${esc(r.id)}')">${esc(r.id === '__none__' ? 'Chưa gán' : memberName(S, r.id))}</button></td><td><b>${dashboardNumber(r.total)}</b></td>${DASHBOARD_ACTIVITY_TYPES.map(t => `<td><button class="ex-cell-btn" onclick="setDashboardActivityTypeForMember('${t.key}','${esc(r.id)}')" title="Xem hoạt động ${esc(t.label)} của ${esc(r.id === '__none__' ? 'Chưa gán' : memberName(S, r.id))}">${dashboardNumber(r[t.key])}</button></td>`).join('')}</tr>`).join('');
   const chart = `<section class="ex-panel ex-activity-trend">${dashboardHeading('Xu hướng hoạt động', `Theo ${model.granularity === 'day' ? 'ngày' : model.granularity === 'week' ? 'tuần' : 'tháng'} · ${esc(ctx.periodLabel)}`, 'chart')}${total ? dashboardActivityChart(model) : '<div class="ex-empty ex-chart-empty">Chưa có hoạt động trong kỳ này.</div>'}</section>`;
-  const mix = `<section class="ex-panel ex-activity-mix">${dashboardHeading('Cơ cấu hoạt động', 'Tỷ trọng theo loại được ghi nhận', 'cube')}<div class="ex-mix-body">${dashboardRing(items, total, 'Hoạt động')}${dashboardLegend(items, total)}</div></section>`;
+  const mixLegend = `<ul class="ex-legend ex-legend-click">${items.map(item => `<li><button class="ex-legend-btn" onclick="setDashboardActivityType('${item.key}')" title="Bấm để xem danh sách hoạt động loại ${esc(item.label)} trong phạm vi đang lọc"><span class="ex-dot" style="background:${item.color}"></span><span>${esc(item.label)}</span><b>${dashboardNumber(item.value)}</b><small>${total ? dashPctTxt(item.value / total * 100) : '—'}</small></button></li>`).join('')}</ul>`;
+  const mix = `<section class="ex-panel ex-activity-mix">${dashboardHeading('Cơ cấu hoạt động', 'Tỷ trọng theo loại được ghi nhận · bấm một loại để xem danh sách', 'cube')}<div class="ex-mix-body">${dashboardRing(items, total, 'Hoạt động')}${mixLegend}</div></section>`;
   const table = `<section class="ex-panel ex-activity-team">${dashboardHeading('Hoạt động theo thành viên', 'Tổng hợp số hoạt động trong kỳ', 'team')}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>Thành viên</th><th>Tổng hoạt động</th>${DASHBOARD_ACTIVITY_TYPES.map(t => `<th>${t.label}</th>`).join('')}</tr></thead><tbody>${teamRows || '<tr><td colspan="7">Chưa có hoạt động.</td></tr>'}</tbody><tfoot><tr><th>Tổng cộng</th><td>${dashboardNumber(total)}</td>${DASHBOARD_ACTIVITY_TYPES.map(t => `<td>${dashboardNumber(model.counts[t.key])}</td>`).join('')}</tr></tfoot></table></div></section>`;
   const coverage = `<section class="ex-panel ex-coverage">${dashboardHeading('Phạm vi báo cáo', 'Hoạt động đã ghi nhận trên CRM', 'check')}<strong>${dashboardNumber(total)}</strong><p>hoạt động trong kỳ đang chọn</p><div class="ex-coverage-bar"></div><p class="ex-footnote">Lọc theo người thực hiện và mảng của hồ sơ gắn với hoạt động. Tin nhắn gồm Zalo/Messenger; Meeting gồm cả Demo.${model.missingDates ? ` ${dashboardNumber(model.missingDates)} hoạt động chưa có ngày hợp lệ${dashPeriodDays === null && !dashCustomActive ? ', được tính tổng và chưa thể vẽ theo thời gian' : ', chỉ hiện khi chọn Tất cả'}.` : ''}</p></section>`;
-  return `<div class="ex-kpis ex-kpis-activity">${cards}</div><div class="ex-activity-charts">${chart}${mix}${dashboardRecentActivityHTML(model.records)}</div><div class="ex-activity-bottom">${table}${coverage}</div>`;
+  return `<div class="ex-kpis ex-kpis-activity">${cards}</div>${dashboardActivityTypeListHTML(model)}<div class="ex-activity-charts">${chart}${mix}${dashboardRecentActivityHTML(model.records)}</div><div class="ex-activity-bottom">${table}${coverage}</div>`;
 }
 function dashboardExecutiveHTML(ctx, controls) {
   const tabs = `<div class="ex-tabs" role="group" aria-label="Nội dung dashboard"><button class="${dashboardMode === 'overview' ? 'on' : ''}" aria-pressed="${dashboardMode === 'overview'}" onclick="setDashboardMode('overview')">${SavaUI.icon('overview')}Tổng quan kinh doanh</button><button class="${dashboardMode === 'activity' ? 'on' : ''}" aria-pressed="${dashboardMode === 'activity'}" onclick="setDashboardMode('activity')">${SavaUI.icon('chart')}Báo cáo hoạt động</button></div>`;
@@ -7027,6 +7084,56 @@ function activityOwnerExists(o) {
   if (o.kind === "event") return (Array.isArray(S.events) ? S.events : []).some(x => x.id === o.id);
   return false;
 }
+/* --- Mở drawer ĐÚNG chủ của một hoạt động + cuộn/highlight hoạt động đó ---
+   Cơ chế DÙNG CHUNG cho mọi điểm bấm vào một hoạt động nằm NGOÀI drawer của
+   chủ (Dashboard Tổng quan: khối legacy "Hoạt động gần nhất", khối executive
+   "Hoạt động gần nhất" và danh sách lọc theo loại ở Báo cáo hoạt động):
+   dashOpenActivity(actId) -> chủ qua activityOwnerOf (đúng 1 trong
+   deal/lead/game/event) -> mở drawer của chủ bằng ĐÚNG hàm open* sẵn có ->
+   applyActivityHighlight tìm hàng "act-row-<id>" (activityRowHTML nay mang
+   id + data-act-id) trong drawer, cuộn tới và gắn lớp .act-highlight — tại
+   hàng đó đã sẵn link mở đúng cuộc hội thoại Gmail/Messenger/Drive đã ghim.
+   Khối hoạt động trong drawer PHÂN TRANG 10/trang nên TRƯỚC khi mở phải
+   nhảy pager của khối về đúng trang chứa hoạt động (activityPagerTargets),
+   nếu không hoạt động ở trang 2+ không có trong DOM để highlight.
+   Quyền dữ liệu KHÔNG đổi: chỉ điều hướng trên dữ liệu S đã nạp theo cơ chế
+   hiện tại của app; chủ đã xoá / hoạt động không có đúng 1 chủ -> toast,
+   không mở gì, không lộ thêm dữ liệu nào. */
+let pendingActivityHighlightId = "";
+function activityPagerTargets(a) {
+  const o = activityOwnerOf(a); if (!o) return [];
+  const pageOf = (key, items) => { const idx = items.findIndex(x => x.id === a.id); return idx < 0 ? null : { key, page: Math.floor(idx / listPageSize()) + 1 }; };
+  const out = [];
+  const push = r => { if (r) out.push(r); };
+  if (o.kind === "deal") push(pageOf("dealacts:" + o.id, S.activities.filter(x => x.deal === o.id)));
+  else if (o.kind === "lead") { const rel = dealsForLead(o.id); push(pageOf("leadacts:" + o.id, S.activities.filter(x => x.lead === o.id || rel.some(d => d.id === x.deal)))); }
+  else if (o.kind === "game") { const ds = S.deals.filter(d => { const vg = dealVisibleGame(d); return !!vg && vg.id === o.id; }); push(pageOf("gameacts:" + o.id, S.activities.filter(x => x.game === o.id || ds.some(d => d.id === x.deal)))); }
+  else if (o.kind === "event") push(pageOf("eventacts:" + o.id, S.activities.filter(x => x.event === o.id)));
+  return out;
+}
+function applyActivityHighlight() {
+  const id = pendingActivityHighlightId; if (!id) return;
+  try {
+    const drawer = document.getElementById("drawer"); if (!drawer || typeof drawer.querySelector !== "function") return;
+    const el = drawer.querySelector('[data-act-id="' + id + '"]'); if (!el) return;
+    pendingActivityHighlightId = "";
+    if (el.classList && typeof el.classList.add === "function") el.classList.add("act-highlight");
+    if (typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (el.classList && typeof el.classList.remove === "function") setTimeout(() => { try { el.classList.remove("act-highlight"); } catch (e) {} }, 4000);
+  } catch (e) {}
+}
+function dashOpenActivity(actId) {
+  const a = S.activities.find(x => x.id === actId); if (!a) return;
+  const o = activityOwnerOf(a);
+  if (!o || !o.target) { toast("Không mở được: đối tượng chủ của hoạt động này không còn (đã xoá) hoặc hoạt động chưa gắn đúng một chủ"); return; }
+  activityPagerTargets(a).forEach(t => { listPageState[t.key] = t.page; });
+  pendingActivityHighlightId = String(a.id);
+  if (o.kind === "deal") openDeal(o.id);
+  else if (o.kind === "lead") openLead(o.id);
+  else if (o.kind === "game") openGame(o.id);
+  else openEvent(o.id);
+  applyActivityHighlight();
+}
 function openActLinkById(actId) {
   const a = S.activities.find(x => x.id === actId); if (!a) return;
   openActLink(a.url || "");
@@ -7060,7 +7167,7 @@ function activityRowHTML(a, opts) {
   const link = !url ? "" : safeUrl
     ? `<div style="margin-top:3px"><a href="${esc(safeUrl)}" target="_blank" rel="noopener">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>`
     : `<div style="margin-top:3px"><a href="#" onclick="openActLinkById('${a.id}'); return false">🔗 Mở đúng cuộc hội thoại / tài liệu đã ghim ↗</a></div>`;
-  return `<div class="tl"><div class="ev"><b>${esc(a.type || "Hoạt động")}</b>${ownerHTML}<div>${esc(a.text || "")}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div>${link}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`;
+  return `<div class="tl" id="act-row-${esc(a.id)}" data-act-id="${esc(a.id)}"><div class="ev"><b>${esc(a.type || "Hoạt động")}</b>${ownerHTML}<div>${esc(a.text || "")}</div><div class="when">${esc(fmtWhen(a.when))} · ${memberLinkHTML(a.who)}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div>${link}<div style="margin-top:4px;display:flex;gap:4px"><button class="btn ghost small" onclick="editActivity('${a.id}')">✏️ Sửa</button><button class="btn ghost small" onclick="deleteActivity('${a.id}')">🗑 Xóa</button></div></div></div>`;
 }
 /* Hướng dẫn lấy URL ghim hội thoại — hiện ngay tại ô dán link của MỌI form
    thêm/sửa hoạt động, dạng <details> mở gọn (không che form, kể cả viewport
