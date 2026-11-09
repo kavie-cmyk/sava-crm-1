@@ -200,6 +200,7 @@
 <link rel="stylesheet" href="apple-design.css">
 <link rel="stylesheet" href="auth.css">
 <link rel="stylesheet" href="workspace-design.css?v=20261105.1&amp;ui=4">
+<link rel="stylesheet" href="dashboard-design.css?v=20261109.1">
 <script>try{document.documentElement.classList.add('sava-locked');}catch(e){}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1178,8 +1179,8 @@ function render() {
   document.querySelectorAll(".audit-admin-only").forEach(el => { el.style.display = isAdminViewer() ? "" : "none"; });
   /* Mục nav "Import" hiện cho Admin + BD (isImportViewer), ẩn với vai khác — cùng mẫu gate theo vai của Lịch sử tổng. */
   document.querySelectorAll(".import-bd-only").forEach(el => { el.style.display = isImportViewer() ? "" : "none"; });
-  const titles = { dash:"Tổng quan", board:"Pipeline", companies:"Công ty & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
-  const descriptions = { dash:"Theo dõi cơ hội, đối tác và việc của team.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Lịch chung của team ở phía trên (việc + sự kiện, lọc theo loại và theo người) và danh sách việc ở phía dưới — xem dạng danh sách hoặc theo người.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
+  const titles = { dash:dashboardMode === "activity" ? "Báo cáo hoạt động" : "Tổng quan kinh doanh", board:"Pipeline", companies:"Công ty & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
+  const descriptions = { dash:dashboardMode === "activity" ? "Hoạt động tiếp cận và phát triển cơ hội kinh doanh." : "Hiệu quả kinh doanh và pipeline theo mảng.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Lịch chung của team ở phía trên (việc + sự kiện, lọc theo loại và theo người) và danh sách việc ở phía dưới — xem dạng danh sách hoặc theo người.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
   /* Nút header "+ Thêm deal" là nút CỐ ĐỊNH toàn app trong toolbar (không
@@ -1240,7 +1241,7 @@ function vDash() {
     return `<div class="activity-item" ${o&&o.target?`onclick="${openFn}('${o.id}')"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(head)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
   const dashActDeals = S.deals.filter(d => curLine === 'all' || d.line === curLine);
-  document.getElementById('view').innerHTML = kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + dashAnalyticsHTML();
+  document.getElementById('view').innerHTML = dashAnalyticsHTML() + `<details class="ex-legacy-operations"><summary>Pipeline chi tiết, việc cần làm & ghi hoạt động</summary>` + kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + `</details>`;
 }
 /* ===== Khu PHÂN TÍCH (Dashboard) trong Tổng quan =====
    BỘ LỌC CHUNG (gộp 2026-11-05): MỘT thanh lọc duy nhất ở đầu khu Phân
@@ -1406,7 +1407,7 @@ function dashAnalyticsHTML() {
   const lineOpts = `<option value="" ${!dashLine ? "selected" : ""}>Tất cả mảng</option>` + Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${dashLine === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
   const lineNote = dashLine ? ` Đang lọc riêng mảng <b>${esc(LINES[dashLine].name)}</b>: deal tính theo mảng của deal, lead theo mảng của lead, công ty theo vai trò mảng (roles) của công ty; bản ghi không thuộc mảng nào không được tính. Trong bảng so sánh BD, việc không mang mảng nên được suy mảng từ đối tượng việc được gắn (deal/lead/công ty/game/sự kiện) — việc không gắn đối tượng hoặc không suy ra được mảng này không được tính.` : "";
   const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div>${customCtl}<div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div><div class="dash-ctl"><span class="dash-ctl-label">Mảng</span><select class="dash-select" onchange="setDashLine(this.value)" aria-label="Mảng — bộ lọc chung phân tích">${lineOpts}</select></div></div>
-  <p class="dash-note">Bộ lọc chung áp cho <b>toàn bộ khu Phân tích</b>: theo kỳ, chỉ tính các bản ghi <b>được tạo trong kỳ</b> — trạng thái lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay). Riêng số tổng hiện tại trên thẻ KPI là ảnh chụp hiện tại của tập theo Người + Mảng, không đổi theo kỳ.${scopeNote}${lineNote}</p>`;
+  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung áp cho <b>toàn bộ khu Phân tích</b>: theo kỳ, chỉ tính các bản ghi <b>được tạo trong kỳ</b> — trạng thái lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay). Riêng số tổng hiện tại trên thẻ KPI là ảnh chụp hiện tại của tập theo Người + Mảng, không đổi theo kỳ.${scopeNote}${lineNote}</p></details>`;
   /* --- Dải KPI: số TỔNG trên tập theo Người + Mảng (lineScoped, không
      đổi theo kỳ) + phần "mới trong kỳ" trên cùng tập đó --- */
   const nC = D.dashCountNew(lineScoped.companies, dashPeriodDays, now, range), nL = D.dashCountNew(lineScoped.leads, dashPeriodDays, now, range), nD = D.dashCountNew(lineScoped.deals, dashPeriodDays, now, range);
@@ -1492,8 +1493,204 @@ function dashAnalyticsHTML() {
     }).join("");
     compareHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>So sánh theo BD</h3><span class="dash-badge">bấm vào 1 BD để xem phạm vi của người đó</span></div><p class="dash-note">Kỳ đang áp dụng: <b>${periodLabel}</b> · Mảng đang áp dụng: <b>${dashLine ? esc(LINES[dashLine].name) : "Tất cả mảng"}</b>. Các cột dạng luồng — Lead mới trong kỳ, Lead đã chuyển đổi, Won / Lost — chỉ tính bản ghi <b>tạo trong kỳ</b> (trạng thái hiện tại); các cột Lead phụ trách, Deal đang mở, Việc quá hạn là <b>trạng thái hiện tại</b>, không đổi theo kỳ.${dashLine ? " Khi đang lọc một mảng, Việc quá hạn chỉ tính việc suy ra được đúng mảng đó từ đối tượng được gắn (deal/lead/công ty/game/sự kiện); việc không gắn đối tượng hoặc không thuộc mảng đang chọn không được tính." : ""}</p><div class="dash-table-wrap"><table class="dash-table"><thead><tr><th>BD</th><th>Lead phụ trách</th><th>Lead mới trong kỳ</th><th>Lead đã chuyển đổi (tỉ lệ Lead→Deal)</th><th>Deal đang mở</th><th>Won / Lost (tỉ lệ thắng)</th><th>Việc quá hạn</th></tr></thead><tbody>${trs}</tbody></table></div><p class="dash-note">Việc quá hạn: việc chưa xong và đã qua hạn theo đúng logic hạn việc của app (isOverdue). Hàng “Chưa gán” gồm lead/deal/việc chưa có người phụ trách.</p></section>`;
   }
-  return `<div class="dash-wrap"><div class="section-heading dash-head"><div><h2>Phân tích</h2><p>KPI, xu hướng, phễu và tỉ lệ chuyển đổi — chỉ hiển thị, không đổi dữ kiện.</p></div></div>${controls}${kpis}${trendHTML}${funnelHTML}${dealHTML}${convHTML}${compareHTML}</div>`;
+  const executive = dashboardExecutiveHTML({ D, dashState, lineScoped, cCompanies, cLeads, cDeals, range, now, nC, nL, nD, openDeals, funnel, periodLabel }, controls);
+  return executive + `<details class="ex-analytics-details"><summary>Phân tích chi tiết · đầy đủ các bước phễu và tỷ lệ chuyển đổi</summary><div class="dash-wrap">${kpis}${trendHTML}${funnelHTML}${dealHTML}${convHTML}${compareHTML}</div></details>`;
 }
+/* Read-only dashboard presentation. Filters are session UI state. */
+let dashboardMode = 'overview', dashboardPipeline = '';
+function setDashboardMode(mode) { dashboardMode = mode === 'activity' ? 'activity' : 'overview'; render(); }
+function setDashboardPipeline(line) { dashboardPipeline = Object.prototype.hasOwnProperty.call(LINES, line) ? line : ''; render(); }
+function resetDashboardFilters() {
+  dashPeriodDays = 30; dashScope = ''; dashLine = '';
+  dashCustomActive = false; dashCustomFrom = ''; dashCustomTo = '';
+  dashboardPipeline = ''; render();
+}
+function dashboardNumber(n) { return Number(n || 0).toLocaleString('vi-VN'); }
+function dashboardHeading(title, subtitle, icon, extra) {
+  return `<div class="ex-panel-heading"><span class="ex-icon">${SavaUI.icon(icon)}</span><div><h3>${title}</h3>${subtitle ? `<p>${subtitle}</p>` : ''}</div>${extra || ''}</div>`;
+}
+function dashboardKpi(label, value, note, icon, color, action) {
+  return `<button class="ex-kpi" style="--ex-color:${color}" onclick="${action}"><span class="ex-kpi-icon">${SavaUI.icon(icon)}</span><span class="ex-kpi-content"><span class="ex-kpi-label">${label}</span><strong>${value}</strong><span class="ex-kpi-note">${note}</span></span><span class="ex-kpi-art" aria-hidden="true"><i></i><i></i><i></i></span></button>`;
+}
+function dashboardRing(items, total, label) {
+  const circumference = 2 * Math.PI * 56;
+  let offset = 0;
+  const arcs = items.map(item => {
+    const length = total ? item.value / total * circumference : 0;
+    const arc = `<circle cx="72" cy="72" r="56" fill="none" stroke="${item.color}" stroke-width="20" stroke-dasharray="${length} ${circumference}" stroke-dashoffset="${-offset}" transform="rotate(-90 72 72)"><title>${esc(item.label)}: ${dashboardNumber(item.value)}</title></circle>`;
+    offset += length; return arc;
+  }).join('');
+  return `<div class="ex-ring"><svg viewBox="0 0 144 144" aria-hidden="true"><circle cx="72" cy="72" r="56" fill="none" stroke="#edf0f8" stroke-width="20"/>${arcs}</svg><div><strong>${dashboardNumber(total)}</strong><span>${label}</span></div></div>`;
+}
+function dashboardLegend(items, total) {
+  return `<ul class="ex-legend">${items.map(item => `<li><span class="ex-dot" style="background:${item.color}"></span><span>${esc(item.label)}</span><b>${dashboardNumber(item.value)}</b><small>${total ? dashPctTxt(item.value / total * 100) : '—'}</small></li>`).join('')}</ul>`;
+}
+function dashboardTeamHTML(ctx) {
+  const { D, dashState, range, now } = ctx;
+  let rows = D.dashCompare(dashState, dashPeriodDays, now, isOverdue, range, dashLine);
+  if (dashScope) rows = rows.filter(r => dashScope === '__none__' ? r.none : r.id === dashScope);
+  const body = rows.map(r => {
+    const name = r.none ? 'Chưa gán' : memberName(S, r.id);
+    const initials = name.trim().split(/\s+/).slice(-2).map(n => n[0]).join('').toUpperCase();
+    return `<tr><td><button class="ex-person" onclick="setDashScope('${esc(r.id)}')"><span class="ex-avatar">${esc(initials)}</span>${esc(name)}</button></td><td>${dashboardNumber(r.leadTotal)}</td><td>${dashboardNumber(r.converted)}</td><td>${dashboardNumber(r.open)}</td><td><div class="ex-ratio"><span>${dashPctTxt(r.leadRate)}</span><i><b style="width:${Math.max(0, Math.min(100, r.leadRate || 0))}%"></b></i></div></td><td><span class="${r.overdue ? 'ex-overdue' : ''}">${dashboardNumber(r.overdue)}</span></td></tr>`;
+  }).join('');
+  return `<section class="ex-panel ex-team">${dashboardHeading('Hiệu suất team', 'Lead đang phụ trách · chuyển đổi trong kỳ · deal mở và việc quá hạn hiện tại', 'team')}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>BD phụ trách</th><th>Leads</th><th>Đã chuyển đổi</th><th>Deal đang mở</th><th>Tỷ lệ Lead → Deal</th><th>Việc quá hạn</th></tr></thead><tbody>${body || '<tr><td colspan="6">Chưa có dữ liệu trong phạm vi này.</td></tr>'}</tbody></table></div></section>`;
+}
+function dashboardOverviewHTML(ctx) {
+  const { D, lineScoped, cLeads, funnel, range, periodLabel } = ctx;
+  const open = lineScoped.deals.filter(isOpen);
+  const cards = dashboardKpi('Công ty', dashboardNumber(lineScoped.companies.length), 'Tổng hiện tại theo người và mảng', 'company', '#087de4', "setView('companies')")
+    + dashboardKpi('Leads', dashboardNumber(lineScoped.leads.length), `+${dashboardNumber(ctx.nL.count)} mới trong kỳ`, 'team', '#7052d8', "setView('leads')")
+    + dashboardKpi('Deal đang mở', dashboardNumber(open.length), `Trên tổng ${dashboardNumber(lineScoped.deals.length)} cơ hội`, 'pipeline', '#f58c25', "setView('board')")
+    + dashboardKpi('Giá trị pipeline', esc(pipelineValue(open)), 'Deal mở · AI & Metaverse', 'money', '#e69a27', "setView('board')");
+  const milestones = [{ key: '', label: 'Tổng lead đầu vào', count: funnel.total, pct: funnel.total ? 100 : null }]
+    .concat(['sent_connect', 'in_reply', 'discovery_meeting', 'contacted', 'converted'].map(key => {
+      const st = funnel.steps.find(x => x.key === key);
+      return { key, label: (leadStatusDef(key) || {}).label || key, count: st ? st.count : 0, pct: st ? st.pct : null };
+    }));
+  const colors = ['#087de4', '#29a5f5', '#7570f7', '#a15df3', '#cf69d7', '#ff9b2f'];
+  const funnelRows = milestones.map((st, i) => `<button class="ex-funnel-row" onclick="dashOpenLeadStatus('${st.key}')"><span class="ex-funnel-track"><span class="ex-funnel-shape" style="--ex-color:${colors[i]};width:${funnel.total ? Math.max(16, st.count / funnel.total * 100) : 16}%">${dashboardNumber(st.count)}</span></span><span class="ex-funnel-label"><i class="ex-dot" style="background:${colors[i]}"></i>${esc(st.label)}</span><b>${dashboardNumber(st.count)}</b><small>${dashPctTxt(st.pct)}</small></button>`).join('');
+  const conversion = funnel.summary.convertedPct;
+  const funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', `Lead tạo trong kỳ · ${esc(periodLabel)}`, 'pipeline', `<span class="ex-pill">Lead → Deal: ${dashPctTxt(conversion)}</span>`)}<div class="ex-funnel">${funnelRows}</div><p class="ex-footnote">Tích lũy ước tính theo trạng thái hiện tại · ${dashboardNumber(funnel.dropped.count)} lead tạm dừng${funnel.unknown ? ` · ${dashboardNumber(funnel.unknown)} trạng thái chưa xác định` : ''}.</p></section>`;
+  const lines = Object.keys(LINES).filter(k => !dashLine || k === dashLine);
+  const items = lines.map(k => ({ label: LINES[k].name, value: open.filter(d => d.line === k).length, color: LINES[k].color }));
+  const unknownOpen = open.filter(d => !LINES[d.line]).length;
+  if (unknownOpen) items.push({ label: 'Chưa xác định mảng', value: unknownOpen, color: '#94a3b8' });
+  const selected = lines.includes(dashboardPipeline) ? dashboardPipeline : lines.find(k => open.some(d => d.line === k)) || lines[0];
+  const pipeline = LINES[selected];
+  const stages = pipeline ? pipeline.stages.filter(s => s[0] !== 'lost').map(([key, label]) => ({ key, label, count: lineScoped.deals.filter(d => d.line === selected && d.stage === key).length })) : [];
+  const max = Math.max(1, ...stages.map(st => st.count));
+  const stageBars = stages.map(st => `<button class="ex-stage" onclick="curLine='${selected}';setView('board')" title="${esc(st.label)}: ${st.count}"><span class="ex-stage-track"><b style="height:${st.count / max * 100}%;background:${pipeline.color}"></b><strong>${dashboardNumber(st.count)}</strong></span><span>${esc(st.label)}</span></button>`).join('');
+  const options = lines.map(k => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(LINES[k].name)}</option>`).join('');
+  const pipelineHTML = `<section class="ex-panel">${dashboardHeading('Deal Pipeline theo mảng', 'Phân bổ deal đang mở · trạng thái hiện tại', 'cube', `<select class="ex-pipeline-select" aria-label="Pipeline hiển thị" onchange="setDashboardPipeline(this.value)">${options}</select>`)}<div class="ex-pipeline"><div class="ex-distribution">${dashboardRing(items, items.reduce((n, i) => n + i.value, 0), 'Deal đang mở')}${dashboardLegend(items, open.length)}</div><div class="ex-stage-chart"><h4>Pipeline: ${esc(pipeline ? pipeline.name : '—')}</h4><div class="ex-stages">${stageBars}</div><p class="ex-footnote">Từng stage gồm cả Won · toàn bộ deal hiện tại.</p></div></div></section>`;
+  const overdue = lineScoped.tasks.filter(t => isOverdue(t)).length;
+  const followup = open.filter(d => d.idle >= 5).length;
+  const replies = cLeads.filter(l => l.status === 'in_reply').length;
+  const actions = `<section class="ex-panel ex-actions">${dashboardHeading('Cần xử lý', 'Các đầu việc cần chú ý', 'spark')}<button onclick="setView('board')"><span class="ex-action-icon orange">${SavaUI.icon('pipeline')}</span><span><b>${dashboardNumber(followup)}</b> deal cần follow-up<small>Chưa cập nhật từ 5 ngày</small></span>${SavaUI.icon('arrow')}</button><button onclick="setView('tasks')"><span class="ex-action-icon purple">${SavaUI.icon('meeting')}</span><span><b>${dashboardNumber(overdue)}</b> việc quá hạn<small>Trong phạm vi quyền xem việc</small></span>${SavaUI.icon('arrow')}</button><button onclick="dashOpenLeadStatus('in_reply')"><span class="ex-action-icon blue">${SavaUI.icon('mail')}</span><span><b>${dashboardNumber(replies)}</b> lead đang ở In reply<small>Lead tạo trong kỳ đang chọn</small></span>${SavaUI.icon('arrow')}</button></section>`;
+  return `<div class="ex-kpis">${cards}</div><div class="ex-overview-charts">${funnelHTML}${pipelineHTML}</div><div class="ex-overview-bottom">${dashboardTeamHTML(ctx)}${actions}</div>`;
+}
+const DASHBOARD_ACTIVITY_TYPES = [
+  { key: 'email', label: 'Email', color: '#168ce8', icon: 'mail' },
+  { key: 'message', label: 'Tin nhắn', color: '#8a5aee', icon: 'note' },
+  { key: 'meeting', label: 'Meeting / Demo', color: '#ff9b2f', icon: 'meeting' },
+  { key: 'call', label: 'Gọi điện', color: '#24afcf', icon: 'call' },
+  { key: 'other', label: 'Ghi chú / Khác', color: '#aab6c9', icon: 'note' }
+];
+function dashboardActivityType(activity) {
+  const type = String(activity.type || '').toLowerCase();
+  if (type === 'email') return 'email';
+  if (['zalo', 'messenger', 'message'].includes(type)) return 'message';
+  if (['meeting', 'demo'].includes(type)) return 'meeting';
+  if (type === 'call') return 'call';
+  return 'other';
+}
+function dashboardActivityDate(activity) {
+  const value = activity.when || activity.createdAt;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return window.SavaDash.dashParseDate(value + 'T12:00:00');
+  if (typeof value === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(value)) {
+    const parsed = parseDMYtoISO(value);
+    return parsed.ok && parsed.iso ? window.SavaDash.dashParseDate(parsed.iso + 'T12:00:00') : null;
+  }
+  return window.SavaDash.dashParseDate(value);
+}
+function dashboardActivityModel(now) {
+  const D = window.SavaDash, range = D.dashRangeWindow(dashActiveRange());
+  const end = range ? new Date(range.to) : new Date(now);
+  end.setHours(23, 59, 59, 999);
+  let start = range ? new Date(range.from) : dashPeriodDays === null ? null : new Date(now);
+  if (start) { if (!range) start.setDate(start.getDate() - dashPeriodDays + 1); start.setHours(0, 0, 0, 0); }
+  let missingDates = 0;
+  const records = (S.activities || []).filter(a => {
+    if (dashScope && (dashScope === '__none__' ? !!a.who : a.who !== dashScope)) return false;
+    if (dashLine && !D.dashTaskInLine(a, S, dashLine)) return false;
+    if (query && !(String(a.text || '') + ' ' + String(a.type || '')).toLowerCase().includes(query)) return false;
+    return true;
+  }).map(a => ({ activity: a, date: dashboardActivityDate(a), type: dashboardActivityType(a) })).filter(record => {
+    if (!record.date) { missingDates++; return !start; }
+    return (!start || record.date >= start) && record.date <= end;
+  });
+  if (!start) {
+    const dates = records.filter(r => r.date).map(r => r.date.getTime());
+    start = dates.length ? new Date(Math.min(...dates)) : new Date(now);
+    start.setHours(0, 0, 0, 0);
+  }
+  const days = Math.floor((end - start) / 86400000) + 1;
+  const granularity = days > 730 ? 'month' : days > 31 ? 'week' : 'day';
+  function bucketStart(date) {
+    const d = new Date(date); d.setHours(0, 0, 0, 0);
+    if (granularity === 'month') d.setDate(1);
+    if (granularity === 'week') d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+    return d;
+  }
+  const buckets = [], byKey = new Map();
+  for (let date = bucketStart(start); date <= end;) {
+    const bucket = { date: new Date(date), counts: { email: 0, message: 0, meeting: 0, call: 0, other: 0 } };
+    buckets.push(bucket); byKey.set(date.getTime(), bucket);
+    const next = new Date(date);
+    if (granularity === 'month') next.setMonth(next.getMonth() + 1);
+    else next.setDate(next.getDate() + (granularity === 'week' ? 7 : 1));
+    date = next;
+  }
+  const counts = { email: 0, message: 0, meeting: 0, call: 0, other: 0 };
+  records.forEach(record => {
+    counts[record.type]++;
+    const bucket = record.date ? byKey.get(bucketStart(record.date).getTime()) : null;
+    if (bucket) bucket.counts[record.type]++;
+  });
+  return { records, counts, buckets, missingDates, granularity };
+}
+function dashboardActivityChart(model) {
+  const width = 620, height = 224, left = 34, top = 18, bottom = 30, right = 8;
+  const plotH = height - top - bottom, plotW = width - left - right;
+  const max = Math.max(4, Math.ceil(Math.max(0, ...model.buckets.map(b => Object.values(b.counts).reduce((a, n) => a + n, 0))) / 4) * 4);
+  const gap = plotW / Math.max(1, model.buckets.length), barW = Math.min(36, gap * .64);
+  const labels = new Set(window.SavaDash.dashTrendLabelIndices(model.buckets.length, model.granularity, plotW));
+  const grid = [0, .25, .5, .75, 1].map(r => `<g><line x1="${left}" x2="${width - right}" y1="${top + plotH * (1 - r)}" y2="${top + plotH * (1 - r)}" stroke="#e5e9f5"/><text x="${left - 8}" y="${top + plotH * (1 - r) + 4}" text-anchor="end" fill="#66748d" font-size="10">${Math.ceil(max * r)}</text></g>`).join('');
+  const bars = model.buckets.map((b, i) => {
+    const x = left + i * gap + gap / 2;
+    let y = top + plotH;
+    const fullDate = fmtWhen(b.date.toISOString());
+    const rects = DASHBOARD_ACTIVITY_TYPES.map(type => {
+      const h = b.counts[type.key] / max * plotH; y -= h;
+      return `<rect x="${x - barW / 2}" y="${y}" width="${barW}" height="${h}" fill="${type.color}"><title>${fullDate} · ${type.label}: ${b.counts[type.key]}</title></rect>`;
+    }).join('');
+    const label = model.granularity === 'month' ? String(b.date.getMonth() + 1).padStart(2, '0') + '-' + b.date.getFullYear() : String(b.date.getDate()).padStart(2, '0') + '-' + String(b.date.getMonth() + 1).padStart(2, '0');
+    return rects + (labels.has(i) ? `<text x="${x}" y="${height - 8}" text-anchor="middle" fill="#66748d" font-size="10">${label}</text>` : '');
+  }).join('');
+  return `<svg class="ex-activity-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Số hoạt động theo ${model.granularity === 'day' ? 'ngày' : model.granularity === 'week' ? 'tuần' : 'tháng'}">${grid}${bars}</svg><div class="ex-chart-key">${DASHBOARD_ACTIVITY_TYPES.map(t => `<span><i class="ex-dot" style="background:${t.color}"></i>${t.label}</span>`).join('')}</div>`;
+}
+function dashboardRecentActivityHTML(records) {
+  const sorted = records.slice().sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0)).slice(0, 4);
+  const rows = sorted.map(record => {
+    const a = record.activity, type = DASHBOARD_ACTIVITY_TYPES.find(t => t.key === record.type), owner = activityOwnerOf(a);
+    const target = owner && owner.target ? owner.kind === 'deal' ? 'openDeal' : owner.kind === 'lead' ? 'openLead' : owner.kind === 'event' ? 'openEvent' : 'openGame' : '';
+    return `<div class="ex-recent-item"><span class="ex-recent-icon" style="--ex-color:${type.color}">${SavaUI.icon(type.icon)}</span><div>${target ? `<button onclick="${target}('${esc(owner.id)}')">${esc(a.text || a.type)}</button>` : `<strong>${esc(a.text || a.type)}</strong>`}<p>${esc(memberName(S, a.who) || 'Chưa gán')} · ${esc(record.date ? fmtWhen(record.date.toISOString()) : 'Chưa có ngày')}</p></div><span class="ex-type-label" style="--ex-color:${type.color}">${esc(a.type || 'Khác')}</span></div>`;
+  }).join('');
+  return `<section class="ex-panel ex-recent">${dashboardHeading('Hoạt động gần nhất', 'Trong kỳ và phạm vi đang chọn', 'clock')}${rows || '<p class="ex-empty">Chưa có hoạt động trong phạm vi này.</p>'}</section>`;
+}
+function dashboardActivityHTML(ctx) {
+  const model = dashboardActivityModel(ctx.now), total = model.records.length;
+  const cards = dashboardKpi('Tổng hoạt động', dashboardNumber(total), 'Ghi nhận trong kỳ đang chọn', 'chart', '#087de4', "setDashboardMode('activity')") + DASHBOARD_ACTIVITY_TYPES.filter(t => t.key !== 'other').map(t => dashboardKpi(t.label, dashboardNumber(model.counts[t.key]), 'Hoạt động được ghi nhận', t.icon, t.color, "setDashboardMode('activity')")).join('');
+  const items = DASHBOARD_ACTIVITY_TYPES.map(t => ({ label: t.label, value: model.counts[t.key], color: t.color }));
+  const people = new Map();
+  model.records.forEach(r => {
+    const id = r.activity.who || '__none__';
+    if (!people.has(id)) people.set(id, { id, total: 0, email: 0, message: 0, meeting: 0, call: 0, other: 0 });
+    const row = people.get(id); row.total++; row[r.type]++;
+  });
+  const rows = [...people.values()].sort((a, b) => b.total - a.total);
+  const teamRows = rows.map(r => `<tr><td><button class="ex-person" onclick="setDashScope('${esc(r.id)}')">${esc(r.id === '__none__' ? 'Chưa gán' : memberName(S, r.id))}</button></td><td><b>${dashboardNumber(r.total)}</b></td>${DASHBOARD_ACTIVITY_TYPES.map(t => `<td>${dashboardNumber(r[t.key])}</td>`).join('')}</tr>`).join('');
+  const chart = `<section class="ex-panel ex-activity-trend">${dashboardHeading('Xu hướng hoạt động', `Theo ${model.granularity === 'day' ? 'ngày' : model.granularity === 'week' ? 'tuần' : 'tháng'} · ${esc(ctx.periodLabel)}`, 'chart')}${total ? dashboardActivityChart(model) : '<div class="ex-empty ex-chart-empty">Chưa có hoạt động trong kỳ này.</div>'}</section>`;
+  const mix = `<section class="ex-panel ex-activity-mix">${dashboardHeading('Cơ cấu hoạt động', 'Tỷ trọng theo loại được ghi nhận', 'cube')}<div class="ex-mix-body">${dashboardRing(items, total, 'Hoạt động')}${dashboardLegend(items, total)}</div></section>`;
+  const table = `<section class="ex-panel ex-activity-team">${dashboardHeading('Hoạt động theo thành viên', 'Tổng hợp số hoạt động trong kỳ', 'team')}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>Thành viên</th><th>Tổng hoạt động</th>${DASHBOARD_ACTIVITY_TYPES.map(t => `<th>${t.label}</th>`).join('')}</tr></thead><tbody>${teamRows || '<tr><td colspan="7">Chưa có hoạt động.</td></tr>'}</tbody><tfoot><tr><th>Tổng cộng</th><td>${dashboardNumber(total)}</td>${DASHBOARD_ACTIVITY_TYPES.map(t => `<td>${dashboardNumber(model.counts[t.key])}</td>`).join('')}</tr></tfoot></table></div></section>`;
+  const coverage = `<section class="ex-panel ex-coverage">${dashboardHeading('Phạm vi báo cáo', 'Hoạt động đã ghi nhận trên CRM', 'check')}<strong>${dashboardNumber(total)}</strong><p>hoạt động trong kỳ đang chọn</p><div class="ex-coverage-bar"></div><p class="ex-footnote">Lọc theo người thực hiện và mảng của hồ sơ gắn với hoạt động. Tin nhắn gồm Zalo/Messenger; Meeting gồm cả Demo.${model.missingDates ? ` ${dashboardNumber(model.missingDates)} hoạt động chưa có ngày hợp lệ${dashPeriodDays === null && !dashCustomActive ? ', được tính tổng và chưa thể vẽ theo thời gian' : ', chỉ hiện khi chọn Tất cả'}.` : ''}</p></section>`;
+  return `<div class="ex-kpis ex-kpis-activity">${cards}</div><div class="ex-activity-charts">${chart}${mix}${dashboardRecentActivityHTML(model.records)}</div><div class="ex-activity-bottom">${table}${coverage}</div>`;
+}
+function dashboardExecutiveHTML(ctx, controls) {
+  const tabs = `<div class="ex-tabs" role="group" aria-label="Nội dung dashboard"><button class="${dashboardMode === 'overview' ? 'on' : ''}" aria-pressed="${dashboardMode === 'overview'}" onclick="setDashboardMode('overview')">${SavaUI.icon('overview')}Tổng quan kinh doanh</button><button class="${dashboardMode === 'activity' ? 'on' : ''}" aria-pressed="${dashboardMode === 'activity'}" onclick="setDashboardMode('activity')">${SavaUI.icon('chart')}Báo cáo hoạt động</button></div>`;
+  return `<div class="executive-dashboard">${tabs}<div class="ex-filters"><div class="ex-filter-heading">${SavaUI.icon('search')}<b>Bộ lọc</b></div>${controls}<button class="ex-reset" onclick="resetDashboardFilters()">${SavaUI.icon('reset')}Đặt lại</button></div>${dashboardMode === 'activity' ? dashboardActivityHTML(ctx) : dashboardOverviewHTML(ctx)}</div>`;
+}
+
 /* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ (YYYY-MM-DD)
    -> quá hạn khi dueDate < hôm nay (giờ local, so chuỗi cùng định dạng); không có
    dueDate hợp lệ -> dùng cờ t.overdue cũ (dữ liệu mẫu "Hôm nay"/"Tuần trước"...). */

@@ -250,7 +250,7 @@ test('dashCompare: hàng theo BD + Chưa gán; tổng các chỉ số cộng đ�
 
 test('tĩnh: vDash gắn dashAnalyticsHTML; đủ nhãn trung thực + điều khiển; màu định nghĩa 1 chỗ; CSS dash- riêng', () => {
   const html = read('index.html'), shared = read('shared.js'), css = read('workspace-design.css');
-  assert.ok(html.includes('+ dashAnalyticsHTML()'), 'vDash phải cộng khu Phân tích vào cuối, không di chuyển khối cũ');
+  assert.ok(html.includes('dashAnalyticsHTML() + `<details class="ex-legacy-operations">'), 'vDash mở đầu bằng dashboard, khối thao tác cũ vẫn truy cập trong details');
   assert.ok(html.includes('Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead'), 'phễu phải có ghi chú trung thực nguyên văn');
   assert.ok(html.includes('ảnh chụp hiện tại'), 'phải ghi nhãn phễu/tỉ lệ là ảnh chụp hiện tại');
   assert.ok(html.includes('Chưa có deal đóng'));

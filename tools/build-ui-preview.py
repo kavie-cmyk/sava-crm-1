@@ -6,6 +6,7 @@ Production pages never load this fixture or link to this directory.
 """
 import json
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -39,6 +40,14 @@ fixture = {
   {'id':'ui-a2','deal':'ui-d1','type':'Email','who':'ui-bd','when':'2026-10-31','text':'Đã gửi thông tin sản phẩm và đề xuất lịch trao đổi. Dữ liệu minh họa.'}],
  'verticals': [], 'leadDealStatusMigrated':True
 }
+# Keep the isolated visual fixture in the default reporting period.
+for group in ('companies', 'leads', 'deals'):
+ for i, record in enumerate(fixture[group]):
+  record['createdAt']=(datetime.now()-timedelta(days=i+1)).isoformat(timespec='seconds')
+for lead in fixture['leads']:
+ lead['ownerId']='ui-bd'
+for i, activity in enumerate(fixture['activities']):
+ activity['when']=(datetime.now()-timedelta(days=i+1)).isoformat(timespec='seconds')
 pub={'version':1,'marketUpdates':[],'requests':[
  {'id':'ui-r1','kind':'game','entityId':'ui-g2','requestedBy':'ui-bd','assignee':'ui-mkt','due':'2026-11-04','requestNote':'Yêu cầu minh họa để kiểm tra bố cục và thao tác.','source':'','build':'Preview 1.0','status':'Chờ đánh giá','requestedAt':'2026-11-01T02:00:00.000Z','current':None,'revisions':[],'revision':0},
  {'id':'ui-r2','kind':'company','entityId':'ui-c2','requestedBy':'ui-bd','assignee':'ui-mkt','due':'2026-11-05','requestNote':'Yêu cầu minh họa để kiểm tra form đánh giá Partner.','source':'','build':'','status':'Chờ đánh giá','requestedAt':'2026-11-01T02:00:00.000Z','current':None,'revisions':[],'revision':0}]
@@ -58,6 +67,7 @@ for name in ['index.html','publishing.html','mkt.html']:
  s=s[:start]+s[end:]
  # Keep app-to-app links local to this fixture; load real presentation/business scripts.
  s=re.sub(r'(src|href)="([^\"]+\.(?:css|js)(?:\?[^\"]*)?)"',r'\1="../../\2"',s)
+ s=s.replace('src="assets/', 'src="../../assets/')
  s=s.replace('</head>',security+bootstrap+style+'</head>')
  s=s.replace('CRM nội bộ','Bản xem giao diện')
  s=s.replace('<body class="crm-shell">','<body class="crm-shell">'+note).replace('data-role="bd">','data-role="bd">'+note).replace('data-role="mkt">','data-role="mkt">'+note)
