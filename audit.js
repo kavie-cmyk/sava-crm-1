@@ -141,35 +141,93 @@
   function sectionHTML(entityType, entityId) {
     return `<section class="audit-history" data-audit-for="${escHtml(entityType)}:${escHtml(entityId)}"><h3 style="margin:18px 0 8px">🕘 Lịch sử chỉnh sửa</h3><div class="audit-list"><p class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Đang tải lịch sử…</p></div></section>`;
   }
-  /* Việc 8: phân trang mục lịch sử trong drawer — 10 mục/trang theo
-     ĐÚNG mẫu pager dùng chung (window.SavaPager của shared.js; vắng
-     SavaPager thì tự kẹp/chia tại chỗ, hành vi không đổi). Trạng thái
-     trang là UI-state trong phiên theo từng đối tượng (auditPages),
-     THUẦN hiển thị: chuyển trang chỉ ĐỌC LẠI + dựng lại, không ghi gì. */
-  const AUDIT_PAGE_SIZE = 10;
-  const auditPages = {};
+  /* === GOM NHÓM LỊCH SỬ THEO HÀNH ĐỘNG — HELPER DÙNG CHUNG ===
+     Chuẩn trình bày lấy ĐÚNG từ Lịch sử tổng (index.html, có từ 01/11/2026):
+     block theo `action` với thứ tự vòng đời Tạo mới -> Chỉnh sửa -> Xoá,
+     nhãn + màu pill: create "Tạo mới" #22c55e / update "Chỉnh sửa" #2563eb /
+     delete "Xoá" #dc2626; action lạ gom vào block "Khác" #64748b ở cuối,
+     CHỈ xuất hiện khi thật có mục lạ. Định nghĩa nhóm + phép gom
+     (groupAuditRows) sống DUY NHẤT tại đây (audit.js là module hiển thị
+     audit nạp ở cả 3 trang index/publishing/mkt): Lịch sử tổng uỷ quyền
+     bước gom cho helper này qua auditGroupedRows ở index.html, drawer
+     dùng groupedHistoryHTML ở dưới — không còn hai phép gom lệch nhau.
+     Trong mỗi nhóm giữ nguyên thứ tự dữ liệu đã nạp (mới nhất -> cũ
+     nhất, chỉ filter theo action, không sắp xếp lại) và giữ nguyên
+     cách render từng mục (entryHTML). Phép gom THUẦN, không chạm dữ
+     liệu/giới hạn nạp (listFor vẫn 100/đối tượng, listRecent vẫn 200). */
+  const AUDIT_GROUP_DEFS = [
+    { key: 'create', label: 'Tạo mới', color: '#22c55e' },
+    { key: 'update', label: 'Chỉnh sửa', color: '#2563eb' },
+    { key: 'delete', label: 'Xoá', color: '#dc2626' },
+  ];
+  const AUDIT_GROUP_UNKNOWN = { key: '__unknown__', label: 'Khác', color: '#64748b' };
+  function auditGroupDef(action) { return AUDIT_GROUP_DEFS.find(d => d.key === action) || null; }
+  /* Trả đủ 3 nhóm vòng đời (kể cả nhóm rỗng, count = 0) + nhóm Khác ở
+     cuối CHỈ khi có mục lạ; mỗi nhóm mang sẵn count để bề mặt hiển thị
+     tự quyết ẩn/hiện nhóm rỗng theo quy ước của mình. */
+  function groupAuditRows(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const groups = AUDIT_GROUP_DEFS.map(def => { const rs = list.filter(r => r && r.action === def.key); return { ...def, rows: rs, count: rs.length }; });
+    const unknown = list.filter(r => !r || !auditGroupDef(r.action));
+    if (unknown.length) groups.push({ ...AUDIT_GROUP_UNKNOWN, rows: unknown, count: unknown.length });
+    return groups;
+  }
+  /* Nhóm chứa mục MỚI NHẤT = nhóm của rows[0] (dữ liệu đã nạp luôn xếp
+     mới nhất trước); rỗng -> null. Đây là nhóm mở sẵn mặc định ở drawer. */
+  function newestAuditGroupKey(rows) {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    const def = auditGroupDef(rows[0] && rows[0].action);
+    return def ? def.key : AUDIT_GROUP_UNKNOWN.key;
+  }
+  /* Trạng thái thu/mở của drawer là UI-state trong phiên theo từng
+     (đối tượng, nhóm): auditGroupCollapsed[key] có mặt = người dùng đã
+     bấm chọn tường minh; chưa có = mặc định (nhóm mới nhất mở, còn lại
+     thu gọn). THUẦN hiển thị: không ghi gì, không đổi dữ liệu audit. */
+  const auditGroupCollapsed = {};
   let auditLastState = null;
-  function auditPageInfo(total, page) {
-    const P = (typeof window !== 'undefined' && window.SavaPager) || null;
-    if (P && typeof P.info === 'function') return P.info(total, page, AUDIT_PAGE_SIZE);
-    const totalPages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
-    let p = Math.floor(Number(page) || 1);
-    if (p > totalPages) p = totalPages;
-    if (p < 1) p = 1;
-    const start = (p - 1) * AUDIT_PAGE_SIZE;
-    return { page: p, totalPages, total, start, from: total ? start + 1 : 0, to: Math.min(start + AUDIT_PAGE_SIZE, total) };
+  let auditLastRoot = null;
+  let auditLastTarget = null;
+  let auditLastRows = null;
+  /* Render lịch sử drawer ĐÃ GOM NHÓM (accordion): nhóm 0 mục ẩn hẳn;
+     header mỗi nhóm = pill nhãn (đúng mẫu Lịch sử tổng) + "<n> mục" +
+     nút ▸ Mở / ▾ Thu gọn bấm để thu/mở nhóm đó (SavaAuditUI.toggleGroup).
+     Nhóm Xoá mang nền/viền danger #fff0f0/#f1d5d7 như block Xoá của
+     Lịch sử tổng (class audit-action-block--delete ở index; ở đây cộng
+     inline style để trang Publishing/MKT — không có CSS đó — vẫn khớp). */
+  function groupedHistoryHTML(state, rows, entityType, entityId) {
+    const newestKey = newestAuditGroupKey(rows);
+    return groupAuditRows(rows).filter(g => g.rows.length).map(g => {
+      const ck = entityType + ':' + entityId + ':' + g.key;
+      const collapsed = Object.prototype.hasOwnProperty.call(auditGroupCollapsed, ck) ? !!auditGroupCollapsed[ck] : g.key !== newestKey;
+      const isDelete = g.key === 'delete';
+      const secStyle = isDelete
+        ? 'border:1px solid #f1d5d7;background:#fff0f0;border-radius:8px;padding:6px 8px;margin:0 0 8px'
+        : 'border:1px solid var(--line,#e2e8f0);border-radius:8px;padding:6px 8px;margin:0 0 8px';
+      const body = collapsed ? '' : `<div style="margin-top:6px">${g.rows.map(r => entryHTML(state, r)).join('')}</div>`;
+      return `<section class="audit-group${isDelete ? ' audit-action-block--delete' : ''}${collapsed ? ' audit-group--collapsed' : ''}" data-audit-action="${escHtml(g.key)}" style="${secStyle}"><div class="audit-group-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h4 style="margin:0;font-size:13px"><span class="pill" style="background:${g.color}">${escHtml(g.label)}</span> <span class="count-badge">${g.rows.length} mục</span></h4><button type="button" class="btn ghost small" onclick="window.SavaAuditUI.toggleGroup('${entityType}','${entityId}','${g.key}')" aria-expanded="${collapsed ? 'false' : 'true'}" title="${collapsed ? 'Mở nhóm' : 'Thu gọn nhóm'}">${collapsed ? '▸ Mở' : '▾ Thu gọn'}</button></div>${body}</section>`;
+    }).join('');
   }
-  function auditPagerHTML(entityType, entityId, info) {
-    if (!info || info.totalPages <= 1) return '';
-    const dis = (cond) => cond ? ' disabled' : '';
-    return `<div class="list-pager" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button type="button" class="btn ghost small" onclick="window.SavaAuditUI.goPage('${entityType}','${entityId}',${info.page - 1})"${dis(info.page <= 1)}>← Trước</button><span class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Trang ${info.page}/${info.totalPages} · Đang hiện ${info.from}–${info.to} / ${info.total} mục</span><button type="button" class="btn ghost small" onclick="window.SavaAuditUI.goPage('${entityType}','${entityId}',${info.page + 1})"${dis(info.page >= info.totalPages)}>Sau →</button></div>`;
+  function toggleGroup(entityType, entityId, groupKey) {
+    const ck = entityType + ':' + entityId + ':' + groupKey;
+    /* Lật đúng trạng thái ĐANG THẤY: đã bấm trước đó -> lấy giá trị đã
+       lưu; chưa bấm -> trạng thái hiện tại là mặc định của groupedHistoryHTML
+       (thu gọn trừ nhóm chứa mục mới nhất, suy từ lần nạp gần nhất của
+       đúng đối tượng này; không có lần nạp nào -> coi như đang thu gọn). */
+    let currentlyCollapsed;
+    if (Object.prototype.hasOwnProperty.call(auditGroupCollapsed, ck)) currentlyCollapsed = !!auditGroupCollapsed[ck];
+    else if (auditLastTarget && auditLastTarget.entityType === entityType && auditLastTarget.entityId === entityId) currentlyCollapsed = groupKey !== newestAuditGroupKey(auditLastRows);
+    else currentlyCollapsed = true;
+    auditGroupCollapsed[ck] = !currentlyCollapsed;
+    try { if (auditLastRoot && auditLastTarget) loadInto(auditLastRoot, auditLastState, auditLastTarget.entityType, auditLastTarget.entityId); } catch (e) {}
   }
-  function goPage(entityType, entityId, page) {
-    auditPages[entityType + ':' + entityId] = page;
+  /* Tương thích ngược: goPage từng là pager phẳng 10 mục/trang của
+     drawer (Việc 8) — nay drawer gom nhóm accordion, không còn pager
+     phẳng; giữ tên hàm để mọi tham chiếu cũ chỉ nạp lại drawer. */
+  function goPage(entityType, entityId) {
     try {
       const doc = (typeof document !== 'undefined') ? document : null;
       const sec = doc && doc.querySelector ? doc.querySelector('.audit-history') : null;
-      const root = sec && sec.parentElement ? sec.parentElement : (doc ? doc.body : null);
+      const root = (auditLastRoot) || (sec && sec.parentElement ? sec.parentElement : (doc ? doc.body : null));
       if (root) loadInto(root, auditLastState, entityType, entityId);
     } catch (e) {}
   }
@@ -185,10 +243,10 @@
       const rows = await api.listFor(entityType, entityId);
       if (!Array.isArray(rows)) { box.innerHTML = '<p class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Lịch sử chưa khả dụng.</p>'; return; }
       if (!rows.length) { box.innerHTML = '<p class="mut" style="color:var(--mut,#64748b);font-size:12.5px">Chưa có lịch sử chỉnh sửa.</p>'; return; }
-      const key = entityType + ':' + entityId;
-      const info = auditPageInfo(rows.length, auditPages[key] || 1);
-      auditPages[key] = info.page;
-      box.innerHTML = rows.slice(info.start, info.start + AUDIT_PAGE_SIZE).map(r => entryHTML(state, r)).join('') + auditPagerHTML(entityType, entityId, info);
+      auditLastRoot = rootEl;
+      auditLastTarget = { entityType, entityId };
+      auditLastRows = rows;
+      box.innerHTML = groupedHistoryHTML(state, rows, entityType, entityId);
     } catch (e) {
       try {
         const box = rootEl && rootEl.querySelector ? rootEl.querySelector('.audit-history .audit-list') : null;
@@ -196,7 +254,7 @@
       } catch (e2) {}
     }
   }
-  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, fmtAuditChangeValue, byLabel, ACTION_LABELS, goPage, batchInfo, batchChangeOf };
+  const api = { metaLineHTML, sectionHTML, loadInto, entryHTML, fmtTime, fmtAuditChangeValue, byLabel, ACTION_LABELS, goPage, batchInfo, batchChangeOf, AUDIT_GROUP_DEFS, AUDIT_GROUP_UNKNOWN, groupAuditRows, newestAuditGroupKey, groupedHistoryHTML, toggleGroup };
   if (typeof window !== 'undefined') window.SavaAuditUI = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

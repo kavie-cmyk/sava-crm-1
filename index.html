@@ -3310,12 +3310,32 @@ function auditActionDef(action) { return AUDIT_ACTIONS.find(a => a.key === actio
    "Khác" chỉ xuất hiện khi thật có mục lạ (như vLeads). Block "Xoá" mang
    thêm class audit-action-block--delete để nổi bật vừa phải. Định dạng
    từng mục vẫn là auditHistRowHTML (bọc entryHTML dùng chung với drawer),
-   không đổi. */
-function auditHistGroupsHTML(rows, filtering) {
-  const isFiltering = filtering !== undefined ? !!filtering : !!(auditHistTypeFilter || auditHistMemberFilter);
+   không đổi.
+   Gom nhóm dùng chung (đợt gom nhóm drawer): phép gom + định nghĩa nhóm
+   nay lấy từ helper duy nhất SavaAuditUI.groupAuditRows (audit.js) qua
+   auditGroupedRows — drawer từng đối tượng cũng gom bằng đúng helper
+   đó. Quy ước mặc định của Lịch sử tổng GIỮ NGUYÊN như cũ: mọi block
+   mở sẵn (listCollapsedState chưa đặt = mở), block rỗng hiện kèm ghi
+   chú khi không lọc / ẩn khi đang lọc. Drawer có quy ước mặc định
+   RIÊNG theo yêu cầu đợt này: chỉ nhóm chứa mục mới nhất mở sẵn, các
+   nhóm còn lại thu gọn, nhóm 0 mục ẩn hẳn (xem audit.js). */
+/* Bước GOM dùng helper DÙNG CHUNG SavaAuditUI.groupAuditRows (audit.js —
+   nguồn sự thật duy nhất của định nghĩa nhóm + phép gom, drawer cũng
+   dùng đúng helper này): tránh hai phép gom lệch nhau giữa Lịch sử
+   tổng và lịch sử trong drawer. audit.js chưa nạp (không xảy ra trong
+   app thật — cả 3 trang đều nạp audit.js) thì rơi về phép gom cục bộ
+   ngay dưới đây với ĐÚNG cùng định nghĩa AUDIT_ACTIONS/AUDIT_ACTION_UNKNOWN. */
+function auditGroupedRows(rows) {
+  const UI = (typeof window !== "undefined" && window.SavaAuditUI) || null;
+  if (UI && typeof UI.groupAuditRows === "function") return UI.groupAuditRows(rows);
   const groups = AUDIT_ACTIONS.map(def => ({ ...def, rows: rows.filter(r => r.action === def.key) }));
   const unknownRows = rows.filter(r => !auditActionDef(r.action));
   if (unknownRows.length) groups.push({ ...AUDIT_ACTION_UNKNOWN, rows: unknownRows });
+  return groups;
+}
+function auditHistGroupsHTML(rows, filtering) {
+  const isFiltering = filtering !== undefined ? !!filtering : !!(auditHistTypeFilter || auditHistMemberFilter);
+  const groups = auditGroupedRows(rows);
   return groups.map(g => {
     if (!g.rows.length && isFiltering) return "";
     /* Việc 8: phân trang TRONG block (10 mục/trang qua SavaPager dùng
