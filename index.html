@@ -171,7 +171,8 @@
      nguyên vẹn như ô trong tháng, KHÔNG bị opacity của .cal-day--other làm mờ. */
   .cal-day--today.cal-day--other { opacity:1; }
   .cal-day--sel { outline:2px solid #2563eb; outline-offset:-2px; }
-  .cal-more { font-size:11px; font-weight:700; color:#2563eb; margin-top:3px; }
+  .cal-more { font-size:11px; font-weight:700; color:#2563eb; margin-top:3px; cursor:pointer; }
+  .cal-more:hover { text-decoration:underline; }
   .cal-lane { gap:3px; margin-top:3px; }
   .cal-seg { font-size:12px; font-weight:600; color:#fff; border-radius:6px; padding:3px 7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; min-width:0; }
   .cal-seg--task { background:#2563eb; }
@@ -2647,6 +2648,8 @@ function vTasksByMember() {
    không tự ghi #view. Bấm chip/dải Việc -> editTask (mở thẳng form sửa
    việc); bấm dải Sự kiện -> openEvent (drawer sự kiện, đường vào sửa
    như cũ); panel ngày + panel "Chưa có ngày" cùng quy tắc bấm-để-sửa.
+   Nhãn tràn "+N nữa" ở ô ngày chật có handler riêng (calOpenDayMore):
+   mở panel chi tiết của đúng ngày đó + cuộn panel vào tầm nhìn.
    Lưu việc (saveTask) / lưu sự kiện (saveEvent) đều render() lại nên
    lịch vẽ lại đúng ngay sau khi sửa.
    UI-state THUẦN trong phiên (cùng họ taskMemberFilter / dashScope):
@@ -2817,7 +2820,7 @@ function calWeekHTML(week, items, maxLanes) {
     const onDay = calItemsOn(items, iso).length;
     const visible = segs.filter(s => s.lane < maxLanes && s.colStart <= ci && ci <= s.colEnd).length;
     const hidden = onDay - visible;
-    return `<div class="cal-day${iso === today ? " cal-day--today" : ""}${other ? " cal-day--other" : ""}${iso === calSelectedDay ? " cal-day--sel" : ""}" onclick="calOpenDay('${iso}')" title="Xem chi tiết ngày ${esc(fmtWhen(iso))}"><span class="cal-daynum">${p.d}</span>${iso === today ? `<span class="cal-today-label">Hôm nay</span>` : ""}${hidden > 0 ? `<span class="cal-more">+${hidden} nữa</span>` : ""}</div>`;
+    return `<div class="cal-day${iso === today ? " cal-day--today" : ""}${other ? " cal-day--other" : ""}${iso === calSelectedDay ? " cal-day--sel" : ""}" onclick="calOpenDay('${iso}')" title="Xem chi tiết ngày ${esc(fmtWhen(iso))}"><span class="cal-daynum">${p.d}</span>${iso === today ? `<span class="cal-today-label">Hôm nay</span>` : ""}${hidden > 0 ? `<span class="cal-more" onclick="event.stopPropagation(); calOpenDayMore('${iso}')" title="Xem toàn bộ ${onDay} mục của ngày ${esc(fmtWhen(iso))}">+${hidden} nữa</span>` : ""}</div>`;
   }).join("");
   const laneNums = [...new Set(segs.map(s => s.lane))].filter(l => l < maxLanes).sort((a, b) => a - b);
   const lanesHTML = laneNums.map(l => `<div class="cal-lane">${segs.filter(s => s.lane === l).map(calSegHTML).join("")}</div>`).join("");
@@ -2907,6 +2910,22 @@ function calToday() { calAnchor = todayStr(); calSelectedDay = todayStr(); rende
 function calSetMember(v) { calMemberFilter = v || ""; render(); }
 function calSetKind(v) { calKindFilter = v === "task" || v === "event" ? v : ""; render(); }
 function calOpenDay(iso) { calSelectedDay = iso; render(); }
+/* Bấm NHÃN TRÀN "+N nữa" trong ô ngày chật: nhãn là phần tử riêng nằm
+   trong ô ngày — trước đây nó là <span> TRẦN không có handler nào, chỉ
+   "ăn" click nhờ nổi bọt lên onclick của ô cha (bấm trúng nhãn được
+   báo là không có phản ứng). Nay nhãn có handler RIÊNG: stopPropagation
+   (để không chạy trùng handler ô cha -> render 2 lần) + mở panel chi
+   tiết của ĐÚNG ngày đó qua calOpenDay, rồi cuộn panel vào tầm nhìn —
+   panel nằm dưới toàn bộ lưới tháng nên nếu chỉ mở mà không cuộn,
+   người đang ở vị trí ô ngày sẽ không thấy gì thay đổi. Guard
+   try/catch + typeof như các nơi khác để harness không-DOM-thật an toàn. */
+function calOpenDayMore(iso) {
+  calOpenDay(iso);
+  try {
+    const p = document.querySelector(".cal-daypanel");
+    if (p && typeof p.scrollIntoView === "function") p.scrollIntoView({ block: "nearest" });
+  } catch (e) {}
+}
 function calCloseDay() { calSelectedDay = ""; render(); }
 function calNewTask() { if (!calSelectedDay) return; editTask(null, null, null, { startDate: calSelectedDay, dueDate: calSelectedDay }); }
 function calNewEvent() { if (!calSelectedDay) return; openEventForm(null, calSelectedDay); }
