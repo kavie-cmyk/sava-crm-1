@@ -4,6 +4,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
+/* Hồi quy đợt sửa cột bị ngược trục đáy (09/11/2026, sau f0dd522):
+   Chart A đo bằng Chromium headless với nhãn stage thật ở bề rộng panel
+   thật: cột neo đúng đáy TRONG track của mình, nhưng nhãn stage cao
+   25–48.56px tuỳ độ dài (min-height:25px, không cố định) đẩy đáy mỗi
+   track lệch nhau tới 23.57px — các track cùng đỉnh, đáy tản mát, nên
+   biểu đồ không có trục đáy chung và trông như cột treo từ miệng trên
+   xuống. Sửa: cố định chiều cao nhãn (49px, ≤600px: 54px) và tăng
+   .ex-stages đúng phần nhãn cao thêm để vùng vẽ không đổi. Chart B đo
+   lại cùng harness: đáy plot đã trùng nhau (nhãn cố định 26px từ đợt
+   trước) — không bệnh, không sửa.
+   Layout thật được kiểm bằng harness Chromium headless ngoài suite
+   (jsdom không có layout); các test ở đây khóa nguồn để không tái phạm. */
+
 /* Hồi quy đợt sửa tỉ lệ cột biểu đồ pipeline Dashboard (09/11/2026):
    - Chart A (.ex-stage, "Pipeline: <mảng>"): JS vốn đã đúng công thức
      count/max-trong-chính-biểu-đồ, nhưng CSS trừ 24px HAI lần
@@ -36,6 +49,19 @@ test('tĩnh chart A: nhãn stage xuống dòng giữa các từ, không xẻ gi�
   assert.ok(m, 'phải có rule nhãn .ex-stage > span:last-child');
   assert.ok(/overflow-wrap:\s*break-word/.test(m[1]), 'nhãn dùng break-word (xuống dòng giữa các từ)');
   assert.ok(!/overflow-wrap:\s*anywhere/.test(m[1]), 'không dùng anywhere (xẻ giữa chữ, vd Prototyp·e)');
+});
+
+test('tĩnh chart A: nhãn stage chiều cao CỐ ĐỊNH để mọi đáy track (và đáy cột) trùng nhau', () => {
+  const css = read('dashboard-design.css');
+  const m = css.match(/\.ex-stage > span:last-child \{([^}]*)\}/);
+  assert.ok(m, 'phải có rule nhãn .ex-stage > span:last-child');
+  assert.ok(/height:\s*49px/.test(m[1]), 'nhãn cố định 49px (4 dòng x 12.15px) — min-height làm đáy track lệch theo độ dài nhãn');
+  assert.ok(!/min-height\s*:/.test(m[1]), 'không được quay lại min-height cho nhãn (đáy cột hết trục chung)');
+  assert.ok(/overflow:\s*hidden/.test(m[1]), 'nhãn dài hơn 4 dòng bị cắt gọn như .dash-col-lb của chart B');
+  const stages = css.match(/\.ex-stages \{([^}]*)\}/);
+  assert.ok(stages && /height:\s*188px/.test(stages[1]), '.ex-stages 188px = 164 cũ + 24 bù nhãn 25->49px, vùng vẽ giữ nguyên');
+  const track = css.match(/\.ex-stage-track \{([^}]*)\}/);
+  assert.ok(track && /align-items:\s*end/.test(track[1]), 'cột vẫn neo đáy trong track (align-items:end)');
 });
 
 test('tĩnh chart B: cột nằm trong vùng vẽ .dash-col-plot, số tuyệt đối trong vùng chừa padding-top', () => {

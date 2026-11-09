@@ -542,7 +542,11 @@
 .ex-stages {
   display: flex;
   gap: 6px;
-  height: 164px;
+  /* 188px = 164px cũ + 24px: bù đúng phần nhãn stage cố định cao thêm
+     (25px -> 49px, xem .ex-stage > span:last-child) để vùng vẽ của track
+     giữ nguyên chiều cao như trước (nội dung 109px), chỉ trục đáy đổi vị
+     trí xuống cho mọi cột cùng đứng trên một đáy. */
+  height: 188px;
 }
 .ex-stage {
   flex: 1;
@@ -584,7 +588,18 @@
 .ex-stage > span:last-child {
   font-size: 9px;
   line-height: 1.35;
-  min-height: 25px;
+  /* Chiều cao nhãn CỐ ĐỊNH (không còn min-height): điều kiện bắt buộc để
+     cột neo đáy đúng. Nhãn nằm cùng cột flex với track (track flex:1 ở
+     trên, nhãn ở dưới) nên nhãn dài/ngắn khác nhau từng đẩy đáy track —
+     và đáy cột — lệch nhau tới ~24px: các track cùng đỉnh nhưng đáy tản
+     mát, biểu đồ trông như cột treo từ miệng trên xuống (Zac báo
+     09/11/2026, đo bằng Chromium headless trên nhãn stage thật). Cố định
+     49px = 4 dòng x 12.15px, phủ nhãn dài nhất đo được ở bề rộng panel
+     hẹp nhất ("Term sheet / Đàm phán" = 48.56px); nhãn dài hơn nữa bị
+     overflow:hidden cắt như nhãn .dash-col-lb của Chart B. Mọi track từ
+     đây có cùng chiều cao -> đáy cột trùng cạnh dưới vùng vẽ. */
+  height: 49px;
+  overflow: hidden;
   text-align: center;
   /* Xuống dòng GIỮA CÁC TỪ; chỉ xẻ từ khi một từ đơn dài hơn cả cột
      (anywhere từng xẻ giữa chữ, vd "Prototyp·e"). */
@@ -1191,10 +1206,15 @@
     padding: 14px 0 0;
   }
   .ex-stages {
-    height: 175px;
+    /* 204px = 175px cũ + 29px: bù nhãn cố định cao thêm ở cỡ chữ 10px
+       (25px -> 54px) để vùng vẽ giữ nguyên như trước. */
+    height: 204px;
   }
   .ex-stage > span:last-child {
     font-size: 10px;
+    /* 54px = 4 dòng x 13.5px ở cỡ chữ 10px — cùng lý do cố định chiều
+       cao nhãn như rule gốc: giữ trục đáy chung cho mọi cột. */
+    height: 54px;
   }
   .ex-recent {
     grid-column: auto;
