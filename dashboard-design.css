@@ -571,7 +571,9 @@
   width: 100%;
   border-radius: 5px;
   opacity: 0.85;
-  max-height: calc(100% - 24px);
+  /* Chiều cao % tính trên content-box của track — padding-top:24px ở track
+     đã chừa sẵn vùng số ở trên, nên KHÔNG trừ thêm 24px ở đây (trừ hai lần
+     từng khiến cột lớn nhất chỉ đạt ~64% khung). Cột max = 100% vùng vẽ. */
 }
 .ex-stage-track strong {
   position: absolute;
@@ -584,7 +586,9 @@
   line-height: 1.35;
   min-height: 25px;
   text-align: center;
-  overflow-wrap: anywhere;
+  /* Xuống dòng GIỮA CÁC TỪ; chỉ xẻ từ khi một từ đơn dài hơn cả cột
+     (anywhere từng xẻ giữa chữ, vd "Prototyp·e"). */
+  overflow-wrap: break-word;
 }
 .ex-overview-bottom {
   display: grid;

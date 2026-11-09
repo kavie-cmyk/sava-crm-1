@@ -1475,7 +1475,7 @@ function dashAnalyticsHTML() {
   const byLine = D.dashDealStages(cDeals, LINES).filter(r => !dashLine || r.line === dashLine);
   const lineCards = byLine.map(r => {
     const L = LINES[r.line], maxC = Math.max(1, ...r.stages.map(s => s.count));
-    const bars = r.stages.map(s => `<div class="dash-col" title="${esc(s.label)}: ${s.count} deal"><div class="dash-col-num">${s.count}</div><div class="dash-col-bar" style="height:${Math.max(s.count ? 6 : 0, s.count / maxC * 100)}%;background:${L.color}"></div><div class="dash-col-lb">${esc(s.label)}</div></div>`).join("");
+    const bars = r.stages.map(s => `<div class="dash-col" title="${esc(s.label)}: ${s.count} deal"><div class="dash-col-plot"><div class="dash-col-num">${s.count}</div><div class="dash-col-bar" style="height:${Math.max(s.count ? 6 : 0, s.count / maxC * 100)}%;background:${L.color}"></div></div><div class="dash-col-lb">${esc(s.label)}</div></div>`).join("");
     const amt = Object.entries(r.openAmounts).map(([c, v]) => money(v, c)).join(" + ");
     return `<section class="panel dash-panel dash-line-card" style="--line-accent:${L.color}"><div class="panel-title"><h3>${esc(L.name)}</h3><span class="dash-badge">${r.openCount} deal đang mở</span></div><div class="dash-cols">${bars}</div><p class="dash-note">Tỉ lệ thắng: ${r.rate === null ? "Chưa có deal đóng" : `<b>${dashPctTxt(r.rate)}</b> (${r.won} won / ${r.lost} lost)`}${amt ? ` · Tổng giá trị deal đang mở: <b>${amt}</b>` : ""}</p></section>`;
   }).join("");

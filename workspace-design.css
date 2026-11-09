@@ -224,9 +224,15 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-line-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:18px}
 .dash-cols {display:flex;align-items:flex-end;gap:6px;height:170px;padding-top:6px}
 .dash-col {flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
-.dash-col-num {font-size:12px;font-weight:700;color:#213846;margin-bottom:4px}
+/* Vùng vẽ cột: flex:1 chiếm phần chiều cao còn lại của .dash-col; padding-top
+   chừa vùng số (số đặt tuyệt đối trong vùng chừa đó) nên chiều cao % của cột
+   tính trên đúng vùng vẽ — cột max = 100% vùng vẽ, tỉ lệ giữa các cột chính
+   xác (trước đây % tính trên toàn chiều cao cột gồm cả số + nhãn rồi cột max
+   bị flex-shrink nén, làm méo tỉ lệ). */
+.dash-col-plot {position:relative;flex:1 1 auto;width:100%;min-height:0;display:flex;align-items:flex-end;justify-content:center;padding-top:21px}
+.dash-col-num {position:absolute;top:0;left:0;right:0;text-align:center;font-size:12px;font-weight:700;color:#213846}
 .dash-col-bar {width:min(34px,80%);border-radius:5px 5px 0 0}
-.dash-col-lb {font-size:9.5px;line-height:1.35;color:#60717d;text-align:center;margin-top:5px;max-height:26px;overflow:hidden}
+.dash-col-lb {font-size:9.5px;line-height:1.35;color:#60717d;text-align:center;margin-top:5px;height:26px;overflow:hidden}
 .dash-conv-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:18px}
 .dash-conv {display:flex;gap:16px;align-items:center;margin-bottom:0}
 .dash-conv h3 {font-size:14.5px;margin:0 0 4px;color:#294552}
