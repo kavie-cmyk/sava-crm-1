@@ -1,7 +1,7 @@
 /* Sava Meta CRM — Adapter ánh xạ dữ liệu (Giai đoạn 2b).
    Hàm THUẦN (không gọi mạng, không chạm DOM/localStorage): chuyển đổi hai
    chiều giữa hình dạng state mà UI/tính điểm hiện tại đang dùng
-     - CRM:        {members, companies, games, deals, leads, tasks, activities, events}
+     - CRM:        {members, companies, games, deals, leads, tasks, activities, events, salesMaterials}
      - Publishing: {version:1, requests, marketUpdates}
    và các dòng (rows) của các bảng Supabase theo đúng supabase/DESIGN.md +
    supabase/MIGRATION.md:
@@ -192,13 +192,22 @@
      chúng là nguồn sự thật của quan hệ Event<->{Company,Lead,Deal} và
      được vật hoá thành dòng ở bảng nối event_links (xem hai chiều dưới). */
   const EVENT_KNOWN = ['id', 'name', 'date', 'location', 'companies', 'leads', 'deals'];
+  /* Tài liệu bán hàng: title/kind/url/description/line có cột riêng;
+     createdBy CÓ cột riêng created_by (RLS sửa/xoá theo người tạo đối
+     chiếu ở tầng DB). 3 trường hệ thống createdAt/updatedAt/updatedBy
+     CỐ Ý không nằm trong SALES_KNOWN: chúng đi qua legacy_extra của
+     bảng sales_materials như events (extrasOf khi ghi / mergeExtras
+     khi đọc) — đúng quy ước đóng dấu của hệ. */
+  const SALES_KNOWN = ['id', 'title', 'kind', 'url', 'description', 'line', 'createdBy'];
+  const SALES_KINDS = ['deck', 'demo', 'other'];
+  const SALES_LINES = ['chung', 'game_studio', 'publishing', 'ai', 'metaverse'];
 
   function crmStateToRows(state) {
     const s = isObj(state) ? state : {};
     const rows = {
       members: [], companies: [], company_partner_eval_archive: [], games: [],
       deals: [], deal_terms: [], deal_contracts: [], deal_leads: [],
-      leads: [], tasks: [], activities: [], events: [], event_links: [],
+      leads: [], tasks: [], activities: [], events: [], event_links: [], sales_materials: [],
     };
     (Array.isArray(s.members) ? s.members : []).forEach(m => {
       if (!isObj(m) || !m.id) return;
@@ -347,6 +356,17 @@
       if (Array.isArray(e.leads)) e.leads.forEach(lid => { if (lid) rows.event_links.push({ event_id: e.id, entity_type: 'lead', entity_id: String(lid) }); });
       if (Array.isArray(e.deals)) e.deals.forEach(did => { if (did) rows.event_links.push({ event_id: e.id, entity_type: 'deal', entity_id: String(did) }); });
     });
+    (Array.isArray(s.salesMaterials) ? s.salesMaterials : []).forEach(m => {
+      if (!isObj(m) || !m.id) return;
+      rows.sales_materials.push({
+        id: m.id, title: String(m.title || ''),
+        kind: SALES_KINDS.includes(m.kind) ? m.kind : 'other',
+        url: String(m.url || ''), description: String(m.description || ''),
+        line: SALES_LINES.includes(m.line) ? m.line : 'chung',
+        created_by: nullIfEmpty(m.createdBy),
+        legacy_extra: extrasOf(m, SALES_KNOWN),
+      });
+    });
     return rows;
   }
 
@@ -380,7 +400,7 @@
        vòng lặp reload 30/10/2026). `verticals` không có cột máy chủ riêng:
        danh sách ngành sống lại từ deal.vertical qua legacy_extra (xem
        shared.js), nên ở đây luôn là mảng rỗng như emptyState(). */
-    const state = { members: [], companies: [], games: [], deals: [], leads: [], tasks: [], activities: [], events: [], verticals: [] };
+    const state = { members: [], companies: [], games: [], deals: [], leads: [], tasks: [], activities: [], events: [], salesMaterials: [], verticals: [] };
     arr('members').forEach(m => {
       const o = { id: m.id, name: m.name, role: m.role, active: !!m.active };
       state.members.push(mergeExtras(o, m));
@@ -478,6 +498,15 @@
         companies: links.companies, leads: links.leads, deals: links.deals,
       };
       state.events.push(mergeExtras(o, e));
+    });
+    arr('sales_materials').forEach(m => {
+      const o = {
+        id: m.id, title: m.title || '', kind: SALES_KINDS.includes(m.kind) ? m.kind : 'other',
+        url: m.url || '', description: m.description || '',
+        line: SALES_LINES.includes(m.line) ? m.line : 'chung',
+        createdBy: emptyIfNull(m.created_by),
+      };
+      state.salesMaterials.push(mergeExtras(o, m));
     });
     return state;
   }

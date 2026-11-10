@@ -51,7 +51,7 @@
   const SPLIT_FORMAT = 'split-heavy-v1';
   const CRM_JOURNAL_KEY = CRM_KEY + '__dirty_journal';
   const HEAVY_KEYS = ['companies', 'leads'];
-  const CRM_COLLECTIONS = ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events'];
+  const CRM_COLLECTIONS = ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events', 'salesMaterials'];
 
   const ctx = { client: null, role: null, ready: false, enabled: false };
   let crmSnap = null, pubSnap = null;           // state tại thời điểm nạp / sau lần đồng bộ thành công
@@ -431,14 +431,15 @@
       : (startSplitFormat ? joinLightHeavy(startParsed, startHeavyKnown ? heavyOf(startMemState || {}) : {}) : startParsed);
     const startJournal = readJournal();
     const byCreated = qb => qb.order('created_at', { ascending: true });
-    const [members, companies, archive, games, leads, deals, dealTerms, dealContracts, dealLeads, tasks, activities, events, eventLinks] = await Promise.all([
+    const [members, companies, archive, games, leads, deals, dealTerms, dealContracts, dealLeads, tasks, activities, events, eventLinks, salesMaterials] = await Promise.all([
       q('members', byCreated), q('companies', byCreated), qSafe('company_partner_eval_archive'),
       q('games', byCreated), q('leads', byCreated),
       qSafe('deals', byCreated), qSafe('deal_terms'), qSafe('deal_contracts'), qSafe('deal_leads'),
       qSafe('tasks', byCreated), qSafe('activities', byCreated),
       qSafe('events', byCreated), qSafe('event_links'),
+      qSafe('sales_materials', byCreated),
     ]);
-    const crmState = A.crmRowsToState({ members, companies, company_partner_eval_archive: archive, games, leads, deals, deal_terms: dealTerms, deal_contracts: dealContracts, deal_leads: dealLeads, tasks, activities, events, event_links: eventLinks });
+    const crmState = A.crmRowsToState({ members, companies, company_partner_eval_archive: archive, games, leads, deals, deal_terms: dealTerms, deal_contracts: dealContracts, deal_leads: dealLeads, tasks, activities, events, event_links: eventLinks, sales_materials: salesMaterials });
     const [requests, revisions, revPriv, intakePriv, observations, audit] = await Promise.all([
       qSafe('publishing_requests', byCreated),
       qSafe('publishing_revisions', qb => qb.order('revision_no', { ascending: true })),
@@ -450,7 +451,7 @@
     const pubState = A.publishingRowsToState({ publishing_requests: requests, publishing_revisions: revisions, publishing_revision_private: revPriv, publishing_request_intake_private: intakePriv, market_observations: observations, market_observation_audit: audit });
 
     updMap = {};
-    [['members', members], ['companies', companies], ['games', games], ['leads', leads], ['deals', deals], ['tasks', tasks], ['activities', activities], ['events', events], ['publishing_requests', requests], ['market_observations', observations]]
+    [['members', members], ['companies', companies], ['games', games], ['leads', leads], ['deals', deals], ['tasks', tasks], ['activities', activities], ['events', events], ['sales_materials', salesMaterials], ['publishing_requests', requests], ['market_observations', observations]]
       .forEach(([t, rows]) => noteUpdated(t, rows));
 
     /* Sao lưu bản localStorage gốc (dữ liệu thật trước Supabase) rồi mới
@@ -671,7 +672,7 @@
     if (error) throw new Error(table + ': ' + (error.message || error.code));
   }
 
-  const CONFLICT_TABLES = ['members', 'companies', 'games', 'leads', 'deals', 'tasks', 'activities', 'events', 'publishing_requests', 'market_observations'];
+  const CONFLICT_TABLES = ['members', 'companies', 'games', 'leads', 'deals', 'tasks', 'activities', 'events', 'sales_materials', 'publishing_requests', 'market_observations'];
 
   async function syncCrm(local) {
     const newRows = A.crmStateToRows(local);
@@ -684,7 +685,7 @@
     const order = [
       ['members', 'id'], ['companies', 'id'], ['company_partner_eval_archive', 'company_id'],
       ['games', 'id'], ['leads', 'id'], ['deals', 'id'], ['deal_terms', 'deal_id'],
-      ['deal_contracts', 'deal_id'], ['tasks', 'id'], ['events', 'id'], ['activities', 'id'], /* Sự kiện TRƯỚC activities: activities.event_id FK -> events (đợt 5/11/2026); vòng xoá chạy ngược order nên activities vẫn bị xoá trước events */
+      ['deal_contracts', 'deal_id'], ['tasks', 'id'], ['events', 'id'], ['sales_materials', 'id'], ['activities', 'id'], /* Sự kiện TRƯỚC activities: activities.event_id FK -> events (đợt 5/11/2026); vòng xoá chạy ngược order nên activities vẫn bị xoá trước events. sales_materials không có FK cha/con nên vị trí trong order chỉ cần cố định. */
     ];
     const plans = {};
     for (const [table, key] of order) plans[table] = planFor(newRows[table], snapRows[table], key);

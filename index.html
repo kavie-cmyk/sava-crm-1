@@ -101,6 +101,10 @@
   .gcard { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; }
   .gcard .emoji { font-size:30px; }
   .gcard h4 { margin:6px 0 2px; font-size:15.5px; }
+  /* Tài liệu bán hàng: mô tả trên thẻ rút gọn tối đa 3 dòng */
+  .sm-desc { font-size:13px; color:var(--mut); margin-top:6px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .sm-filters { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .sm-filters select { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; background:#fff; }
   .score { display:flex; align-items:center; gap:8px; font-size:12px; margin-top:5px; }
   .score .lb { width:110px; color:var(--mut); }
   .score .bar { flex:1; height:8px; background:#eef2f7; border-radius:5px; overflow:hidden; }
@@ -272,6 +276,7 @@
 <button data-view="games" class=""><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class=""><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="events" class=""><i data-icon="meeting"></i><span>Sự kiện</span></button>
+<button data-view="sales" class=""><i data-icon="note"></i><span>Tài liệu bán hàng</span></button>
 <button data-view="tasks" class=""><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="members" class=""><i data-icon="company"></i><span>Thành viên</span></button>
 <button data-view="import" class="import-bd-only" style="display:none"><i data-icon="inbox"></i><span>Import</span></button>
@@ -303,6 +308,7 @@
 <button data-view="games" class="" aria-label="Games"><i data-icon="game"></i><span>Games</span></button>
 <button data-view="leads" class="" aria-label="Leads"><i data-icon="inbox"></i><span>Leads</span></button>
 <button data-view="events" class="" aria-label="Sự kiện"><i data-icon="meeting"></i><span>Sự kiện</span></button>
+<button data-view="sales" class="" aria-label="Tài liệu bán hàng"><i data-icon="note"></i><span>Tài liệu</span></button>
 <button data-view="tasks" class="" aria-label="Việc"><i data-icon="check"></i><span>Việc</span></button>
 <button data-view="members" class="" aria-label="Thành viên"><i data-icon="company"></i><span>Thành viên</span></button>
 <button data-view="import" class="import-bd-only" style="display:none" aria-label="Import"><i data-icon="inbox"></i><span>Import</span></button>
@@ -1185,8 +1191,8 @@ function render() {
   document.querySelectorAll(".audit-admin-only").forEach(el => { el.style.display = isAdminViewer() ? "" : "none"; });
   /* Mục nav "Import" hiện cho Admin + BD (isImportViewer), ẩn với vai khác — cùng mẫu gate theo vai của Lịch sử tổng. */
   document.querySelectorAll(".import-bd-only").forEach(el => { el.style.display = isImportViewer() ? "" : "none"; });
-  const titles = { dash:dashboardMode === "activity" ? "Báo cáo hoạt động" : "Tổng quan kinh doanh", board:"Pipeline", companies:"Công ty & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", tasks:"Việc", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
-  const descriptions = { dash:dashboardMode === "activity" ? "Hoạt động tiếp cận và phát triển cơ hội kinh doanh." : "Hiệu quả kinh doanh và pipeline theo mảng.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", tasks:"Lịch chung của team ở phía trên (việc + sự kiện, lọc theo loại và theo người) và danh sách việc ở phía dưới — xem dạng danh sách hoặc theo người.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
+  const titles = { dash:dashboardMode === "activity" ? "Báo cáo hoạt động" : "Tổng quan kinh doanh", board:"Pipeline", companies:"Công ty & đối tác", games:"Danh mục game", leads:"Leads", events:"Sự kiện", sales:"Tài liệu bán hàng", tasks:"Việc", members:"Thành viên", import:"Import dữ liệu", auditHistory:"Lịch sử tổng" };
+  const descriptions = { dash:dashboardMode === "activity" ? "Hoạt động tiếp cận và phát triển cơ hội kinh doanh." : "Hiệu quả kinh doanh và pipeline theo mảng.", board:"Theo dõi từng cơ hội từ tiếp cận đến ký hợp đồng.", companies:"Hồ sơ, đầu mối và cơ hội hợp tác trong cùng một nơi.", games:"Game của Sava và game đối tác đang được đánh giá.", leads:"Quản lý đầu mối và phát triển cơ hội hợp tác.", events:"Nơi team gặp gỡ đối tác — công ty, lead và deal phát sinh từ từng sự kiện.", sales:"Deck, demo và tài liệu dùng khi bán hàng — cả team dùng chung, BD tự thêm.", tasks:"Lịch chung của team ở phía trên (việc + sự kiện, lọc theo loại và theo người) và danh sách việc ở phía dưới — xem dạng danh sách hoặc theo người.", members:"Danh sách thành viên dùng để gán người phụ trách deal và việc.", import:"Nạp công ty + lead hàng loạt từ file Excel/CSV — xem trước (dry-run) trước khi ghi, gỡ được theo lô.", auditHistory:"Mọi thay đổi gần nhất trên mọi loại đối tượng, gồm cả đối tượng đã xoá — chỉ Admin xem được." };
   document.getElementById("viewTitle").textContent = titles[curView];
   document.getElementById("viewDescription").textContent = descriptions[curView];
   /* Nút header "+ Thêm deal" là nút CỐ ĐỊNH toàn app trong toolbar (không
@@ -1195,8 +1201,8 @@ function render() {
      nhầm (yêu cầu Zac 3/11 qua ảnh chụp view Sự kiện). Mọi view khác giữ
      nguyên hành vi như cũ. */
   const headerAddBtn = document.getElementById("headerAddDealBtn");
-  if (headerAddBtn) headerAddBtn.style.display = curView === "events" ? "none" : "";
-  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, events:vEvents, tasks:vTasks, members:vMembers, import:vImport, auditHistory:vAuditHistory })[curView]();
+  if (headerAddBtn) headerAddBtn.style.display = (curView === "events" || curView === "sales") ? "none" : "";
+  ({ dash:vDash, board:vBoard, companies:vCompanies, games:vGames, leads:vLeads, events:vEvents, sales:vSalesMaterials, tasks:vTasks, members:vMembers, import:vImport, auditHistory:vAuditHistory })[curView]();
 }
 
 function pipelineValue(ds) {
@@ -2441,6 +2447,120 @@ function vEvents() {
   const emptyMsg = !all.length ? `<div class="panel mut">Chưa có sự kiện nào.</div>` : (filtering && !filtered.length ? `<div class="panel mut">Không có sự kiện nào khớp tìm kiếm hiện tại.</div>` : "");
   document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div>${emptyMsg}${blocks}
   <div class="mut" style="margin-top:10px">Sự kiện là nơi team gặp gỡ đối tác: công ty, lead và deal phát sinh từ sự kiện được gắn ngay trong chi tiết sự kiện. Sự kiện sắp tới nằm ở nhóm “Sắp tới” (ngày gần nhất trước); sau khi đi về, bấm “Đánh dấu đã tham dự” trong chi tiết sự kiện để nhập báo cáo.</div>`;
+}
+/* ===== Tài liệu bán hàng (S.salesMaterials) =====
+   Nội dung XEM CHUNG cả team (Zac chốt 10/11/2026): BD tự thêm deck/demo/
+   tài liệu khác; MKT đọc được ở tầng dữ liệu qua RLS (policy SELECT mở
+   admin/bd/mkt trên bảng sales_materials — xem supabase/sales-materials.sql)
+   nhưng KHÔNG có giao diện ở trang MKT (Zac chốt không làm UI phía MKT);
+   mục này CHỈ nằm ở app BD đây. Dữ liệu đi qua ĐÚNG đường lưu chuẩn của
+   app: S.salesMaterials -> save() (đóng dấu hệ thống + audit
+   'sales_material' qua CRM_ENTITY_TYPES) -> diff-sync/flush của
+   supabase-data.js -> bảng sales_materials; KHÔNG kênh lưu riêng.
+   Quyền sửa/xoá ở UI khớp RLS: chỉ NGƯỜI TẠO (createdBy) hoặc ADMIN thấy
+   nút Sửa/Xoá; RLS ở server cũng chặn đúng như vậy (defense in depth).
+   Bộ lọc Loại + Mảng và ô tìm kiếm chung (theo tiêu đề, KHÔNG DẤU qua
+   comboFoldText — helper fold sẵn có của app) là UI-state thuần trong
+   phiên như các bộ lọc khác: không nằm trong S, không qua save(). */
+const SALES_KINDS = [
+  { key: "deck", label: "Deck", color: "#2563eb" },
+  { key: "demo", label: "Demo", color: "#059669" },
+  { key: "other", label: "Tài liệu khác", color: "#64748b" },
+];
+function salesKindDef(k) { return SALES_KINDS.find(x => x.key === k) || SALES_KINDS[2]; }
+function salesMaterialsList() { return Array.isArray(S.salesMaterials) ? S.salesMaterials : []; }
+function salesLineLabel(line) { return (!line || line === "chung") ? "Dùng chung" : lineName(line); }
+function salesLineColor(line) { return (!line || line === "chung") ? "#64748b" : lineColor(line); }
+function canEditSalesMaterial(m) {
+  if (!m) return false;
+  if (isAdminViewer()) return true;
+  const u = authCurrentUser();
+  return !!(u && u.memberId && m.createdBy && String(u.memberId) === String(m.createdBy));
+}
+let salesTypeFilter = "", salesLineFilter = "";
+function setSalesTypeFilter(v) { salesTypeFilter = v || ""; render(); }
+function setSalesLineFilter(v) { salesLineFilter = v || ""; render(); }
+function salesFold(s) { return typeof comboFoldText === "function" ? comboFoldText(s) : String(s ?? "").toLowerCase(); }
+function vSalesMaterials() {
+  const all = salesMaterialsList();
+  const q = salesFold(query);
+  const filtered = all.filter(m => {
+    if (salesTypeFilter && salesKindDef(m.kind).key !== salesTypeFilter) return false;
+    if (salesLineFilter && String(m.line || "chung") !== salesLineFilter) return false;
+    if (q && !salesFold(m.title || "").includes(q)) return false;
+    return true;
+  }).slice().sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
+  const typeOpts = [["", "Tất cả loại"], ...SALES_KINDS.map(k => [k.key, k.label])];
+  const lineOpts = [["", "Tất cả mảng"], ["chung", "Dùng chung"], ...Object.entries(LINES).map(([k, L]) => [k, L.name])];
+  const optHTML = (opts, cur) => opts.map(([v, t]) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
+  const filters = `<div class="sm-filters"><span class="mut">Lọc:</span><select onchange="setSalesTypeFilter(this.value)" aria-label="Lọc theo loại tài liệu">${optHTML(typeOpts, salesTypeFilter)}</select><select onchange="setSalesLineFilter(this.value)" aria-label="Lọc theo mảng">${optHTML(lineOpts, salesLineFilter)}</select><span class="mut">${filtered.length} tài liệu</span></div>`;
+  const cards = filtered.map(m => {
+    const kd = salesKindDef(m.kind);
+    const addedDate = sysShortDate(m.createdAt);
+    const addedLine = `Thêm bởi ${esc(memberName(S, m.createdBy))}${addedDate ? " · " + esc(addedDate) : ""}`;
+    const openBtn = safeHttpUrl(m.url) ? `<a class="btn" href="${esc(safeHttpUrl(m.url))}" target="_blank" rel="noopener">Mở tài liệu ↗</a>` : `<span class="mut">Link không hợp lệ</span>`;
+    const editBtns = canEditSalesMaterial(m) ? `<button class="btn ghost" onclick="openSalesMaterialForm('${m.id}')">✏️ Sửa</button><button class="btn danger" onclick="deleteSalesMaterial('${m.id}')">🗑 Xoá</button>` : "";
+    return `<div class="gcard"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="pill" style="background:${kd.color}">${esc(kd.label)}</span><span class="chip" style="background:${salesLineColor(m.line)}">${esc(salesLineLabel(m.line))}</span></div>
+      <h4>${esc(m.title || "—")}</h4>
+      ${m.description ? `<div class="sm-desc">${esc(m.description)}</div>` : ""}
+      <div class="mut" style="margin-top:8px">${addedLine}</div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${openBtn}${editBtns}</div></div>`;
+  }).join("");
+  const filtering = !!(salesTypeFilter || salesLineFilter || query);
+  const emptyMsg = !all.length
+    ? `<div class="panel mut" style="font-size:13.5px">Chưa có tài liệu bán hàng nào. Bấm “+ Thêm tài liệu” để thêm deck/demo đầu tiên cho team.</div>`
+    : (filtering && !filtered.length ? `<div class="panel mut" style="font-size:13.5px">Không có tài liệu nào khớp bộ lọc / tìm kiếm hiện tại.</div>` : "");
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openSalesMaterialForm()">+ Thêm tài liệu</button></div>${filters}${emptyMsg}${filtered.length ? `<div class="cards">${cards}</div>` : ""}
+  <div class="mut" style="margin-top:10px">Tài liệu bán hàng dùng chung cho cả team: mọi thành viên (kể cả MKT) đều xem được; chỉ người thêm tài liệu hoặc Admin mới sửa/xoá được.</div>`;
+}
+function openSalesMaterialForm(id) {
+  const m = id ? salesMaterialsList().find(x => x.id === id) : null;
+  if (id && !m) return;
+  if (m && !canEditSalesMaterial(m)) { toast("Chỉ người thêm tài liệu hoặc Admin mới sửa được tài liệu này"); return; }
+  const kindSel = sel("e_sm_kind", SALES_KINDS.map(k => [k.key, k.label]), m ? salesKindDef(m.kind).key : "deck");
+  const curLine = m ? String(m.line || "chung") : "chung";
+  const lineOpts = [["chung", "Dùng chung"], ...Object.entries(LINES).map(([k, L]) => [k, L.name])];
+  if (curLine && !lineOpts.some(([v]) => v === curLine)) lineOpts.push([curLine, "(dữ liệu cũ) " + curLine]);
+  const lineSel = `<select id="e_sm_line">${lineOpts.map(([v, t]) => `<option value="${esc(v)}" ${v === curLine ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+  openEdit(`<h3 style="font-size:16px">${id ? "✏️ Sửa tài liệu" : "📚 Thêm tài liệu bán hàng"}</h3>
+    <div style="margin-bottom:8px">${typeBadgeHTML("sales_material")}</div>
+    ${field("Tiêu đề *", txt("e_sm_title", m ? m.title : "", "VD: Deck giới thiệu Sava Meta 2026"))}
+    ${field("Loại *", kindSel)}
+    ${field("Link tài liệu * (http/https)", txt("e_sm_url", m ? m.url : "", "https://…"))}
+    ${field("Mảng", lineSel)}
+    ${field("Mô tả", `<textarea id="e_sm_desc">${esc(m ? (m.description || "") : "")}</textarea>`)}
+    ${formFoot("saveSalesMaterial", id ? `'${id}'` : "null")}`);
+}
+function saveSalesMaterial(id) {
+  const v = i => (document.getElementById(i)?.value || "").trim();
+  const title = v("e_sm_title"); if (!title) { toast("Tiêu đề không được để trống"); return; }
+  const kindRaw = v("e_sm_kind");
+  const kind = SALES_KINDS.some(k => k.key === kindRaw) ? kindRaw : "other";
+  const url = v("e_sm_url");
+  if (!url) { toast("Link tài liệu không được để trống"); return; }
+  if (!/^https?:\/\//i.test(url)) { toast("Link tài liệu phải là địa chỉ http/https hợp lệ"); return; }
+  const existing = id ? salesMaterialsList().find(x => x.id === id) : null;
+  if (id && !existing) return;
+  if (existing && !canEditSalesMaterial(existing)) { toast("Chỉ người thêm tài liệu hoặc Admin mới sửa được tài liệu này"); return; }
+  const lineRaw = v("e_sm_line");
+  /* Giá trị mảng lạ đã lưu (dữ liệu cũ) được giữ nguyên khi không đổi —
+     đúng quy ước selLegacy của app; giá trị lạ MỚI thì rơi về 'chung'. */
+  const line = (lineRaw === "chung" || LINES[lineRaw] || (existing && lineRaw === String(existing.line || ""))) ? lineRaw : "chung";
+  const data = { title, kind, url, description: v("e_sm_desc"), line };
+  let m;
+  if (existing) { m = existing; Object.assign(m, data); }
+  else { m = { id: "sm" + Date.now(), ...data, createdBy: defaultOwnerId() }; if (!Array.isArray(S.salesMaterials)) S.salesMaterials = []; S.salesMaterials.push(m); }
+  /* Lưu qua save() chuẩn của app (đóng dấu + audit + diff-sync/flush);
+     lưu xong đóng form, quay về danh sách xem ngay (view-first). */
+  save(); closeEdit(); render();
+  toast("Đã lưu tài liệu: " + title);
+}
+function deleteSalesMaterial(id) {
+  const m = salesMaterialsList().find(x => x.id === id); if (!m) return;
+  if (!canEditSalesMaterial(m)) { toast("Chỉ người thêm tài liệu hoặc Admin mới xoá được tài liệu này"); return; }
+  if (!confirm(`Xoá hẳn tài liệu "${m.title || ""}"?\n\nTài liệu sẽ biến mất khỏi danh sách dùng chung của cả team. Không khôi phục được.`)) return;
+  S.salesMaterials = salesMaterialsList().filter(x => x.id !== id);
+  save(); render(); toast("Đã xoá tài liệu: " + (m.title || ""));
 }
 /* --- 3 loại liên kết của sự kiện: cấu hình dùng chung cho drawer event --- */
 const EVENT_LINK_KINDS = {

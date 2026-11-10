@@ -106,7 +106,7 @@ if (typeof window !== "undefined") { window.memberList = memberList; window.memb
    deal.vertical / lead.mainContact) — KHÔNG cần cột/SQL mới.
    Entity cũ chưa có trường -> hiển thị "—", không bịa thời gian. */
 const SYS_FIELDS = ["createdAt", "updatedAt", "updatedBy"];
-const CRM_ENTITY_TYPES = [["deals", "deal"], ["companies", "company"], ["leads", "lead"], ["games", "game"], ["tasks", "task"], ["members", "member"], ["activities", "activity"], ["events", "event"]];
+const CRM_ENTITY_TYPES = [["deals", "deal"], ["companies", "company"], ["leads", "lead"], ["games", "game"], ["tasks", "task"], ["members", "member"], ["activities", "activity"], ["events", "event"], ["salesMaterials", "sales_material"]];
 /* === Hồ sơ công ty (Company Profile) — bộ field phụ qua legacy_extra ===
    COMPANY_PROFILE_FIELDS là DANH SÁCH DÙNG CHUNG DUY NHẤT (key + nhãn +
    loại input) cho cả khối "Hồ sơ công ty" xem/sửa trong drawer công ty
@@ -159,6 +159,7 @@ const FIELD_LABELS = {
   member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
   activity: { deal: "Deal", lead: "Lead", game: "Game", event: "Sự kiện", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
   event: { name: "Tên sự kiện", date: "Ngày diễn ra", endDate: "Ngày kết thúc", location: "Địa điểm", attendees: "Người tham dự", note: "Ghi chú", status: "Trạng thái sự kiện", eventUrl: "Link sự kiện", line: "Mảng liên quan", reportMet: "Báo cáo — Đã gặp ai", reportOutcome: "Báo cáo — Kết quả", reportNext: "Báo cáo — Việc tiếp theo", reportLinks: "Báo cáo — Link đính kèm", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
+  sales_material: { title: "Tiêu đề", kind: "Loại tài liệu", url: "Link tài liệu", description: "Mô tả", line: "Mảng", createdBy: "Người thêm" },
   request: { kind: "Loại hồ sơ", entityId: "Hồ sơ CRM", requestedBy: "BD phụ trách", assignee: "MKT được giao", due: "Hạn đánh giá", requestNote: "Thông tin đầu vào / yêu cầu BD", source: "Link build / bằng chứng", build: "Build / phiên bản", status: "Trạng thái", intake: "Hồ sơ đầu vào", entitySnapshot: "Dữ liệu chụp hồ sơ" },
 };
 const REF_FIELDS = {
@@ -168,6 +169,7 @@ const REF_FIELDS = {
   task: { assignee: "member", deal: "deal", company: "company", lead: "lead", game: "game", event: "event" },
   activity: { who: "member", deal: "deal", lead: "lead", game: "game", event: "event" },
   request: { requestedBy: "member", assignee: "member", entityId: "entity" },
+  sales_material: { createdBy: "member" },
 };
 function cloneForDiff(v) {
   if (v === undefined) return undefined;
@@ -325,6 +327,11 @@ function auditValue(state, entityType, entity, field, v) {
     return lbl && lbl !== String(v) ? lbl + " (" + String(v) + ")" : String(v);
   }
   if (field === "leads" && Array.isArray(v)) return v.map(x => resolveRefLabel(state, "lead", x, entityType, entity)).join(", ");
+  /* Tài liệu bán hàng: kind + line 'chung' có nhãn hiển thị riêng (line còn
+     lại rơi xuống đường LINES chung ngay dưới như mọi entity). */
+  if (entityType === "sales_material" && field === "kind") return ({ deck: "Deck", demo: "Demo", other: "Tài liệu khác" })[v] || String(v);
+  if (entityType === "sales_material" && field === "line" && v === "chung") return "Dùng chung";
+  if (entityType === "sales_material" && field === "createdBy") { const lbl = resolveRefLabel(state, "member", v, entityType, entity); return lbl && lbl !== String(v) ? lbl + " (" + String(v) + ")" : String(v); }
   if (field === "line" && typeof LINES !== "undefined" && LINES[v]) return LINES[v].name;
   if (typeof v === "boolean") return v ? "Có" : "Không";
   if (entityType === "deal" && field === "stage") return auditDealStageLabel(entity, v);
@@ -955,6 +962,7 @@ function emptyState() { return {
   tasks: [],
   activities: [],
   events: [],
+  salesMaterials: [],
   verticals: [],
 };}
 /* seed() giữ lại như bí danh tương thích ngược cho code/test cũ còn tham
@@ -1006,6 +1014,7 @@ const TYPE_BADGE_META = {
   member: { icon: "👤", noun: "Thành viên", color: "#475569" },
   activity: { icon: "🕘", noun: "Hoạt động", color: "#64748b" },
   event: { icon: "🎪", noun: "Sự kiện", color: "#db2777" },
+  sales_material: { icon: "📚", noun: "Tài liệu bán hàng", color: "#0e7490" },
   market: { icon: "📊", noun: "Mechanic / Thị trường", color: "#137e90" },
   "company-review": { icon: "🏢", noun: "Đánh giá Partner", color: "#0f766e" },
   "game-review": { icon: "🎮", noun: "Đánh giá Game", color: "#7c3aed" },
@@ -1091,6 +1100,7 @@ function migrateState(s) {
   if (!Array.isArray(s.tasks)) s.tasks = [];
   if (!Array.isArray(s.activities)) s.activities = [];
   if (!Array.isArray(s.events)) s.events = [];
+  if (!Array.isArray(s.salesMaterials)) s.salesMaterials = [];
   /* Danh sách ngành Metaverse do người dùng thêm (S.verticals): chuẩn hoá
      thành mảng chuỗi đã trim, bỏ trùng, giữ thứ tự; kiểu lạ -> []. Ngành
      đã gán trên deal vẫn được metaverseVerticals() suy ra kể cả khi mảng
@@ -1107,7 +1117,7 @@ function migrateState(s) {
      (type "sanitized", kèm số lượng) để index.html hiện banner; nếu đã có cờ
      "corrupt" từ loadState thì không ghi đè, chỉ bổ sung số đếm riêng. */
   let droppedNonObjects = 0;
-  ["companies", "games", "deals", "leads", "tasks", "activities", "events", "members"].forEach(k => {
+  ["companies", "games", "deals", "leads", "tasks", "activities", "events", "salesMaterials", "members"].forEach(k => {
     if (Array.isArray(s[k])) {
       const before = s[k].length;
       /* A12: đường xử lý đã chọn cho entity sai kiểu — phần tử là MẢNG hoặc
@@ -1134,7 +1144,7 @@ function migrateState(s) {
      ngoại dạng SỐ được ép về CHUỖI (định danh chuẩn trong app là chuỗi);
      id/khóa ngoại là chuỗi giữ nguyên, kiểu lạ khác để nguyên cho các lớp
      trên tự xử lý như trước. */
-  ["companies", "games", "deals", "leads", "tasks", "activities", "events"].forEach(k => {
+  ["companies", "games", "deals", "leads", "tasks", "activities", "events", "salesMaterials"].forEach(k => {
     s[k].forEach(x => { if (typeof x.id === "number" && Number.isFinite(x.id)) x.id = String(x.id); });
   });
   /* Sự kiện: 3 mảng liên kết (companies/leads/deals) là nguồn sự thật của

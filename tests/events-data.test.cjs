@@ -38,7 +38,7 @@ function loadShared() {
 test('shared: emptyState có events đúng vị trí; CRM_ENTITY_TYPES/FIELD_LABELS/TYPE_BADGE_META có event', () => {
   const ctx = loadShared();
   assert.deepEqual(Object.keys(ctx.emptyState()),
-    ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events', 'verticals']);
+    ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events', 'salesMaterials', 'verticals']);
   assert.deepEqual([...ctx.emptyState().events], []);
   const pairs = ctx.window.SavaSys.CRM_ENTITY_TYPES.map(p => [...p]);
   assert.ok(pairs.some(p => p[0] === 'events' && p[1] === 'event'), 'CRM_ENTITY_TYPES thiếu cặp ["events","event"]: ' + JSON.stringify(pairs));
@@ -114,8 +114,8 @@ test('adapter: round-trip state -> rows -> state giữ nguyên event (kể cả 
     { id: 'ev3', name: 'Sự kiện trần', date: '', location: '' }]);
   const back = A.crmRowsToState(JSON.parse(JSON.stringify(A.crmStateToRows(src))));
   assert.deepEqual(Object.keys(back),
-    ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events', 'verticals'],
-    'state đọc lại phải khớp đúng hình dạng emptyState (events sau activities, trước verticals)');
+    ['members', 'companies', 'games', 'deals', 'leads', 'tasks', 'activities', 'events', 'salesMaterials', 'verticals'],
+    'state đọc lại phải khớp đúng hình dạng emptyState (events sau activities, salesMaterials trước verticals)');
   const ev = back.events[0];
   assert.equal(ev.name, eventFixture.name);
   assert.equal(ev.date, '2026-11-15');
