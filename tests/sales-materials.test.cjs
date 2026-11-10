@@ -44,7 +44,7 @@ test('shared: emptyState có salesMaterials đúng vị trí; CRM_ENTITY_TYPES/F
   const pairs = ctx.window.SavaSys.CRM_ENTITY_TYPES.map(p => [...p]);
   assert.ok(pairs.some(p => p[0] === 'salesMaterials' && p[1] === 'sales_material'), 'CRM_ENTITY_TYPES thiếu cặp ["salesMaterials","sales_material"]: ' + JSON.stringify(pairs));
   assert.deepEqual({ ...ctx.window.SavaSys.FIELD_LABELS.sales_material }, {
-    title: 'Tiêu đề', kind: 'Loại tài liệu', url: 'Link tài liệu', description: 'Mô tả', line: 'Mảng', createdBy: 'Người thêm',
+    title: 'Tiêu đề', kind: 'Loại tài liệu', url: 'Link tài liệu', description: 'Mô tả', line: 'Mảng', createdBy: 'Người thêm', imageUrl: 'Link ảnh đại diện',
   });
   assert.ok(ctx.typeBadgeHTML('sales_material').includes('Tài liệu bán hàng'));
 });
@@ -188,6 +188,48 @@ test('UI tĩnh: nav có mục Tài liệu bán hàng ở cả desktop + mobile; 
   const mkt = read('mkt.html');
   assert.ok(!mkt.includes('data-view="sales"'), 'mkt.html KHÔNG được có mục Tài liệu bán hàng (Zac chốt không làm UI phía MKT)');
   assert.ok(!mkt.includes('vSalesMaterials'), 'mkt.html KHÔNG được có view tài liệu bán hàng');
+});
+
+/* ---------- Ảnh đại diện (imageUrl -> cột image_url) — đợt nạp demo 10/11/2026 ---------- */
+test('adapter: imageUrl đi cột image_url (không vào legacy_extra) + round-trip giữ nguyên; thiếu -> chuỗi rỗng', () => {
+  const rows = A.crmStateToRows(stateWith([{ ...matFixture, imageUrl: 'assets/materials/tour360.jpg' }]));
+  const r = rows.sales_materials[0];
+  assert.equal(r.image_url, 'assets/materials/tour360.jpg', 'imageUrl phải ghi vào cột image_url');
+  assert.ok(!('imageUrl' in r.legacy_extra), 'imageUrl đã có cột thật, không được lọt vào legacy_extra');
+  const back = A.crmRowsToState(JSON.parse(JSON.stringify(rows)));
+  assert.equal(back.salesMaterials[0].imageUrl, 'assets/materials/tour360.jpg', 'đọc lại phải khôi phục imageUrl từ image_url');
+  const rows2 = A.crmStateToRows(stateWith([matFixture]));
+  assert.equal(rows2.sales_materials[0].image_url, '', 'tài liệu không có ảnh -> image_url rỗng (tuỳ chọn, không bắt buộc)');
+  const back2 = A.crmRowsToState({ sales_materials: [{ id: 'smx', title: 'X', kind: 'demo', url: 'https://x', description: '', line: 'ai', created_by: 'zac', legacy_extra: {} }] });
+  assert.equal(back2.salesMaterials[0].imageUrl, '', 'row thiếu image_url (DB cũ) -> imageUrl rỗng');
+});
+
+test('SQL: sales-materials-image.sql thêm cột image_url an toàn chạy lại; sales-materials.sql cũng khai cột cho cài mới', () => {
+  const mig = read('supabase/sales-materials-image.sql');
+  assert.ok(/alter table public\.sales_materials\s+add column if not exists image_url text not null default ''/.test(mig),
+    'migration phải add column if not exists image_url text not null default \'\'');
+  const base = read('supabase/sales-materials.sql');
+  assert.ok(base.includes('image_url'), 'sales-materials.sql (cài mới) phải khai cột image_url');
+});
+
+test('UI tĩnh: ảnh đại diện — form có ô Link ảnh đại diện (tuỳ chọn), thẻ có khung .sm-thumb + onerror gỡ ảnh lỗi, salesImageSrc chặn scheme lạ', () => {
+  const html = read('index.html');
+  assert.ok(html.includes('function salesImageSrc('), 'thiếu helper salesImageSrc');
+  assert.ok(html.includes('function salesThumbHTML('), 'thiếu helper salesThumbHTML');
+  assert.ok(html.includes('.sm-thumb {'), 'thiếu CSS khung ảnh .sm-thumb');
+  assert.ok(html.includes('aspect-ratio:16/9'), 'khung ảnh phải tỉ lệ cố định 16/9');
+  assert.ok(html.includes('object-fit:cover'), 'ảnh trong khung phải cover');
+  assert.ok(html.includes('onerror="this.remove()"'), 'ảnh lỗi tải phải tự gỡ (hiện nền/huy hiệu dự phòng, không icon gãy)');
+  const viewSeg = html.slice(html.indexOf('function vSalesMaterials()'), html.indexOf('function openSalesMaterialForm('));
+  assert.ok(viewSeg.includes('salesThumbHTML(m)'), 'thẻ tài liệu phải render khung ảnh qua salesThumbHTML');
+  const formSeg = html.slice(html.indexOf('function openSalesMaterialForm('), html.indexOf('function saveSalesMaterial('));
+  assert.ok(formSeg.includes('e_sm_image'), 'form thêm/sửa phải có ô nhập ảnh e_sm_image');
+  assert.ok(formSeg.includes('Link ảnh đại diện (tuỳ chọn)'), 'ô ảnh phải ghi rõ tuỳ chọn');
+  const saveSeg = html.slice(html.indexOf('function saveSalesMaterial('), html.indexOf('function deleteSalesMaterial('));
+  assert.ok(saveSeg.includes('imageUrl'), 'saveSalesMaterial phải lưu imageUrl');
+  const srcSeg = html.slice(html.indexOf('function salesImageSrc('), html.indexOf('function salesThumbHTML('));
+  assert.ok(srcSeg.includes('safeHttpUrl'), 'link ảnh http/https phải qua safeHttpUrl');
+  assert.ok(srcSeg.includes('assets'), 'đường dẫn ảnh tương đối trong app (assets/...) phải được chấp nhận');
 });
 
 test('UI tĩnh: CRUD tài liệu bán hàng — gate người tạo/Admin, validate http/https, lưu qua save() chuẩn', () => {

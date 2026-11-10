@@ -192,13 +192,15 @@
      chúng là nguồn sự thật của quan hệ Event<->{Company,Lead,Deal} và
      được vật hoá thành dòng ở bảng nối event_links (xem hai chiều dưới). */
   const EVENT_KNOWN = ['id', 'name', 'date', 'location', 'companies', 'leads', 'deals'];
-  /* Tài liệu bán hàng: title/kind/url/description/line có cột riêng;
+  /* Tài liệu bán hàng: title/kind/url/description/line/imageUrl có cột
+     riêng (imageUrl -> image_url, ảnh đại diện tuỳ chọn — đợt 10/11/2026,
+     xem supabase/sales-materials-image.sql);
      createdBy CÓ cột riêng created_by (RLS sửa/xoá theo người tạo đối
      chiếu ở tầng DB). 3 trường hệ thống createdAt/updatedAt/updatedBy
      CỐ Ý không nằm trong SALES_KNOWN: chúng đi qua legacy_extra của
      bảng sales_materials như events (extrasOf khi ghi / mergeExtras
      khi đọc) — đúng quy ước đóng dấu của hệ. */
-  const SALES_KNOWN = ['id', 'title', 'kind', 'url', 'description', 'line', 'createdBy'];
+  const SALES_KNOWN = ['id', 'title', 'kind', 'url', 'description', 'line', 'createdBy', 'imageUrl'];
   const SALES_KINDS = ['deck', 'demo', 'other'];
   const SALES_LINES = ['chung', 'game_studio', 'publishing', 'ai', 'metaverse'];
 
@@ -364,6 +366,7 @@
         url: String(m.url || ''), description: String(m.description || ''),
         line: SALES_LINES.includes(m.line) ? m.line : 'chung',
         created_by: nullIfEmpty(m.createdBy),
+        image_url: String(m.imageUrl || ''),
         legacy_extra: extrasOf(m, SALES_KNOWN),
       });
     });
@@ -505,6 +508,7 @@
         url: m.url || '', description: m.description || '',
         line: SALES_LINES.includes(m.line) ? m.line : 'chung',
         createdBy: emptyIfNull(m.created_by),
+        imageUrl: m.image_url || '',
       };
       state.salesMaterials.push(mergeExtras(o, m));
     });

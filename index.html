@@ -103,6 +103,14 @@
   .gcard h4 { margin:6px 0 2px; font-size:15.5px; }
   /* Tài liệu bán hàng: mô tả trên thẻ rút gọn tối đa 3 dòng */
   .sm-desc { font-size:13px; color:var(--mut); margin-top:6px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  /* Tài liệu bán hàng: khung ảnh đại diện tỉ lệ cố định 16/9, ảnh cover;
+     không có ảnh / ảnh lỗi tải -> nền + huy hiệu loại dự phòng bên dưới
+     (ảnh nằm phủ trên, lỗi thì tự gỡ qua onerror nên dự phòng hiện ra,
+     khung giữ nguyên tỉ lệ nên layout không vỡ, không icon ảnh gãy). */
+  .sm-thumb { position:relative; aspect-ratio:16/9; border-radius:10px; overflow:hidden; background:linear-gradient(135deg,#e0f2fe,#f0fdf4); margin:-4px -4px 10px; display:flex; align-items:center; justify-content:center; }
+  .sm-thumb .sm-thumb-fallback { display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--mut); font-size:12.5px; font-weight:600; }
+  .sm-thumb .sm-thumb-fallback .sm-thumb-emoji { font-size:30px; }
+  .sm-thumb img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
   .sm-filters { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
   .sm-filters select { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13.5px; background:#fff; }
   .score { display:flex; align-items:center; gap:8px; font-size:12px; margin-top:5px; }
@@ -2481,6 +2489,25 @@ let salesTypeFilter = "", salesLineFilter = "";
 function setSalesTypeFilter(v) { salesTypeFilter = v || ""; render(); }
 function setSalesLineFilter(v) { salesLineFilter = v || ""; render(); }
 function salesFold(s) { return typeof comboFoldText === "function" ? comboFoldText(s) : String(s ?? "").toLowerCase(); }
+/* Ảnh đại diện (imageUrl, TUỲ CHỌN): chấp nhận link http/https (qua
+   safeHttpUrl như mọi link của app) hoặc đường dẫn tương đối trong repo
+   (assets/... — ảnh demo nạp sẵn nằm ở assets/materials/, Pages phục vụ
+   cùng domain). Giá trị khác (javascript:, data:, khoảng trắng/dấu
+   ngoặc...) -> rỗng: thẻ dùng nền/huy hiệu loại dự phòng. */
+function salesImageSrc(m) {
+  const s = String((m && m.imageUrl) || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return safeHttpUrl(s);
+  if (/^(assets|images)\/[^\s"'<>]+$/i.test(s)) return s;
+  return "";
+}
+function salesThumbHTML(m) {
+  const kd = salesKindDef(m.kind);
+  const src = salesImageSrc(m);
+  const fallback = `<span class="sm-thumb-fallback"><span class="sm-thumb-emoji">📚</span><span>${esc(kd.label)}</span></span>`;
+  const img = src ? `<img src="${esc(src)}" alt="${esc(m.title || kd.label)}" loading="lazy" onerror="this.remove()">` : "";
+  return `<div class="sm-thumb">${fallback}${img}</div>`;
+}
 function vSalesMaterials() {
   const all = salesMaterialsList();
   const q = salesFold(query);
@@ -2500,7 +2527,7 @@ function vSalesMaterials() {
     const addedLine = `Thêm bởi ${esc(memberName(S, m.createdBy))}${addedDate ? " · " + esc(addedDate) : ""}`;
     const openBtn = safeHttpUrl(m.url) ? `<a class="btn" href="${esc(safeHttpUrl(m.url))}" target="_blank" rel="noopener">Mở tài liệu ↗</a>` : `<span class="mut">Link không hợp lệ</span>`;
     const editBtns = canEditSalesMaterial(m) ? `<button class="btn ghost" onclick="openSalesMaterialForm('${m.id}')">✏️ Sửa</button><button class="btn danger" onclick="deleteSalesMaterial('${m.id}')">🗑 Xoá</button>` : "";
-    return `<div class="gcard"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="pill" style="background:${kd.color}">${esc(kd.label)}</span><span class="chip" style="background:${salesLineColor(m.line)}">${esc(salesLineLabel(m.line))}</span></div>
+    return `<div class="gcard">${salesThumbHTML(m)}<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="pill" style="background:${kd.color}">${esc(kd.label)}</span><span class="chip" style="background:${salesLineColor(m.line)}">${esc(salesLineLabel(m.line))}</span></div>
       <h4>${esc(m.title || "—")}</h4>
       ${m.description ? `<div class="sm-desc">${esc(m.description)}</div>` : ""}
       <div class="mut" style="margin-top:8px">${addedLine}</div>
@@ -2527,6 +2554,7 @@ function openSalesMaterialForm(id) {
     ${field("Tiêu đề *", txt("e_sm_title", m ? m.title : "", "VD: Deck giới thiệu Sava Meta 2026"))}
     ${field("Loại *", kindSel)}
     ${field("Link tài liệu * (http/https)", txt("e_sm_url", m ? m.url : "", "https://…"))}
+    ${field("Link ảnh đại diện (tuỳ chọn)", txt("e_sm_image", m ? (m.imageUrl || "") : "", "https://… hoặc assets/materials/…"))}
     ${field("Mảng", lineSel)}
     ${field("Mô tả", `<textarea id="e_sm_desc">${esc(m ? (m.description || "") : "")}</textarea>`)}
     ${formFoot("saveSalesMaterial", id ? `'${id}'` : "null")}`);
@@ -2546,7 +2574,9 @@ function saveSalesMaterial(id) {
   /* Giá trị mảng lạ đã lưu (dữ liệu cũ) được giữ nguyên khi không đổi —
      đúng quy ước selLegacy của app; giá trị lạ MỚI thì rơi về 'chung'. */
   const line = (lineRaw === "chung" || LINES[lineRaw] || (existing && lineRaw === String(existing.line || ""))) ? lineRaw : "chung";
-  const data = { title, kind, url, description: v("e_sm_desc"), line };
+  const imageUrl = v("e_sm_image");
+  if (imageUrl && !salesImageSrc({ imageUrl })) { toast("Link ảnh đại diện phải là địa chỉ http/https hoặc đường dẫn ảnh trong app (assets/…)"); return; }
+  const data = { title, kind, url, description: v("e_sm_desc"), line, imageUrl };
   let m;
   if (existing) { m = existing; Object.assign(m, data); }
   else { m = { id: "sm" + Date.now(), ...data, createdBy: defaultOwnerId() }; if (!Array.isArray(S.salesMaterials)) S.salesMaterials = []; S.salesMaterials.push(m); }

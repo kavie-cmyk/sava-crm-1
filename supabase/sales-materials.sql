@@ -59,6 +59,7 @@ create table if not exists public.sales_materials (
   line         text not null default 'chung'
                check (line in ('chung', 'game_studio', 'publishing', 'ai', 'metaverse')), -- app: line ('chung' = Dùng chung; còn lại là khoá LINES của shared.js)
   created_by   text,                                  -- app: createdBy (member id người tạo; RLS sửa/xoá theo cột này)
+  image_url    text not null default '',              -- app: imageUrl (ảnh đại diện TUỲ CHỌN; đợt 10/11/2026 — xem sales-materials-image.sql)
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
   legacy_extra jsonb not null default '{}'::jsonb     -- app: createdAt, updatedAt, updatedBy + khoá lạ
