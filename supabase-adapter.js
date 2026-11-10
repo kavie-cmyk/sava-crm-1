@@ -195,8 +195,10 @@
   /* Tài liệu bán hàng: title/kind/url/description/line/imageUrl có cột
      riêng (imageUrl -> image_url, ảnh đại diện tuỳ chọn — đợt 10/11/2026,
      xem supabase/sales-materials-image.sql);
-     createdBy CÓ cột riêng created_by (RLS sửa/xoá theo người tạo đối
-     chiếu ở tầng DB). 3 trường hệ thống createdAt/updatedAt/updatedBy
+     createdBy CÓ cột riêng created_by (app vẫn ghi người tạo khi thêm
+     như lệ hệ thống; từ Zac chốt 10/11/2026 cột này không còn dùng để
+     phân quyền RLS hay hiển thị — sửa/xoá mở cho mọi admin/bd).
+     3 trường hệ thống createdAt/updatedAt/updatedBy
      CỐ Ý không nằm trong SALES_KNOWN: chúng đi qua legacy_extra của
      bảng sales_materials như events (extrasOf khi ghi / mergeExtras
      khi đọc) — đúng quy ước đóng dấu của hệ. */

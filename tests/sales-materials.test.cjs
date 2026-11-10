@@ -5,21 +5,26 @@
      migrateState chuẩn hoá S.salesMaterials cho cache cũ.
    - supabase-adapter.js: salesMaterial <-> rows của sales_materials.
      title/kind/url/description/line đi cột; createdBy -> cột created_by
-     (RLS sửa/xoá theo người tạo); createdAt/updatedAt/updatedBy qua
+     (chỉ ghi nhận người tạo; KHÔNG dùng phân quyền/hiển thị từ quyết
+     định Zac 10/11/2026 17:00); createdAt/updatedAt/updatedBy qua
      legacy_extra (SALES_KNOWN cố ý không chứa chúng). kind lạ -> 'other',
      line lạ -> 'chung' ở cả hai chiều.
    - supabase/sales-materials.sql (tĩnh): bảng + trigger + index, RLS
      (SELECT xem chung admin/bd/mkt; INSERT admin+bd; UPDATE/DELETE
-     người tạo hoặc admin), grant tường minh + revoke anon, CHECK
-     audit_log thêm 'sales_material' giữ nguyên tập cũ.
+     admin+bd mọi tài liệu — nới quyền theo Zac 10/11/2026 17:00, áp
+     lên server qua supabase/sales-materials-shared-edit.sql), grant
+     tường minh + revoke anon, CHECK audit_log thêm 'sales_material'
+     giữ nguyên tập cũ.
    - supabase-data.js (tĩnh): CRM_COLLECTIONS có 'salesMaterials';
      loadAll fetch sales_materials qua qSafe; syncCrm có
      ['sales_materials','id'] trong order + 'sales_materials' trong
      CONFLICT_TABLES.
    - index.html (tĩnh): nav desktop + mobile có mục "Tài liệu bán hàng"
      (data-view="sales"), render() đăng ký view sales -> vSalesMaterials,
-     hàm CRUD + gate Sửa/Xoá theo canEditSalesMaterial; mkt.html KHÔNG
-     có mục này (Zac chốt không làm UI phía MKT). */
+     hàm CRUD + gate Sửa/Xoá theo VAI qua canEditSalesMaterial (admin/bd
+     nào cũng sửa/xoá được, không gate theo người tạo); thẻ chỉ hiện
+     ngày thêm, KHÔNG render tên người tạo; mkt.html KHÔNG có mục này
+     (Zac chốt không làm UI phía MKT). */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
@@ -136,7 +141,7 @@ test('SQL: sales-materials.sql có bảng + cột + CHECK + trigger theo hợp �
     'trigger sales_materials_set_updated_at phải dùng lại public.set_updated_at()');
 });
 
-test('SQL: RLS sales_materials — SELECT xem chung admin/bd/mkt; INSERT admin+bd; UPDATE/DELETE người tạo hoặc admin; anon không policy', () => {
+test('SQL: RLS sales_materials — SELECT xem chung admin/bd/mkt; INSERT/UPDATE/DELETE admin+bd (UPDATE/DELETE bỏ gate người tạo — Zac 10/11/2026 17:00); anon không policy', () => {
   const sql = read('supabase/sales-materials.sql');
   assert.ok(sql.includes('alter table public.sales_materials enable row level security;'), 'chưa bật RLS');
   const segOf = name => { const s = sql.slice(sql.indexOf('create policy ' + name)); return s.slice(0, s.indexOf(';')); };
@@ -147,15 +152,40 @@ test('SQL: RLS sales_materials — SELECT xem chung admin/bd/mkt; INSERT admin+b
   assert.ok(ins.includes('for insert to authenticated'), 'insert_bd phải for insert');
   assert.ok(ins.includes("has_crm_role(array['admin', 'bd'])"), 'INSERT chỉ admin+bd');
   assert.ok(!ins.includes("'mkt'"), 'INSERT không được cấp cho mkt');
-  for (const [name, cmd] of [['sales_materials_update_own', 'update'], ['sales_materials_delete_own', 'delete']]) {
+  assert.ok(!ins.includes('created_by'), 'INSERT KHÔNG được siết thêm điều kiện created_by (đề xuất cũ đã bị Zac thay thế 10/11/2026)');
+  for (const [name, cmd] of [['sales_materials_update_bd', 'update'], ['sales_materials_delete_bd', 'delete']]) {
     const seg = segOf(name);
     assert.ok(seg.includes('for ' + cmd + ' to authenticated'), name + ' phải for ' + cmd);
-    assert.ok(seg.includes("has_crm_role(array['admin'])"), name + ' phải có nhánh admin');
-    assert.ok(seg.includes('created_by = public.current_member_id()'), name + ' phải có điều kiện người tạo created_by = current_member_id()');
+    assert.ok(seg.includes("has_crm_role(array['admin', 'bd'])"), name + ' phải mở cho admin+bd (mọi tài liệu)');
+    assert.ok(!seg.includes('created_by'), name + ' KHÔNG được còn điều kiện người tạo created_by');
+    assert.ok(!seg.includes('current_member_id'), name + ' KHÔNG được còn đối chiếu current_member_id()');
+    assert.ok(!seg.includes("'mkt'"), name + ' không được cấp cho mkt');
   }
+  assert.ok(!sql.includes('create policy sales_materials_update_own'), 'policy update_own (gate người tạo) phải đã bị bỏ');
+  assert.ok(!sql.includes('create policy sales_materials_delete_own'), 'policy delete_own (gate người tạo) phải đã bị bỏ');
   assert.ok(sql.includes('revoke all on public.sales_materials from anon;'), 'thiếu revoke tường minh khỏi anon');
   assert.ok(sql.includes('grant select, insert, update, delete on public.sales_materials to authenticated;'), 'thiếu grant tường minh cho authenticated');
   assert.ok(!/to anon/.test(sql.replace('revoke all on public.sales_materials from anon;', '')), 'không được có policy/grant nào cho anon');
+});
+
+test('SQL: migration sales-materials-shared-edit.sql gỡ *_own, tạo *_bd admin/bd cho UPDATE/DELETE, không đụng SELECT/INSERT', () => {
+  const mig = read('supabase/sales-materials-shared-edit.sql');
+  assert.ok(mig.includes('drop policy if exists sales_materials_update_own on public.sales_materials;'), 'migration phải gỡ policy update_own cũ');
+  assert.ok(mig.includes('drop policy if exists sales_materials_delete_own on public.sales_materials;'), 'migration phải gỡ policy delete_own cũ');
+  const segOf = name => { const s = mig.slice(mig.indexOf('create policy ' + name)); return s.slice(0, s.indexOf(';')); };
+  const upd = segOf('sales_materials_update_bd');
+  assert.ok(upd.includes('for update to authenticated'), 'update_bd phải for update');
+  assert.ok(upd.includes("using (public.has_crm_role(array['admin', 'bd']))"), 'update_bd USING phải là admin/bd');
+  assert.ok(upd.includes("with check (public.has_crm_role(array['admin', 'bd']))"), 'update_bd WITH CHECK phải là admin/bd');
+  const del = segOf('sales_materials_delete_bd');
+  assert.ok(del.includes('for delete to authenticated'), 'delete_bd phải for delete');
+  assert.ok(del.includes("using (public.has_crm_role(array['admin', 'bd']))"), 'delete_bd USING phải là admin/bd');
+  for (const seg of [upd, del]) {
+    assert.ok(!seg.includes('created_by'), 'policy mới không được chứa điều kiện created_by');
+    assert.ok(!seg.includes("'mkt'"), 'policy ghi không được cấp cho mkt');
+  }
+  assert.ok(!mig.includes('create policy sales_materials_select_shared'), 'migration KHÔNG đụng policy SELECT');
+  assert.ok(!mig.includes('create policy sales_materials_insert_bd'), 'migration KHÔNG đụng policy INSERT');
 });
 
 test('SQL: mở rộng CHECK audit_log thêm sales_material, giữ nguyên tập cũ + event', () => {
@@ -232,22 +262,26 @@ test('UI tĩnh: ảnh đại diện — form có ô Link ảnh đại diện (tu
   assert.ok(srcSeg.includes('assets'), 'đường dẫn ảnh tương đối trong app (assets/...) phải được chấp nhận');
 });
 
-test('UI tĩnh: CRUD tài liệu bán hàng — gate người tạo/Admin, validate http/https, lưu qua save() chuẩn', () => {
+test('UI tĩnh: CRUD tài liệu bán hàng — gate theo VAI admin/bd (không theo người tạo), thẻ không render tên người tạo, validate http/https, lưu qua save() chuẩn', () => {
   const html = read('index.html');
   for (const fn of ['function vSalesMaterials()', 'function openSalesMaterialForm(', 'function saveSalesMaterial(', 'function deleteSalesMaterial(', 'function canEditSalesMaterial(']) {
     assert.ok(html.includes(fn), 'index.html thiếu ' + fn);
   }
   const gate = html.slice(html.indexOf('function canEditSalesMaterial('), html.indexOf('let salesTypeFilter'));
-  assert.ok(gate.includes('isAdminViewer()'), 'canEditSalesMaterial phải cho Admin sửa/xoá mọi tài liệu');
-  assert.ok(gate.includes('m.createdBy'), 'canEditSalesMaterial phải đối chiếu createdBy với người đang đăng nhập');
+  assert.ok(gate.includes('u.role === "admin"') && gate.includes('u.role === "bd"'), 'canEditSalesMaterial phải mở cho vai admin VÀ bd (mọi tài liệu)');
+  assert.ok(!gate.includes('createdBy'), 'canEditSalesMaterial KHÔNG được đối chiếu người tạo (createdBy) nữa — Zac chốt 10/11/2026 17:00');
+  assert.ok(!gate.includes('memberId'), 'canEditSalesMaterial KHÔNG được so memberId với người tạo nữa');
   const saveSeg = html.slice(html.indexOf('function saveSalesMaterial('), html.indexOf('function deleteSalesMaterial('));
   assert.ok(saveSeg.includes('/^https?:\\/\\//i'), 'saveSalesMaterial phải validate link http/https');
   assert.ok(saveSeg.includes('save(); closeEdit(); render();'), 'lưu xong phải qua save() chuẩn + đóng form về chế độ xem (view-first)');
-  assert.ok(saveSeg.includes('createdBy: defaultOwnerId()'), 'tạo mới phải ghi createdBy = member đang đăng nhập');
+  assert.ok(saveSeg.includes('createdBy: defaultOwnerId()'), 'tạo mới VẪN ghi createdBy = member đang đăng nhập (cột ghi nhận giữ nguyên, chỉ không phân quyền/hiển thị)');
   const viewSeg = html.slice(html.indexOf('function vSalesMaterials()'), html.indexOf('function openSalesMaterialForm('));
   assert.ok(viewSeg.includes('salesTypeFilter') && viewSeg.includes('salesLineFilter'), 'view phải lọc theo Loại + Mảng');
   assert.ok(viewSeg.includes('salesFold'), 'view phải tìm theo tiêu đề không dấu (salesFold)');
   assert.ok(viewSeg.includes('Mở tài liệu'), 'thẻ tài liệu phải có nút Mở tài liệu');
-  assert.ok(viewSeg.includes('Thêm bởi'), 'thẻ tài liệu phải có dòng Thêm bởi <tên> · <ngày>');
+  assert.ok(!viewSeg.includes('Thêm bởi'), 'thẻ tài liệu KHÔNG được render dòng "Thêm bởi <tên>" nữa — Zac chốt bỏ tên người tạo');
+  assert.ok(!viewSeg.includes('memberName(S, m.createdBy)'), 'thẻ tài liệu KHÔNG được resolve tên người tạo từ createdBy');
+  assert.ok(viewSeg.includes('Thêm ngày'), 'thẻ tài liệu chỉ giữ ngày thêm (dòng "Thêm ngày <dd-mm-yyyy>")');
   assert.ok(viewSeg.includes('canEditSalesMaterial(m)'), 'nút Sửa/Xoá trên thẻ phải gate theo canEditSalesMaterial');
+  assert.ok(viewSeg.includes('Admin và BD nào cũng sửa/xoá được'), 'ghi chú cuối view phải nói rõ Admin/BD nào cũng sửa/xoá được');
 });
