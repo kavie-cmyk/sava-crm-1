@@ -1819,12 +1819,21 @@ function dashEventInWindow(at, days, now, range) {
      -> stage khởi điểm = trạng thái HIỆN TẠI của lead.
      Lead tạo TRƯỚC kỳ: không có sàn.
    - N (total) = số lead phân biệt có mức >= 0, TRỪ lead đang ở trạng
-     thái droppedKey (giữ quy tắc của dashLeadFunnel: dropped đếm
-     riêng, dropped.pct tính trên N). Mỗi bước X đếm lead có mức >= X
-     (tích luỹ như bản cũ); exact[i] = số lead có mức ĐÚNG bằng i;
-     stepLeadIds[i] = đúng các id được đếm ở bước i (mức >= i);
-     totalLeadIds = các id vào N; droppedLeadIds = các id lối ra
-     trong tập đầu vào; levels = { leadId: mức } cho lead vào N.
+     thái droppedKey (giữ quy tắc của dashLeadFunnel cho phần đường
+     chính: lead đang ở lối ra không vào N). Mỗi bước X đếm lead có
+     mức >= X (tích luỹ như bản cũ); exact[i] = số lead có mức ĐÚNG
+     bằng i; stepLeadIds[i] = đúng các id được đếm ở bước i (mức
+     >= i); totalLeadIds = các id vào N; levels = { leadId: mức }
+     cho lead vào N.
+   - DÒNG LỐI RA (đợt sửa 12/11/2026, Zac chốt "sửa tất cả"): dropped
+     đếm theo SỰ KIỆN — số lead PHÂN BIỆT có >= 1 sự kiện status VÀO
+     droppedKey với `at` nằm trong cửa sổ kỳ (dashEventInWindow, kể
+     cả khoảng Tuỳ chỉnh có chặn trên); droppedLeadIds = đúng tập id
+     đó (theo thứ tự tập đầu vào), dropped.pct vẫn tính trên N. Hệ
+     quả biên: (a) lead vào lối ra trong kỳ rồi quay lại đường chính
+     VẪN đếm ở dòng lối ra và vẫn tính bình thường ở đường chính;
+     (b) lead đang ở lối ra nhưng sự kiện vào lối ra nằm NGOÀI kỳ thì
+     KHÔNG đếm ở dòng lối ra tại kỳ đó (vẫn bị trừ khỏi N như trên).
    - unknown = lead không vào N, không phải lối ra, mà trạng thái hiện
      tại cũng không thuộc đường chính (trạng thái lạ thật sự) — giữ
      ngữ nghĩa ghi chú của bản cũ. Lead tạo trước kỳ không có sự kiện
@@ -1852,12 +1861,18 @@ function dashLeadFunnelByEvents(leads, events, earliestEvents, days, now, range,
   });
   const exact = keys.map(() => 0);
   const levels = {}, totalLeadIds = [], droppedLeadIds = [], stepLeadIds = keys.map(() => []);
-  let dropped = 0, unknown = 0;
+  let unknown = 0;
   const list = leads || [];
   list.forEach(l => {
     if (!l) return;
     const id = String(l.id);
-    if (l.status === droppedKey) { dropped++; droppedLeadIds.push(id); return; }
+    /* Dòng lối ra theo SỰ KIỆN trong kỳ (xem ghi chú đầu hàm): ghi
+       nhận TRƯỚC khi xét trạng thái hiện tại, để ca (a) — vào lối ra
+       trong kỳ rồi quay lại đường chính — vẫn có mặt ở dòng lối ra
+       đồng thời vẫn được tính ở đường chính bên dưới. */
+    const enteredDroppedInWindow = (byLead.get(id) || []).some(ch => ch.toKey === droppedKey && dashEventInWindow(ch.at, days, now, range));
+    if (enteredDroppedInWindow) droppedLeadIds.push(id);
+    if (l.status === droppedKey) return;
     let level = -1;
     (byLead.get(id) || []).forEach(ch => {
       if (!dashEventInWindow(ch.at, days, now, range)) return;
@@ -1889,6 +1904,7 @@ function dashLeadFunnelByEvents(leads, events, earliestEvents, days, now, range,
     for (let i = 0; i <= level; i++) stepLeadIds[i].push(id);
   });
   const total = totalLeadIds.length;
+  const dropped = droppedLeadIds.length;
   const cum = exact.slice();
   for (let i = cum.length - 2; i >= 0; i--) cum[i] += cum[i + 1];
   const steps = keys.map((k, i) => ({

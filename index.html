@@ -1229,7 +1229,7 @@ function kpiHTML() {
   return `<div class="kpis">${item('Deal đang mở', open.length, `Trên tổng ${ds.length} cơ hội`, 'pipeline')}
     ${gameMode ? item('Mô hình doanh thu', 'Rev share', 'Xem thỏa thuận trong từng deal', 'money') : item('Giá trị pipeline', pipelineValue(open), 'Giá trị hợp đồng dự kiến · AI & Metaverse', 'money')}
     ${item('Deal cần theo dõi', open.filter(d=>d.idle>=5).length, 'Chưa cập nhật từ 5 ngày trở lên', 'clock', 'attention')}
-    ${item('Lead mới', S.leads.filter(l=>(curLine==='all'||l.line===curLine)&&l.status==='new').length, 'Chưa xử lý trong hộp Leads', 'inbox')}
+    ${item('Lead đang ở Mới', S.leads.filter(l=>(curLine==='all'||l.line===curLine)&&l.status==='new').length, 'Chưa xử lý trong hộp Leads', 'inbox')}
   </div>`;
 }
 function vDash() {
@@ -1260,7 +1260,7 @@ function vDash() {
     return `<div class="activity-item" ${o&&o.target?`onclick="dashOpenActivity('${a.id}')" title="Bấm để mở hồ sơ của chủ hoạt động và highlight hoạt động này"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(head)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
   const dashActDeals = S.deals.filter(d => curLine === 'all' || d.line === curLine);
-  document.getElementById('view').innerHTML = dashAnalyticsHTML() + `<details class="ex-legacy-operations"><summary>Pipeline chi tiết, việc cần làm & ghi hoạt động</summary>` + kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + `</details>`;
+  document.getElementById('view').innerHTML = dashAnalyticsHTML() + `<details class="ex-legacy-operations"><summary>Pipeline chi tiết, việc cần làm & ghi hoạt động</summary><p class="dash-note ex-legacy-note">Chú thích: Khu legacy này không áp bộ lọc chung của Dashboard (Kỳ × Người × Mảng) — các số dưới đây không đổi theo bộ lọc chung đã chọn ở trên.</p>` + kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + `</details>`;
 }
 /* ===== Khu PHÂN TÍCH (Dashboard) trong Tổng quan =====
    BỘ LỌC CHUNG (gộp 2026-11-05): MỘT thanh lọc duy nhất ở đầu khu Phân
@@ -1277,14 +1277,18 @@ function vDash() {
    QUY TẮC KỲ (cohort) thống nhất cho MỌI khối bên dưới: chỉ tính bản ghi
    ĐƯỢC TẠO trong kỳ (createdAt, qua SavaDash.dashCohort — cùng cửa sổ
    với dashCountNew), trạng thái lấy theo hiện tại. "Tất cả" = hành vi
-   trước đợt gộp (mỏ neo hồi quy: dashCohort(null) trả nguyên tập). Chỉ
-   các số TỔNG hiện tại trên thẻ KPI và các cột trạng thái của bảng so
-   sánh BD (đang phụ trách / đang mở / quá hạn) là ảnh chụp hiện tại,
-   không đổi theo kỳ — ghi nhãn rõ ngay trên UI.
-   NGOẠI LỆ DUY NHẤT (12/11/2026): Phễu Lead không dùng cohort nữa —
-   phễu tính theo LẦN CHUYỂN STAGE TRONG KỲ từ audit_log (xem khối
-   funnelAudit* ngay dưới thanh lọc + SavaDash.dashLeadFunnelByEvents);
-   cửa sổ kỳ của phễu vẫn cùng ngữ nghĩa dashCohort.
+   trước đợt gộp (mỏ neo hồi quy: dashCohort(null) trả nguyên tập).
+   Đợt sửa 12/11/2026 (Zac chốt "sửa tất cả"): số CHÍNH trên MỌI thẻ
+   KPI (executive + Phân tích) là số TRONG KỲ theo cohort này, số tổng
+   hiện tại lùi xuống dòng phụ "Tổng hiện tại: N"; donut + cột stage
+   "Deal Pipeline theo mảng" ở executive cũng tính trên cohort. Các
+   cột trạng thái của bảng so sánh BD (đang phụ trách / đang mở / quá
+   hạn) và khối "Cần xử lý" vẫn là ảnh chụp hiện tại, không đổi theo
+   kỳ — ghi nhãn rõ ngay trên UI và ở đoạn "Phạm vi số liệu".
+   Phễu Lead không dùng cohort (12/11/2026) — phễu tính theo LẦN
+   CHUYỂN STAGE TRONG KỲ từ audit_log (xem khối funnelAudit* ngay
+   dưới thanh lọc + SavaDash.dashLeadFunnelByEvents); cửa sổ kỳ của
+   phễu vẫn cùng ngữ nghĩa dashCohort.
    QUY TẮC MẢNG thống nhất cho MỌI khối bên dưới (qua
    SavaDash.dashFilterByLine / dashTaskInLine, định nghĩa ở shared.js —
    TÁI DÙNG đúng cơ chế sẵn có của app, không định nghĩa thứ hai): deal
@@ -1517,9 +1521,10 @@ function dashAnalyticsHTML() {
      nguyên vẹn (mỏ neo hồi quy của trục Mảng). */
   const lineScoped = D.dashFilterByLine(scoped, dashLine, S);
   /* Cohort kỳ đang chọn cho từng loại bản ghi (trục Kỳ × Người × Mảng):
-     mọi khối bên dưới tính trên các tập này; riêng thẻ KPI vẫn hiện số
-     TỔNG hiện tại của tập theo Người + Mảng (lineScoped) kèm phần "mới
-     trong kỳ". */
+     mọi khối bên dưới tính trên các tập này; thẻ KPI lấy số CHÍNH từ
+     các tập cohort này và số tổng hiện tại của tập theo Người + Mảng
+     (lineScoped) chỉ còn ở dòng phụ "Tổng hiện tại: N" (hoán đổi
+     12/11/2026). */
   const range = dashActiveRange();
   const cCompanies = D.dashCohort(lineScoped.companies, dashPeriodDays, now, range);
   const cLeads = D.dashCohort(lineScoped.leads, dashPeriodDays, now, range);
@@ -1543,13 +1548,19 @@ function dashAnalyticsHTML() {
   const lineOpts = `<option value="" ${!dashLine ? "selected" : ""}>Tất cả mảng</option>` + Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${dashLine === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
   const lineNote = dashLine ? ` Đang lọc riêng mảng <b>${esc(LINES[dashLine].name)}</b>: deal tính theo mảng của deal, lead theo mảng của lead, công ty theo vai trò mảng (roles) của công ty; bản ghi không thuộc mảng nào không được tính. Trong bảng so sánh BD, việc không mang mảng nên được suy mảng từ đối tượng việc được gắn (deal/lead/công ty/game/sự kiện) — việc không gắn đối tượng hoặc không suy ra được mảng này không được tính.` : "";
   const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div>${customCtl}<div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div><div class="dash-ctl"><span class="dash-ctl-label">Mảng</span><select class="dash-select" onchange="setDashLine(this.value)" aria-label="Mảng — bộ lọc chung phân tích">${lineOpts}</select></div></div>
-  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung áp cho <b>toàn bộ khu Phân tích</b>: theo kỳ, chỉ tính các bản ghi <b>được tạo trong kỳ</b> — trạng thái lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay). Riêng số tổng hiện tại trên thẻ KPI là ảnh chụp hiện tại của tập theo Người + Mảng, không đổi theo kỳ. <b>Ngoại lệ duy nhất: Phễu Lead</b> tính theo lần chuyển stage trong kỳ từ nhật ký hệ thống — xem chú thích ngay tại phễu.${scopeNote}${lineNote}</p></details>`;
-  /* --- Dải KPI: số TỔNG trên tập theo Người + Mảng (lineScoped, không
-     đổi theo kỳ) + phần "mới trong kỳ" trên cùng tập đó --- */
+  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung (Kỳ × Người × Mảng) áp dụng như sau: <b>(a)</b> Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b> — chỉ tính bản ghi <b>được tạo trong kỳ</b>, trạng thái/stage lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay); tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”. <b>(b)</b> Phễu Lead (gồm dòng lối ra Not yet have demand) tính theo <b>lần chuyển stage trong kỳ</b> từ nhật ký hệ thống; nhật ký đầy đủ từ 31-10-2026; lead nhập theo lô hàng loạt không có sự kiện cho từng lead nên chỉ được tính từ lần chuyển stage đầu tiên sau khi nhập (hoặc từ lúc tạo nếu tạo trong kỳ). <b>(c)</b> Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ. <b>(d)</b> Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>. <b>(e)</b> Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>.${scopeNote}${lineNote}</p></details>`;
+  /* --- Dải KPI (hoán đổi 12/11/2026, Zac chốt): số CHÍNH = số TRONG
+     KỲ theo cohort (cCompanies/cLeads/cDeals — bản ghi tạo trong kỳ,
+     trạng thái hiện tại, cùng phạm vi Người × Mảng); số PHỤ = tổng
+     hiện tại với nhãn "Tổng hiện tại: N". Kỳ "Tất cả": cohort = toàn
+     tập nên số chính == tổng hiện tại tương ứng (mỏ neo hồi quy).
+     nC/nL/nD (dashCountNew) vẫn tính để truyền xuống executive qua
+     ctx cho các khối khác dùng như cũ. --- */
   const nC = D.dashCountNew(lineScoped.companies, dashPeriodDays, now, range), nL = D.dashCountNew(lineScoped.leads, dashPeriodDays, now, range), nD = D.dashCountNew(lineScoped.deals, dashPeriodDays, now, range);
   const openDeals = lineScoped.deals.filter(isOpen), wonDeals = lineScoped.deals.filter(d => d.stage === "won");
+  const cohortOpenDeals = cDeals.filter(isOpen), cohortWonDeals = cDeals.filter(d => d.stage === "won");
   const kpiCard = (label, value, sub, view, color) => `<div class="kpi dash-kpi" role="button" tabindex="0" onclick="setView('${view}')" onkeydown="if(event.key==='Enter')setView('${view}')" title="Bấm để mở view ${label}"><span class="dash-kpi-dot" style="background:${color}"></span><div class="k">${label}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
-  const kpis = `<div class="kpis dash-kpis">${kpiCard("Công ty", lineScoped.companies.length, `+${nC.count} mới ${periodTxt}`, "companies", cols.company)}${kpiCard("Lead", lineScoped.leads.length, `+${nL.count} mới ${periodTxt}`, "leads", cols.lead)}${kpiCard("Deal đang mở", openDeals.length, `+${nD.count} deal mới ${periodTxt} · trên tổng ${lineScoped.deals.length} deal`, "board", cols.deal)}${kpiCard("Deal đã won", wonDeals.length, `Trên tổng ${lineScoped.deals.length} deal toàn tập`, "board", cols.deal)}</div>`;
+  const kpis = `<div class="kpis dash-kpis">${kpiCard("Công ty", cCompanies.length, `Tổng hiện tại: ${lineScoped.companies.length}`, "companies", cols.company)}${kpiCard("Lead", cLeads.length, `Tổng hiện tại: ${lineScoped.leads.length}`, "leads", cols.lead)}${kpiCard("Deal đang mở", cohortOpenDeals.length, `Tổng hiện tại: ${openDeals.length}`, "board", cols.deal)}${kpiCard("Deal đã won", cohortWonDeals.length, `Tổng hiện tại: ${wonDeals.length}`, "board", cols.deal)}</div>`;
   /* --- Xu hướng thêm mới --- */
   const trend = D.dashTrend({ company: lineScoped.companies, lead: lineScoped.leads, deal: lineScoped.deals }, dashPeriodDays, now, range);
   const trendHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Xu hướng thêm mới</h3><span class="dash-badge">${range ? periodLabel : dashPeriodDays === null ? "Tất cả" : dashPeriodDays + " ngày"}</span></div>${dashTrendChartHTML(trend)}${trend.missing ? `<p class="dash-note">⚠️ ${trend.missing} bản ghi thiếu ngày tạo — không tính vào xu hướng.</p>` : ""}</section>`;
@@ -1634,7 +1645,7 @@ function dashAnalyticsHTML() {
      (tử). Ở "Tất cả" tử/mẫu khớp định nghĩa cũ. --- */
   const conv = D.dashConversions({ companies: cCompanies, leads: cLeads, deals: cDeals });
   const convCard = (label, c, color, nullTxt) => `<section class="panel dash-panel dash-conv"><div class="dash-conv-donut">${dashDonutHTML(c.pct, color)}<div class="dash-conv-pct">${c.pct === null ? "—" : dashPctTxt(c.pct)}</div></div><div><h3>${label}</h3><p class="dash-note">${c.pct === null && nullTxt ? `${nullTxt} (${c.x} / ${c.y})` : `${c.x} / ${c.y}`}</p></div></section>`;
-  const convHTML = `<div class="dash-conv-grid">${convCard("Lead → Deal (Đã chuyển đổi)", conv.leadToDeal, cols.lead, "")}${convCard("Deal thắng toàn tập", conv.dealWin, cols.deal, "Chưa có deal đóng")}${convCard("Công ty có deal", conv.companyWithDeal, cols.company, "")}</div>`;
+  const convHTML = `<div class="dash-conv-grid">${convCard("Lead → Deal (Đã chuyển đổi)", conv.leadToDeal, cols.lead, "")}${convCard("Tỉ lệ thắng Deal trong kỳ", conv.dealWin, cols.deal, "Chưa có deal đóng")}${convCard("Công ty có deal", conv.companyWithDeal, cols.company, "")}</div>`;
   /* --- Bảng so sánh BD (chỉ phạm vi Toàn hệ) --- */
   let compareHTML = "";
   if (!dashScope) {
@@ -1713,12 +1724,25 @@ function dashboardTeamHTML(ctx) {
   return `<section class="ex-panel ex-team">${dashboardHeading('Hiệu suất team', 'Lead đang phụ trách · chuyển đổi trong kỳ · deal mở và việc quá hạn hiện tại', 'team')}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>BD phụ trách</th><th>Leads</th><th>Đã chuyển đổi</th><th>Deal đang mở</th><th>Tỷ lệ Lead → Deal</th><th>Việc quá hạn</th></tr></thead><tbody>${body || '<tr><td colspan="6">Chưa có dữ liệu trong phạm vi này.</td></tr>'}</tbody></table></div></section>`;
 }
 function dashboardOverviewHTML(ctx) {
-  const { D, lineScoped, cLeads, funnel, range, periodLabel } = ctx;
+  const { D, lineScoped, cCompanies, cLeads, cDeals, funnel, range, periodLabel } = ctx;
   const open = lineScoped.deals.filter(isOpen);
-  const cards = dashboardKpi('Công ty', dashboardNumber(lineScoped.companies.length), 'Tổng hiện tại theo người và mảng', 'company', '#087de4', "setView('companies')")
-    + dashboardKpi('Leads', dashboardNumber(lineScoped.leads.length), `+${dashboardNumber(ctx.nL.count)} mới trong kỳ`, 'team', '#7052d8', "setView('leads')")
-    + dashboardKpi('Deal đang mở', dashboardNumber(open.length), `Trên tổng ${dashboardNumber(lineScoped.deals.length)} cơ hội`, 'pipeline', '#f58c25', "setView('board')")
-    + dashboardKpi('Giá trị pipeline', esc(pipelineValue(open)), 'Deal mở · AI & Metaverse', 'money', '#e69a27', "setView('board')");
+  /* Hoán đổi KPI + donut theo cohort (12/11/2026, Zac chốt): số CHÍNH
+     của thẻ = số TRONG KỲ trên cohort (ctx.cCompanies/cLeads/cDeals do
+     dashAnalyticsHTML tính bằng dashCohort — cùng Người × Mảng × Kỳ);
+     tổng hiện tại chỉ còn ở dòng phụ "Tổng hiện tại: N". Donut + cột
+     stage "Deal Pipeline theo mảng" cũng tính trên cohort (cohortOpen
+     / cDeals) — CÙNG nguồn và quy tắc với khối "Tiến trình Deal theo
+     mảng" ở Phân tích (dashDealStages trên cDeals, badge deal mở =
+     isOpen trong cohort) nên hai khối cho cùng một số. Fallback khi
+     ctx thiếu cohort (harness gọi trực tiếp): dùng lineScoped. */
+  const cohortCompanies = cCompanies || lineScoped.companies;
+  const cohortLeads = cLeads || lineScoped.leads;
+  const cohortDeals = cDeals || lineScoped.deals;
+  const cohortOpen = cohortDeals.filter(isOpen);
+  const cards = dashboardKpi('Công ty', dashboardNumber(cohortCompanies.length), `Tổng hiện tại: ${dashboardNumber(lineScoped.companies.length)}`, 'company', '#087de4', "setView('companies')")
+    + dashboardKpi('Leads', dashboardNumber(cohortLeads.length), `Tổng hiện tại: ${dashboardNumber(lineScoped.leads.length)}`, 'team', '#7052d8', "setView('leads')")
+    + dashboardKpi('Deal đang mở', dashboardNumber(cohortOpen.length), `Tổng hiện tại: ${dashboardNumber(open.length)}`, 'pipeline', '#f58c25', "setView('board')")
+    + dashboardKpi('Giá trị pipeline', esc(pipelineValue(cohortOpen)), `Tổng hiện tại: ${esc(pipelineValue(open))} · Deal mở tạo trong kỳ ${esc(periodLabel || '')} · AI & Metaverse`, 'money', '#e69a27', "setView('board')");
   /* Phễu executive dùng CÙNG kết quả phễu theo sự kiện với phễu chi
      tiết (ctx.funnel do dashAnalyticsHTML tính qua
      dashLeadFunnelByEvents); chưa nạp xong / nạp lỗi -> panel hiện
@@ -1735,19 +1759,19 @@ function dashboardOverviewHTML(ctx) {
   const colors = ['#087de4', '#29a5f5', '#7570f7', '#a15df3', '#cf69d7', '#ff9b2f'];
   const funnelRows = milestones.map((st, i) => `<button class="ex-funnel-row" onclick="dashOpenLeadFunnelStep('${st.key}')"><span class="ex-funnel-track"><span class="ex-funnel-shape" style="--ex-color:${colors[i]};width:${funnel.total ? Math.max(16, st.count / funnel.total * 100) : 16}%">${dashboardNumber(st.count)}</span></span><span class="ex-funnel-label"><i class="ex-dot" style="background:${colors[i]}"></i>${esc(st.label)}</span><b>${dashboardNumber(st.count)}</b><small>${dashPctTxt(st.pct)}</small></button>`).join('');
   const conversion = funnel.summary.convertedPct;
-  funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', `Theo lần chuyển stage trong kỳ · ${esc(periodLabel)}`, 'pipeline', `<span class="ex-pill">Lead → Deal: ${dashPctTxt(conversion)}</span>`)}<div class="ex-funnel">${funnelRows}</div><p class="ex-footnote">Tích lũy theo bước xa nhất lead đã chuyển tới trong kỳ, tính từ nhật ký hệ thống (đầy đủ từ 31-10-2026) · ${dashboardNumber(funnel.dropped.count)} lead tạm dừng${funnel.unknown ? ` · ${dashboardNumber(funnel.unknown)} trạng thái chưa xác định` : ''}.</p></section>`;
+  funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', `Theo lần chuyển stage trong kỳ · ${esc(periodLabel)}`, 'pipeline', `<span class="ex-pill">Lead → Deal: ${dashPctTxt(conversion)}</span>`)}<div class="ex-funnel">${funnelRows}</div><p class="ex-footnote">Tích lũy theo bước xa nhất lead đã chuyển tới trong kỳ, tính từ nhật ký hệ thống (đầy đủ từ 31-10-2026). Lead nhập theo lô hàng loạt không có sự kiện cho từng lead: lead được tạo trong kỳ thì tính từ trạng thái lúc tạo, lead có từ trước kỳ thì chỉ tính từ lần chuyển stage đầu tiên trong kỳ · ${dashboardNumber(funnel.dropped.count)} lead tạm dừng${funnel.unknown ? ` · ${dashboardNumber(funnel.unknown)} trạng thái chưa xác định` : ''}.</p></section>`;
   }
   const lines = Object.keys(LINES).filter(k => !dashLine || k === dashLine);
-  const items = lines.map(k => ({ label: LINES[k].name, value: open.filter(d => d.line === k).length, color: LINES[k].color }));
-  const unknownOpen = open.filter(d => !LINES[d.line]).length;
+  const items = lines.map(k => ({ label: LINES[k].name, value: cohortOpen.filter(d => d.line === k).length, color: LINES[k].color }));
+  const unknownOpen = cohortOpen.filter(d => !LINES[d.line]).length;
   if (unknownOpen) items.push({ label: 'Chưa xác định mảng', value: unknownOpen, color: '#94a3b8' });
-  const selected = lines.includes(dashboardPipeline) ? dashboardPipeline : lines.find(k => open.some(d => d.line === k)) || lines[0];
+  const selected = lines.includes(dashboardPipeline) ? dashboardPipeline : lines.find(k => cohortOpen.some(d => d.line === k)) || lines[0];
   const pipeline = LINES[selected];
-  const stages = pipeline ? pipeline.stages.filter(s => s[0] !== 'lost').map(([key, label]) => ({ key, label, count: lineScoped.deals.filter(d => d.line === selected && d.stage === key).length })) : [];
+  const stages = pipeline ? pipeline.stages.filter(s => s[0] !== 'lost').map(([key, label]) => ({ key, label, count: cohortDeals.filter(d => d.line === selected && d.stage === key).length })) : [];
   const max = Math.max(1, ...stages.map(st => st.count));
   const stageBars = stages.map(st => `<button class="ex-stage" onclick="curLine='${selected}';setView('board')" title="${esc(st.label)}: ${st.count}"><span class="ex-stage-track"><b style="height:${st.count / max * 100}%;background:${pipeline.color}"></b><strong>${dashboardNumber(st.count)}</strong></span><span>${esc(st.label)}</span></button>`).join('');
   const options = lines.map(k => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(LINES[k].name)}</option>`).join('');
-  const pipelineHTML = `<section class="ex-panel">${dashboardHeading('Deal Pipeline theo mảng', 'Phân bổ deal đang mở · trạng thái hiện tại', 'cube', `<select class="ex-pipeline-select" aria-label="Pipeline hiển thị" onchange="setDashboardPipeline(this.value)">${options}</select>`)}<div class="ex-pipeline"><div class="ex-distribution">${dashboardRing(items, items.reduce((n, i) => n + i.value, 0), 'Deal đang mở')}${dashboardLegend(items, open.length)}</div><div class="ex-stage-chart"><h4>Pipeline: ${esc(pipeline ? pipeline.name : '—')}</h4><div class="ex-stages">${stageBars}</div><p class="ex-footnote">Từng stage gồm cả Won · toàn bộ deal hiện tại.</p></div></div></section>`;
+  const pipelineHTML = `<section class="ex-panel">${dashboardHeading('Deal Pipeline theo mảng', `Phân bổ deal đang mở · chỉ tính deal tạo trong kỳ (${esc(periodLabel || '')})`, 'cube', `<select class="ex-pipeline-select" aria-label="Pipeline hiển thị" onchange="setDashboardPipeline(this.value)">${options}</select>`)}<div class="ex-pipeline"><div class="ex-distribution">${dashboardRing(items, items.reduce((n, i) => n + i.value, 0), 'Deal đang mở')}${dashboardLegend(items, cohortOpen.length)}</div><div class="ex-stage-chart"><h4>Pipeline: ${esc(pipeline ? pipeline.name : '—')}</h4><div class="ex-stages">${stageBars}</div><p class="ex-footnote">Từng stage gồm cả Won · chỉ tính deal tạo trong kỳ, stage lấy theo hiện tại.</p></div></div></section>`;
   const overdue = lineScoped.tasks.filter(t => isOverdue(t)).length;
   const followup = open.filter(d => d.idle >= 5).length;
   const replies = cLeads.filter(l => l.status === 'in_reply').length;

@@ -214,7 +214,7 @@ test('hành vi: bật Tuỳ chỉnh -> mặc định hôm nay − 29 đến hôm
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('id="dashCustomFrom"') && html.includes('id="dashCustomTo"'), 'thanh lọc hiện hai ô Từ ngày / Đến ngày');
   assert.ok(html.includes(`value="${dmyOf(daysAgoDate(29))}"`) && html.includes(`value="${dmyOf(new Date())}"`), 'ô ngày hiển thị dd-mm-yyyy');
-  assert.ok(html.includes(`+4 mới từ ${dmyOf(daysAgoDate(29))} đến ${dmyOf(new Date())}`), 'KPI Lead: +4 mới (L1,L2,L4,L5 trong 30 ngày) kèm khoảng ngày cụ thể');
+  assert.ok(html.includes('<div class="v">4</div><div class="s">Tổng hiện tại: 6</div>'), 'KPI Lead (hoán đổi 12/11/2026): số chính = 4 lead tạo trong khoảng mặc định 30 ngày (L1,L2,L4,L5); dòng phụ = Tổng hiện tại: 6');
   assert.ok(html.includes(`Kỳ đang áp dụng: <b>từ ${dmyOf(daysAgoDate(29))} đến ${dmyOf(new Date())}</b>`), 'caption bảng so sánh BD ghi khoảng ngày cụ thể');
 });
 
@@ -265,7 +265,7 @@ test('hành vi: khoảng hoàn toàn trong tương lai -> mọi khối 0/trống
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 0 lead · 100%'));
   assert.ok(html.includes('Chưa có lead nào trong phạm vi này.'));
-  assert.ok(html.includes('+0 mới từ '), 'KPI mới = 0 kèm khoảng ngày');
+  assert.ok(html.includes('<div class="v">0</div><div class="s">Tổng hiện tại: 6</div>'), 'KPI Lead (hoán đổi 12/11/2026): khoảng tương lai -> số chính trong kỳ = 0, dòng phụ vẫn là Tổng hiện tại: 6');
   assert.ok(!html.includes('NaN') && !html.includes('undefined'), 'không NaN/undefined khi cohort rỗng');
 });
 

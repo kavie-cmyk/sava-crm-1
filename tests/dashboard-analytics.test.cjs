@@ -316,11 +316,16 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
-  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
-     nên số phễu trong harness này đến từ quy tắc sàn (lead tạo trong
-     kỳ, không sự kiện -> tính từ trạng thái lúc tạo = trạng thái hiện
-     tại của fixture), khớp số cohort cũ trên các fixture tạo-trong-kỳ. */
-  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
+  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — sự kiện
+     duy nhất là lần tạo của lead f8 (fixture phễu bên dưới) vào thẳng
+     lối ra Not yet have demand: từ đợt sửa dòng lối ra (12/11/2026)
+     dropped đếm theo SỰ KIỆN vào lối ra trong kỳ nên f8 cần sự kiện
+     này mới được đếm ở dòng lối ra; các lead khác vẫn 0 sự kiện nên
+     số phễu của chúng đến từ quy tắc sàn (lead tạo trong kỳ, không sự
+     kiện -> tính từ trạng thái lúc tạo = trạng thái hiện tại của
+     fixture), khớp số cohort cũ trên các fixture tạo-trong-kỳ. Sự
+     kiện của f8 vô hại với các fixture không có lead id f8. */
+  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [{ entityType: 'lead', entityId: 'f8', at: new Date().toISOString(), action: 'create', changes: [{ field: 'status', from: '', to: 'Not yet have demand' }] }], earliestEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
 /* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
@@ -337,7 +342,7 @@ test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; ch
   assert.ok(!html.includes('/ 4 · 1 / 4'), 'thẻ tỉ lệ không được in trùng số tử/mẫu');
   run("setDashScope('yen')");
   const scoped = getEl('view').innerHTML;
-  assert.ok(!scoped.includes('So sánh theo BD'), 'scope 1 BD thì không hiện bảng so sánh');
+  assert.ok(!scoped.includes('<h3>So sánh theo BD</h3>'), 'scope 1 BD thì không hiện bảng so sánh (khớp theo heading bảng: đoạn Phạm vi số liệu mới cũng nhắc chữ "So sánh theo BD")');
   assert.ok(scoped.includes('công ty của BD'), 'scope BD phải hiện chú thích định nghĩa công ty của BD');
   run("setDashScope('')");
 });

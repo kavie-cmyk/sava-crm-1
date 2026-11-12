@@ -150,7 +150,7 @@ test('thuần: khoảng Tuỳ chỉnh có chặn trên — sự kiện sau ngày
   assert.equal(byKey(f).converted.count, 0);
 });
 
-test('thuần: đích lối ra không nâng mức; lead ĐANG ở lối ra bị trừ khỏi N (dropped đếm riêng, % trên N)', () => {
+test('thuần: đích lối ra không nâng mức; lead ĐANG ở lối ra bị trừ khỏi N; dropped đếm theo SỰ KIỆN vào lối ra trong kỳ (đợt sửa 12/11/2026)', () => {
   const D = loadShared().window.SavaDash;
   const leads = [
     { id: 'G', status: 'not_yet_have_demand', createdAt: '2026-09-01T09:00:00+07:00' },
@@ -162,11 +162,14 @@ test('thuần: đích lối ra không nâng mức; lead ĐANG ở lối ra bị 
     ev('H', '2026-11-09T09:00:00+07:00', 'Not yet have demand', '1st message'),
   ];
   const f = funnel(D, leads, events, events);
-  assert.equal(f.total, 1, 'chỉ H vào N');
+  assert.equal(f.total, 1, 'chỉ H vào N (G đang ở lối ra bị trừ khỏi N như quy tắc cũ)');
   assert.equal(f.levels.H, 2, 'đích lối ra không nâng H; 1st message nâng lên 2');
-  assert.equal(f.dropped.count, 1);
-  assert.deepEqual(J(f.droppedLeadIds), ['G']);
-  assert.equal(f.dropped.pct, 100, 'dropped.pct = dropped / N = 1/1');
+  /* Cơ chế MỚI: dropped = lead phân biệt có sự kiện VÀO lối ra trong
+     kỳ — G (đang ở lối ra, vào trong kỳ) VÀ H (ca biên (a): vào lối ra
+     trong kỳ rồi quay lại đường chính, vẫn đếm ở dòng lối ra). */
+  assert.equal(f.dropped.count, 2);
+  assert.deepEqual(J(f.droppedLeadIds), ['G', 'H']);
+  assert.equal(f.dropped.pct, 200, 'dropped.pct = dropped / N = 2/1 (ca (a) làm dropped có thể vượt N)');
 });
 
 test('thuần: nhãn legacy "Đạt chuẩn" (qualified) không nâng mức', () => {
@@ -346,7 +349,10 @@ test('UI: nạp THẤT BẠI -> hiện "Chưa tải được nhật ký" + nút 
 test('UI: click-through mở ĐÚNG tập đã đếm ở dòng phễu + chip gỡ được; cache thu hẹp không nạp lại, mở rộng mới nạp', async () => {
   let calls = 0;
   const todayISO = new Date().toISOString();
-  const stub = async () => { calls++; return { windowEvents: [ev('LA', todayISO, 'Mới', 'Đã liên hệ')], earliestEvents: [] }; };
+  /* LC được đếm ở dòng lối ra theo cơ chế MỚI (sự kiện vào lối ra
+     trong kỳ) nên stub phải có sự kiện đó cho LC — trước đợt sửa
+     12/11/2026 dòng lối ra chỉ cần trạng thái hiện tại của LC. */
+  const stub = async () => { calls++; return { windowEvents: [ev('LA', todayISO, 'Mới', 'Đã liên hệ'), ev('LC', todayISO, 'Mới', 'Not yet have demand')], earliestEvents: [] }; };
   const h = loadIndex(stub);
   h.run("curView = 'dash'; render()");
   await settle(h);

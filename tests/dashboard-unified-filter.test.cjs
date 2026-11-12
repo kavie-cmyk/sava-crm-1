@@ -214,8 +214,8 @@ test('hành vi: kỳ 7 + BD Yến trên render — phễu N=2, KPI mới trong k
   await settleFunnel({ run });
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 2 lead · 100%'), 'phễu theo sự kiện kỳ 7 của Yến: N=2 (lead tạo trong kỳ, quy tắc sàn)');
-  assert.ok(html.includes('+2 mới trong 7 ngày gần nhất'), 'KPI lead: +2 mới trong kỳ (L1, L2)');
-  assert.ok(!html.includes('So sánh theo BD'), 'Người ≠ Toàn hệ -> ẩn bảng so sánh');
+  assert.ok(html.includes('<div class="v">2</div><div class="s">Tổng hiện tại: 3</div>'), 'KPI Lead (Phân tích, hoán đổi 12/11/2026): số chính = lead tạo trong kỳ 7 của Yến (L1, L2) = 2; dòng phụ = Tổng hiện tại: 3');
+  assert.ok(!html.includes('<h3>So sánh theo BD</h3>'), 'Người ≠ Toàn hệ -> ẩn bảng so sánh (khớp theo heading bảng: đoạn Phạm vi số liệu mới cũng nhắc chữ "So sánh theo BD")');
   run("setDashPeriod('all'); setDashScope('')");
   await settleFunnel({ run });
   const all = getEl('view').innerHTML;
