@@ -1804,10 +1804,24 @@ function dashEventInWindow(at, days, now, range) {
    - Trục Người áp trên KẾT QUẢ GÁN này (cùng cách tab Báo cáo hoạt
      động lọc theo người thực hiện hoạt động): scopeId là 1 BD thì
      chỉ giữ các lead được gán cho BD đó.
-   Trả: { total, totalLeadIds, rows: [{ id, count, leadIds }] } —
-   rows xếp count giảm dần, "Không rõ" sau các BD khi bằng count;
-   total == tổng count các rows (bất biến kiểm chứng). */
+   Trả: { total, totalLeadIds, rows, byLine } —
+   rows: [{ id, count, leadIds, cells }] xếp count giảm dần, "Không
+   rõ" sau các BD khi bằng count; total == tổng count các rows (bất
+   biến kiểm chứng). byLine: mảng ĐÚNG 5 phần tử theo thứ tự cố định
+   [game_studio, publishing, ai, metaverse, "__unknown__"], mỗi phần
+   tử { key, count, leadIds } — tổng theo từng mảng trên đúng tập đã
+   đếm (sau áp scopeId); "__unknown__" = lead có l.line thiếu hoặc
+   không thuộc 4 key chuẩn. Mỗi row.cells là mảng 5 phần tử cùng thứ
+   tự/khóa như byLine, { key, count, leadIds } của riêng BD đó. Mảng
+   của lead lấy từ chính object lead trong đầu vào (l.line). Bất biến:
+   mỗi row count == tổng count các cells của row đó; total == tổng
+   count byLine; hợp leadIds các cells của 1 row == leadIds của row
+   đó; hợp leadIds byLine == totalLeadIds. */
 function dashLeadConversionsInPeriod(leads, events, days, now, range, scopeId) {
+  const CONV_LINE_KEYS = ["game_studio", "publishing", "ai", "metaverse", "__unknown__"];
+  const convLineKeyOf = l => CONV_LINE_KEYS.slice(0, 4).includes(l && l.line) ? l.line : "__unknown__";
+  const emptyCells = () => CONV_LINE_KEYS.map(key => ({ key, count: 0, leadIds: [] }));
+  const byLine = emptyCells();
   const leadById = new Map();
   (leads || []).forEach(l => { if (l && l.id !== undefined && l.id !== null && l.id !== "") leadById.set(String(l.id), l); });
   const firstByLead = new Map();
@@ -1839,12 +1853,17 @@ function dashLeadConversionsInPeriod(leads, events, days, now, range, scopeId) {
       if (scopeId === "__none__" ? attr !== "__none__" : attr !== scopeId) return;
     }
     totalLeadIds.push(id);
-    if (!rowsMap.has(attr)) rowsMap.set(attr, { id: attr, count: 0, leadIds: [] });
+    if (!rowsMap.has(attr)) rowsMap.set(attr, { id: attr, count: 0, leadIds: [], cells: emptyCells() });
     const row = rowsMap.get(attr);
     row.count++; row.leadIds.push(id);
+    const lk = convLineKeyOf(l);
+    const byCell = byLine.find(c => c.key === lk);
+    byCell.count++; byCell.leadIds.push(id);
+    const rowCell = row.cells.find(c => c.key === lk);
+    rowCell.count++; rowCell.leadIds.push(id);
   });
   const rows = Array.from(rowsMap.values()).sort((a, b) => (b.count - a.count) || ((a.id === "__none__") - (b.id === "__none__")) || String(a.id).localeCompare(String(b.id)));
-  return { total: totalLeadIds.length, totalLeadIds, rows };
+  return { total: totalLeadIds.length, totalLeadIds, rows, byLine };
 }
 function dashWinRate(deals) {
   const won = (deals || []).filter(d => d && d.stage === "won").length;

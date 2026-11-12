@@ -1921,10 +1921,12 @@ function dashboardActivityTypeListHTML(model) {
    chưa nạp xong -> hiện đang tải; nạp lỗi -> hiện lỗi rõ ràng + nút
    thử lại, KHÔNG hiện số 0 giả; ctx thiếu (harness gọi trực tiếp) ->
    coi như đang tải. Tổng và từng dòng BD đều bấm được ->
-   dashOpenLeadConversionRow mở view Lead với đúng tập đã đếm. */
+   dashOpenLeadConversionRow mở view Lead với đúng tập đã đếm;
+   từng ô BD × Mảng bấm được qua dashOpenLeadConversionCell khi
+   số của ô > 0 (ô = 0 chỉ hiện số 0 tĩnh, mờ, không phải nút). */
 function dashboardConversionHTML(ctx) {
   const heading = dashboardHeading('Chuyển đổi trong kỳ', 'Số lead được chuyển đổi trong kỳ theo BD · chỉ đếm số lead, không tính tỉ lệ', 'check');
-  const note = `<p class="ex-footnote">Nguồn: nhật ký hệ thống. Nhật ký hệ thống đầy đủ từ 31-10-2026 nên kỳ chứa thời gian trước mốc này sẽ thiếu phần đầu. Lead được chuyển đổi bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển đổi thì không được đếm. Mỗi lead chỉ đếm 1 lần trong kỳ, gán cho BD thực hiện lần chuyển đổi đầu tiên của lead trong kỳ; sự kiện thiếu người thực hiện thì gán theo người phụ trách hiện tại của lead, cả hai đều không có thì vào dòng “Không rõ”.</p>`;
+  const note = `<p class="ex-footnote">Nguồn: nhật ký hệ thống. Nhật ký hệ thống đầy đủ từ 31-10-2026 nên kỳ chứa thời gian trước mốc này sẽ thiếu phần đầu. Lead được chuyển đổi bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển đổi thì không được đếm. Mỗi lead chỉ đếm 1 lần trong kỳ, gán cho BD thực hiện lần chuyển đổi đầu tiên của lead trong kỳ; sự kiện thiếu người thực hiện thì gán theo người phụ trách hiện tại của lead, cả hai đều không có thì vào dòng “Không rõ”. Mảng của mỗi lead lấy theo mảng của lead đó.</p>`;
   if (!ctx || ctx.conversionState !== 'loaded' || !ctx.conversion) {
     if (ctx && ctx.conversionState === 'error') {
       const errTxt = (typeof conversionAudit !== 'undefined' && conversionAudit.err) ? ` (${esc(conversionAudit.err)})` : '';
@@ -1933,14 +1935,37 @@ function dashboardConversionHTML(ctx) {
     return `<section class="ex-panel ex-conversion">${heading}<p class="ex-footnote">⏳ Đang tải nhật ký chuyển đổi trong kỳ (${esc((ctx && ctx.periodLabel) || '')})…</p>${note}</section>`;
   }
   const conv = ctx.conversion;
+  /* Bảng ma trận BD × Mảng (đợt 12/11/2026 tối, Zac chốt): cột mảng
+     theo thứ tự cố định của byLine; cột "Chưa rõ mảng" CHỈ hiện khi
+     tổng của nó > 0. Ô mảng > 0 là nút mở đúng tập của ô đó
+     (dashOpenLeadConversionCell); ô mảng = 0 chỉ hiện số 0 tĩnh, mờ
+     (span.ex-cell-zero), KHÔNG phải nút. Ô Tổng cuối hàng + tên BD
+     mở tổng của hàng; hàng tfoot "Tổng" lấy từ byLine. */
+  const byLineOf = key => (conv.byLine || []).find(c => c.key === key) || { key, count: 0, leadIds: [] };
+  const showUnknown = byLineOf('__unknown__').count > 0;
+  const lineCols = ['game_studio', 'publishing', 'ai', 'metaverse'].concat(showUnknown ? ['__unknown__'] : []);
+  const lineName = key => key === '__unknown__' ? 'Chưa rõ mảng' : ((LINES[key] || {}).name || key);
+  const cellHTML = (count, onclick, title) => count > 0
+    ? `<button class="ex-cell-btn" onclick="${onclick}" title="${esc(title)}">${dashboardNumber(count)}</button>`
+    : `<span class="ex-cell-zero">${dashboardNumber(count)}</span>`;
   const bodyRows = conv.rows.map(r => {
     const name = r.id === '__none__' ? 'Không rõ' : memberName(S, r.id);
     const initials = name.trim().split(/\s+/).slice(-2).map(n => n[0]).join('').toUpperCase();
-    return `<tr><td><button class="ex-person" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này"><span class="ex-avatar">${esc(initials)}</span>${esc(name)}</button></td><td><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này">${dashboardNumber(r.count)}</button></td></tr>`;
+    const cells = lineCols.map(key => {
+      const cell = (r.cells || []).find(c => c.key === key) || { key, count: 0, leadIds: [] };
+      return `<td>${cellHTML(cell.count, `dashOpenLeadConversionCell('${esc(r.id)}','${esc(key)}')`, 'Bấm để mở đúng các lead đã đếm cho ô này')}</td>`;
+    }).join('');
+    return `<tr><td><button class="ex-person" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này"><span class="ex-avatar">${esc(initials)}</span>${esc(name)}</button></td>${cells}<td><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này"><b>${dashboardNumber(r.count)}</b></button></td></tr>`;
   }).join('');
+  const footCells = lineCols.map(key => {
+    const cell = byLineOf(key);
+    return `<td>${cellHTML(cell.count, `dashOpenLeadConversionCell('','${esc(key)}')`, 'Bấm để mở đúng các lead đã đếm cho cột này')}</td>`;
+  }).join('');
+  const footRow = `<tfoot><tr><th>Tổng</th>${footCells}<td><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('')" title="Bấm để mở đúng mọi lead đã đếm ở khối này"><b>${dashboardNumber(conv.total)}</b></button></td></tr></tfoot>`;
   const totalRow = `<p class="ex-conversion-total"><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('')" title="Bấm để mở đúng mọi lead đã đếm ở khối này">Tổng số lead được chuyển đổi trong kỳ: <b>${dashboardNumber(conv.total)}</b></button>${dashLine ? ` · Mảng: ${esc((LINES[dashLine] || {}).name || dashLine)}` : ''} · Kỳ: ${esc(ctx.periodLabel || '')}</p>`;
   const empty = conv.total ? '' : '<p class="ex-empty">Chưa có lead nào được chuyển đổi trong kỳ này.</p>';
-  return `<section class="ex-panel ex-conversion">${heading}${totalRow}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>BD</th><th>Số lead đã chuyển đổi</th></tr></thead><tbody>${bodyRows || '<tr><td colspan="2">Chưa có dữ liệu.</td></tr>'}</tbody></table></div>${empty}${note}</section>`;
+  const colCount = 1 + lineCols.length + 1;
+  return `<section class="ex-panel ex-conversion">${heading}${totalRow}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>BD</th>${lineCols.map(key => `<th>${esc(lineName(key))}</th>`).join('')}<th>Tổng</th></tr></thead><tbody>${bodyRows || `<tr><td colspan="${colCount}">Chưa có dữ liệu.</td></tr>`}</tbody>${footRow}</table></div>${empty}${note}</section>`;
 }
 function dashboardActivityHTML(ctx) {
   const model = dashboardActivityModel(ctx.now), total = model.records.length;
@@ -2332,6 +2357,39 @@ function dashOpenLeadConversionRow(rowId) {
   }
   const idStrs = ids.map(String);
   leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Chuyển đổi trong kỳ — ${label} · kỳ ${last.periodLabel}` };
+  leadFunnelVersion++;
+  leadOwnerFilter = "";
+  curLine = dashLine || "all";
+  leadViewMode = "block";
+  setView("leads");
+}
+/* Bấm một Ô BD × Mảng của khối "Chuyển đổi trong kỳ" -> mở view Lead
+   với ĐÚNG tập lead đã đếm ở ô đó: rowId "" = tổng của cột mảng đó
+   (lấy từ conversion.byLine theo lineKey); rowId cụ thể = ô của BD
+   đó (lấy từ row.cells theo lineKey). Không tìm thấy / tập rỗng ->
+   không làm gì. Các đặt khác y hệt dashOpenLeadConversionRow:
+   leadOwnerFilter "" và tab mảng theo dashLine vì tập đã đếm vốn
+   được lọc theo mảng của lead ở bộ lọc chung. */
+function dashOpenLeadConversionCell(rowId, lineKey) {
+  const last = dashConversionLast;
+  if (!last || !last.conversion) return;
+  const conv = last.conversion;
+  const lineLabel = lineKey === "__unknown__" ? "Chưa rõ mảng" : ((LINES[lineKey] || {}).name || lineKey);
+  let ids, bdLabel;
+  if (!rowId) {
+    const cell = (conv.byLine || []).find(c => c.key === lineKey);
+    ids = cell ? (cell.leadIds || []) : [];
+    bdLabel = "Tất cả BD";
+  } else {
+    const row = conv.rows.find(x => x.id === rowId);
+    if (!row) return;
+    const cell = (row.cells || []).find(c => c.key === lineKey);
+    ids = cell ? (cell.leadIds || []) : [];
+    bdLabel = rowId === "__none__" ? "Không rõ" : memberName(S, rowId);
+  }
+  if (!ids || !ids.length) return;
+  const idStrs = ids.map(String);
+  leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Chuyển đổi trong kỳ — ${bdLabel} · ${lineLabel} · kỳ ${last.periodLabel}` };
   leadFunnelVersion++;
   leadOwnerFilter = "";
   curLine = dashLine || "all";

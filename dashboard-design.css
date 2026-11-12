@@ -881,6 +881,11 @@
   display: inline-block;
   margin: 0;
 }
+/* Ô số 0 tĩnh trong bảng ma trận chuyển đổi (BD × Mảng): chỉ hiện số,
+   mờ, KHÔNG phải nút — cùng mức mờ .dash-funnel-row--zero (.55). */
+.ex-cell-zero {
+  opacity: .55;
+}
 .ex-legend-click li {
   display: block;
   padding: 0;
