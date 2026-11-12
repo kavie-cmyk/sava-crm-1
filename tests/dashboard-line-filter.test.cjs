@@ -203,13 +203,13 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
-  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
-     số phễu đến từ quy tắc sàn như harness dashboard-analytics (mọi
-     lead của fixture đều tạo trong kỳ nên số khớp neo hồi quy cũ). */
-  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
+  /* Phễu toàn bộ (đợt chiều 12/11/2026): phễu đồng bộ theo trạng
+     thái hiện tại của fixture, không cần stub nhật ký; stub chuyển
+     đổi rỗng giữ cho tab Báo cáo hoạt động (nếu render) không lỗi. */
+  vm.runInContext("window.SavaData = { listLeadConversionEvents: async () => ({ windowEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
-/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+/* Render bồi sau vài tick (giữ mẫu harness cũ; phễu nay đồng bộ). */
 async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 const leadIds = run => JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)')));
 

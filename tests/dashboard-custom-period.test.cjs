@@ -195,12 +195,13 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
-  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
-     số phễu đến từ quy tắc sàn như harness dashboard-analytics. */
-  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
+  /* Phễu toàn bộ (đợt chiều 12/11/2026): phễu đồng bộ theo trạng
+     thái hiện tại, không cần stub nhật ký; stub chuyển đổi rỗng giữ
+     cho tab Báo cáo hoạt động (nếu render) không lỗi. */
+  vm.runInContext("window.SavaData = { listLeadConversionEvents: async () => ({ windowEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
-/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+/* Render bồi sau vài tick (giữ mẫu harness cũ; phễu nay đồng bộ). */
 async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 const ids = run => JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)')));
 const daysAgoDate = n => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
@@ -227,8 +228,8 @@ test('hành vi: nhập khoảng 4 ngày gần nhất (kể cả dạng ddmmyyyy)
   run('setDashCustomRange()');
   assert.equal(run('dashCustomFrom'), isoOf(daysAgoDate(3)));
   let html = getEl('view').innerHTML;
-  assert.ok(html.includes('Tổng lead đưa vào — 3 lead · 100%'), 'phễu theo khoảng 4 ngày: L1 (2d) + L4 (3d) + L5 (1d)');
-  assert.ok(html.includes(`<b>Tính theo lần chuyển stage trong kỳ</b> (từ ${dmyOf(daysAgoDate(3))} đến ${dmyOf(new Date())})`), 'ghi chú phễu ghi khoảng cụ thể');
+  assert.ok(html.includes('Tổng lead đưa vào — 5 lead · 100%'), 'BẤT BIẾN PHỄU THEO KỲ (đợt chiều 12/11/2026): khoảng 4 ngày KHÔNG đổi phễu — N=5 = mọi lead đường chính của fixture (L1..L5), phễu chỉ theo Người × Mảng + trạng thái hiện tại');
+  assert.ok(html.includes('<b>Tính trên toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>'), 'ghi chú phễu nói rõ không theo kỳ, không ghi khoảng');
   /* Gõ nhanh 8 số liền ddmmyyyy cũng áp được qua parseDMYtoISO dùng chung. */
   const compact = d => String(d.getDate()).padStart(2, '0') + String(d.getMonth() + 1).padStart(2, '0') + d.getFullYear();
   getEl('dashCustomFrom').value = compact(daysAgoDate(1));
@@ -263,8 +264,8 @@ test('hành vi: khoảng hoàn toàn trong tương lai -> mọi khối 0/trống
   run('setDashCustomRange()');
   await settleFunnel({ run });
   const html = getEl('view').innerHTML;
-  assert.ok(html.includes('Tổng lead đưa vào — 0 lead · 100%'));
-  assert.ok(html.includes('Chưa có lead nào trong phạm vi này.'));
+  assert.ok(html.includes('Tổng lead đưa vào — 5 lead · 100%'), 'khoảng tương lai: các khối cohort về 0 nhưng PHỄU vẫn N=5 (không theo kỳ — đợt chiều 12/11/2026)');
+  assert.ok(html.includes('Trong 5 lead: 3 lead đã tới bước Đã liên hệ trở lên (60%) · 2 lead đã chuyển thành deal (40%)'), 'tóm tắt phễu theo trạng thái hiện tại của fixture, không đổi theo khoảng tương lai');
   assert.ok(html.includes('<div class="v">0</div><div class="s">Tổng hiện tại: 6</div>'), 'KPI Lead (hoán đổi 12/11/2026): khoảng tương lai -> số chính trong kỳ = 0, dòng phụ vẫn là Tổng hiện tại: 6');
   assert.ok(!html.includes('NaN') && !html.includes('undefined'), 'không NaN/undefined khi cohort rỗng');
 });

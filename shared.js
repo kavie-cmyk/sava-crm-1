@@ -1698,17 +1698,29 @@ function dashLeadFunnel(leads, mainKeys, droppedKey) {
   const exact = (mainKeys || []).map(() => 0);
   let dropped = 0, unknown = 0;
   const list = leads || [];
+  /* Tập ID tường minh cho bấm-xuyên (bổ sung tối thiểu 12/11/2026 đợt
+     phễu quay về toàn bộ): stepLeadIds[i] = id các lead có chỉ số trạng
+     thái >= i (đúng tập đã đếm ở dòng bước i, giữ thứ tự tập đầu vào);
+     totalLeadIds = mọi lead vào N; droppedLeadIds = lead đang ở lối
+     ra. Lead không có id vẫn đếm vào số như cũ nhưng không có mặt
+     trong các tập ID (không bịa id). */
+  const stepLeadIds = (mainKeys || []).map(() => []);
+  const totalLeadIds = [], droppedLeadIds = [];
   list.forEach(l => {
     const st = l && l.status;
-    if (st === droppedKey) { dropped++; return; }
-    if (Object.prototype.hasOwnProperty.call(idx, st)) exact[idx[st]]++;
+    const id = l && l.id !== undefined && l.id !== null && l.id !== "" ? String(l.id) : null;
+    if (st === droppedKey) { dropped++; if (id !== null) droppedLeadIds.push(id); return; }
+    if (Object.prototype.hasOwnProperty.call(idx, st)) {
+      exact[idx[st]]++;
+      if (id !== null) { totalLeadIds.push(id); for (let i = 0; i <= idx[st]; i++) stepLeadIds[i].push(id); }
+    }
     else unknown++;
   });
   const total = exact.reduce((a, b) => a + b, 0);
   const cum = exact.slice();
   for (let i = cum.length - 2; i >= 0; i--) cum[i] += cum[i + 1];
   const steps = (mainKeys || []).map((k, i) => ({
-    key: k, count: cum[i], exact: exact[i],
+    key: k, count: cum[i], exact: exact[i], leadIds: stepLeadIds[i],
     toNext: i < mainKeys.length - 1 ? dashPct(cum[i + 1], cum[i]) : null,
     fromStart: dashPct(cum[i], total), pct: dashPct(cum[i], total),
   }));
@@ -1716,8 +1728,8 @@ function dashLeadFunnel(leads, mainKeys, droppedKey) {
   const reachedContactedPlus = exactOf("contacted") + exactOf("converted");
   const converted = exactOf("converted");
   return {
-    steps,
-    dropped: { key: droppedKey, count: dropped, pct: dashPct(dropped, total) },
+    steps, totalLeadIds, droppedLeadIds,
+    dropped: { key: droppedKey, count: dropped, pct: dashPct(dropped, total), leadIds: droppedLeadIds },
     unknown, total, rawTotal: list.length,
     summary: {
       reachedContactedPlus, reachedContactedPlusPct: dashPct(reachedContactedPlus, total),
@@ -1725,11 +1737,11 @@ function dashLeadFunnel(leads, mainKeys, droppedKey) {
     },
   };
 }
-/* === Phễu Lead THEO SỰ KIỆN (đợt 12/11/2026, Zac chốt đổi cách tính) ===
+/* === Helper sự kiện audit Lead (dùng cho khối "Chuyển đổi trong kỳ") ===
    Map ngược NHÃN audit -> key trạng thái lead: audit_log ghi from/to của
    field "status" bằng NHÃN hiển thị (AUDIT_LEAD_STATUS_LABELS ở trên —
-   nguồn sự thật của cặp key↔nhãn), nên muốn tính từ nhật ký phải đổi
-   ngược nhãn về key tại đây. Giá trị đã là key (dữ kiện lạ/đường ghi
+   nguồn sự thật của cặp key↔nhãn), nên muốn đọc sự kiện từ nhật ký phải
+   đổi ngược nhãn về key tại đây. Giá trị đã là key (dữ kiện lạ/đường ghi
    khác) cũng nhận thẳng. Nhãn lạ -> null. */
 function dashLeadStatusKeyFromAudit(v) {
   if (v === null || v === undefined) return null;
@@ -1753,25 +1765,6 @@ function dashLeadStatusChangesOf(entry) {
   });
   return out;
 }
-/* Lead có ĐƯỢC TẠO trong cửa sổ kỳ không — CÙNG ngữ nghĩa với
-   dashCohort (preset: createdAt theo đầu-ngày >= đầu kỳ, không chặn
-   trên; "Tất cả" (days null, không range) = mọi lead; range Tuỳ chỉnh:
-   ngày tạo nằm trong [from, to] gồm cả hai đầu; range sai -> false;
-   thiếu/không parse được createdAt ở kỳ hữu hạn -> false). */
-function dashLeadCreatedInWindow(lead, days, now, range) {
-  const win = dashRangeWindow(range);
-  if (win) {
-    if (win.invalid) return false;
-    const d = dashParseDate(lead && lead.createdAt);
-    return !!d && dashInWindow(dashDayStart(d), win);
-  }
-  if (days === null || days === undefined) return true;
-  const d = dashParseDate(lead && lead.createdAt);
-  if (!d) return false;
-  const nowD = dashDayStart(now || new Date());
-  const start = new Date(nowD); start.setDate(start.getDate() - (days - 1));
-  return dashDayStart(d) >= start;
-}
 /* Sự kiện có nằm trong cửa sổ kỳ không — cùng phép so đầu-ngày như
    dashCohort: preset không chặn trên; range chặn cả hai đầu ngày. */
 function dashEventInWindow(at, days, now, range) {
@@ -1784,147 +1777,74 @@ function dashEventInWindow(at, days, now, range) {
   const start = new Date(nowD); start.setDate(start.getDate() - (days - 1));
   return dashDayStart(d) >= start;
 }
-/* Phễu Lead tính theo LẦN CHUYỂN STAGE TRONG KỲ từ audit_log (hàm
-   THUẦN, không DOM — đối tác của dashLeadFunnel, giữ NGUYÊN hình dạng
-   kết quả { steps[], dropped, unknown, total, rawTotal, summary } để
-   tầng hiển thị dùng chung; cộng thêm levels/stepLeadIds phục vụ
-   click-through đúng tập đã đếm).
+/* === Chuyển đổi Lead TRONG KỲ (đợt 12/11/2026 chiều, Zac chốt) ===
+   Hàm THUẦN đếm số lead ĐƯỢC CHUYỂN ĐỔI trong kỳ cho khối "Chuyển đổi
+   trong kỳ" ở tab Báo cáo hoạt động. CHỈ SỐ ĐẾM — hàm không tính bất
+   kỳ tỉ lệ/phần trăm nào.
    Đầu vào:
-   - leads: tập lead ĐÃ lọc Người × Mảng như mọi khối dashboard khác
-     (owner/mảng lấy theo lead HIỆN TẠI — xấp xỉ đã biết, ghi ở bàn
-     giao đợt 12/11/2026).
-   - events: các mục audit của các lead đó (mọi thời gian cũng được —
-     hàm tự lọc theo cửa sổ kỳ bằng dashEventInWindow, cùng ngữ nghĩa
-     cửa sổ với dashCohort kể cả khoảng Tuỳ chỉnh có chặn trên).
-   - earliestEvents: các mục audit dùng để tìm, cho MỖI lead, sự kiện
-     status SỚM NHẤT của lead đó NÓI CHUNG (mọi thời gian — xem sàn).
+   - leads: tập lead ĐÃ lọc theo Mảng (mảng của lead = l.line qua
+     dashFilterByLine như mọi khối dashboard; trục Người KHÔNG lọc
+     theo owner ở đây — xem scopeId).
+   - events: các mục audit lead (dạng SavaAudit.auditRowToEntry:
+     { entityId, at, byMemberId, changes[] }); hàm tự lọc cửa sổ kỳ
+     bằng dashEventInWindow (preset: không chặn trên; khoảng Tuỳ
+     chỉnh: chặn cả hai đầu ngày — đúng ngữ nghĩa cửa sổ của tab Báo
+     cáo hoạt động).
    - days / now / range: cửa sổ kỳ y hệt dashCohort.
-   Định nghĩa mức của 1 lead trong kỳ:
-   - Mức sự kiện = chỉ số đường chính CAO NHẤT trong các đích `to` của
-     sự kiện status của lead TRONG cửa sổ. Đích là droppedKey
-     (not_yet_have_demand) hoặc ngoài đường chính (gồm "qualified"
-     legacy "Đạt chuẩn") KHÔNG nâng mức. Sự kiện create có status đích
-     khác bước đầu vẫn tính như mọi sự kiện. Nhảy nhiều bước: mức =
-     đích. Lùi rồi tiến lại: mức cao nhất trong kỳ quyết định.
-   - SÀN cho lead tạo TRONG kỳ: mức không thấp hơn stage khởi điểm =
-     nhãn `from` của sự kiện status SỚM NHẤT của lead đó. Lựa chọn
-     "sớm nhất NÓI CHUNG" (không chỉ trong cửa sổ): sự kiện sớm nhất
-     cho biết trạng thái của lead ngay trước lần chuyển đầu tiên được
-     ghi — tức trạng thái lúc tạo — kể cả khi lần chuyển đầu tiên đó
-     rơi ngoài cửa sổ (vd kỳ Tuỳ chỉnh đã kết thúc trước khi lead được
-     chuyển lần đầu: trong kỳ lead vẫn ở trạng thái lúc tạo). Sự kiện
-     sớm nhất là mục create (from rỗng) -> không có sàn từ `from`
-     (đích của chính create đã được tính ở mức sự kiện khi nó nằm
-     trong cửa sổ). Lead tạo trong kỳ mà KHÔNG có sự kiện status nào
-     -> stage khởi điểm = trạng thái HIỆN TẠI của lead.
-     Lead tạo TRƯỚC kỳ: không có sàn.
-   - N (total) = số lead phân biệt có mức >= 0, TRỪ lead đang ở trạng
-     thái droppedKey (giữ quy tắc của dashLeadFunnel cho phần đường
-     chính: lead đang ở lối ra không vào N). Mỗi bước X đếm lead có
-     mức >= X (tích luỹ như bản cũ); exact[i] = số lead có mức ĐÚNG
-     bằng i; stepLeadIds[i] = đúng các id được đếm ở bước i (mức
-     >= i); totalLeadIds = các id vào N; levels = { leadId: mức }
-     cho lead vào N.
-   - DÒNG LỐI RA (đợt sửa 12/11/2026, Zac chốt "sửa tất cả"): dropped
-     đếm theo SỰ KIỆN — số lead PHÂN BIỆT có >= 1 sự kiện status VÀO
-     droppedKey với `at` nằm trong cửa sổ kỳ (dashEventInWindow, kể
-     cả khoảng Tuỳ chỉnh có chặn trên); droppedLeadIds = đúng tập id
-     đó (theo thứ tự tập đầu vào), dropped.pct vẫn tính trên N. Hệ
-     quả biên: (a) lead vào lối ra trong kỳ rồi quay lại đường chính
-     VẪN đếm ở dòng lối ra và vẫn tính bình thường ở đường chính;
-     (b) lead đang ở lối ra nhưng sự kiện vào lối ra nằm NGOÀI kỳ thì
-     KHÔNG đếm ở dòng lối ra tại kỳ đó (vẫn bị trừ khỏi N như trên).
-   - unknown = lead không vào N, không phải lối ra, mà trạng thái hiện
-     tại cũng không thuộc đường chính (trạng thái lạ thật sự) — giữ
-     ngữ nghĩa ghi chú của bản cũ. Lead tạo trước kỳ không có sự kiện
-     trong kỳ thì không vào N và KHÔNG bị tính là unknown nếu trạng
-     thái hiện tại vẫn là trạng thái chuẩn. */
-function dashLeadFunnelByEvents(leads, events, earliestEvents, days, now, range, mainKeys, droppedKey) {
-  const keys = mainKeys || [];
-  const idx = {}; keys.forEach((k, i) => { idx[k] = i; });
-  const inMain = k => k !== null && k !== undefined && Object.prototype.hasOwnProperty.call(idx, k);
-  const byLead = new Map(), earliestByLead = new Map();
-  const pushChange = (map, leadId, ch, at) => {
-    const id = String(leadId);
-    if (!map.has(id)) map.set(id, []);
-    map.get(id).push({ fromKey: ch.fromKey, toKey: ch.toKey, at: dashParseDate(at) });
-  };
-  (events || []).forEach(e => {
-    if (!e || (e.entityId === undefined && e.entity_id === undefined && e.leadId === undefined)) return;
-    const id = e.entityId !== undefined ? e.entityId : (e.entity_id !== undefined ? e.entity_id : e.leadId);
-    dashLeadStatusChangesOf(e).forEach(ch => pushChange(byLead, id, ch, e.at));
+   - scopeId (trục Người của bộ lọc chung): "" = toàn bộ; member id =
+     chỉ phần được gán cho BD đó; "__none__" = chỉ phần "Không rõ".
+   Định nghĩa:
+   - Lead được đếm khi có >= 1 sự kiện status với đích = "converted"
+     (map nhãn qua dashLeadStatusChangesOf /
+     dashLeadStatusKeyFromAudit) và `at` nằm trong cửa sổ kỳ. Nhiều
+     sự kiện converted trong kỳ vẫn chỉ đếm 1 lead (phân biệt).
+   - Gán BD: byMemberId của sự kiện converted ĐẦU TIÊN của lead đó
+     trong kỳ; sự kiện thiếu byMemberId -> ownerId hiện tại của lead;
+     cả hai đều không có -> "__none__" (hiển thị "Không rõ").
+   - Trục Người áp trên KẾT QUẢ GÁN này (cùng cách tab Báo cáo hoạt
+     động lọc theo người thực hiện hoạt động): scopeId là 1 BD thì
+     chỉ giữ các lead được gán cho BD đó.
+   Trả: { total, totalLeadIds, rows: [{ id, count, leadIds }] } —
+   rows xếp count giảm dần, "Không rõ" sau các BD khi bằng count;
+   total == tổng count các rows (bất biến kiểm chứng). */
+function dashLeadConversionsInPeriod(leads, events, days, now, range, scopeId) {
+  const leadById = new Map();
+  (leads || []).forEach(l => { if (l && l.id !== undefined && l.id !== null && l.id !== "") leadById.set(String(l.id), l); });
+  const firstByLead = new Map();
+  (events || []).forEach((e, seq) => {
+    if (!e) return;
+    const rawId = e.entityId !== undefined ? e.entityId : (e.entity_id !== undefined ? e.entity_id : e.leadId);
+    if (rawId === undefined || rawId === null) return;
+    const id = String(rawId);
+    if (!leadById.has(id)) return;
+    const isConverted = dashLeadStatusChangesOf(e).some(ch => ch.toKey === "converted");
+    if (!isConverted) return;
+    if (!dashEventInWindow(e.at, days, now, range)) return;
+    const d = dashParseDate(e.at);
+    const t = d ? d.getTime() : Infinity;
+    const prev = firstByLead.get(id);
+    if (!prev || t < prev.t || (t === prev.t && seq < prev.seq)) {
+      firstByLead.set(id, { t, seq, byMemberId: e.byMemberId || e.by_member_id || "" });
+    }
   });
-  (earliestEvents || []).forEach(e => {
-    if (!e || (e.entityId === undefined && e.entity_id === undefined && e.leadId === undefined)) return;
-    const id = e.entityId !== undefined ? e.entityId : (e.entity_id !== undefined ? e.entity_id : e.leadId);
-    dashLeadStatusChangesOf(e).forEach(ch => pushChange(earliestByLead, id, ch, e.at));
-  });
-  const exact = keys.map(() => 0);
-  const levels = {}, totalLeadIds = [], droppedLeadIds = [], stepLeadIds = keys.map(() => []);
-  let unknown = 0;
-  const list = leads || [];
-  list.forEach(l => {
-    if (!l) return;
+  const rowsMap = new Map();
+  const totalLeadIds = [];
+  (leads || []).forEach(l => {
+    if (!l || l.id === undefined || l.id === null || l.id === "") return;
     const id = String(l.id);
-    /* Dòng lối ra theo SỰ KIỆN trong kỳ (xem ghi chú đầu hàm): ghi
-       nhận TRƯỚC khi xét trạng thái hiện tại, để ca (a) — vào lối ra
-       trong kỳ rồi quay lại đường chính — vẫn có mặt ở dòng lối ra
-       đồng thời vẫn được tính ở đường chính bên dưới. */
-    const enteredDroppedInWindow = (byLead.get(id) || []).some(ch => ch.toKey === droppedKey && dashEventInWindow(ch.at, days, now, range));
-    if (enteredDroppedInWindow) droppedLeadIds.push(id);
-    if (l.status === droppedKey) return;
-    let level = -1;
-    (byLead.get(id) || []).forEach(ch => {
-      if (!dashEventInWindow(ch.at, days, now, range)) return;
-      if (inMain(ch.toKey)) level = Math.max(level, idx[ch.toKey]);
-    });
-    if (dashLeadCreatedInWindow(l, days, now, range)) {
-      let floor = -1;
-      const evs = (earliestByLead.get(id) || []).slice().sort((a, b) => {
-        const ta = a.at ? a.at.getTime() : Infinity, tb = b.at ? b.at.getTime() : Infinity;
-        return ta - tb;
-      });
-      /* Sự kiện status sớm nhất có `from` đọc được: mục create (from
-         rỗng) bị bỏ qua ở bước này vì đích của nó đã tính ở mức sự
-         kiện; nếu MỌI sự kiện đều là create/không có from thì coi như
-         không có sự kiện cho quy tắc sàn -> rơi xuống trạng thái hiện
-         tại như lead không có sự kiện. */
-      const first = evs.find(ch => ch.fromKey !== null && ch.fromKey !== undefined && ch.fromKey !== "");
-      if (first) { if (inMain(first.fromKey)) floor = idx[first.fromKey]; }
-      else if (!evs.length) { if (inMain(l.status)) floor = idx[l.status]; }
-      level = Math.max(level, floor);
+    const first = firstByLead.get(id);
+    if (!first) return;
+    const attr = first.byMemberId || l.ownerId || "__none__";
+    if (scopeId) {
+      if (scopeId === "__none__" ? attr !== "__none__" : attr !== scopeId) return;
     }
-    if (level < 0) {
-      if (!inMain(l.status)) unknown++;
-      return;
-    }
-    levels[id] = level;
     totalLeadIds.push(id);
-    exact[level]++;
-    for (let i = 0; i <= level; i++) stepLeadIds[i].push(id);
+    if (!rowsMap.has(attr)) rowsMap.set(attr, { id: attr, count: 0, leadIds: [] });
+    const row = rowsMap.get(attr);
+    row.count++; row.leadIds.push(id);
   });
-  const total = totalLeadIds.length;
-  const dropped = droppedLeadIds.length;
-  const cum = exact.slice();
-  for (let i = cum.length - 2; i >= 0; i--) cum[i] += cum[i + 1];
-  const steps = keys.map((k, i) => ({
-    key: k, count: cum[i], exact: exact[i], leadIds: stepLeadIds[i],
-    toNext: i < keys.length - 1 ? dashPct(cum[i + 1], cum[i]) : null,
-    fromStart: dashPct(cum[i], total), pct: dashPct(cum[i], total),
-  }));
-  const exactOf = k => inMain(k) ? exact[idx[k]] : 0;
-  const cumOf = k => inMain(k) ? cum[idx[k]] : 0;
-  const reachedContactedPlus = cumOf("contacted");
-  const converted = cumOf("converted");
-  return {
-    steps, levels, totalLeadIds, droppedLeadIds,
-    dropped: { key: droppedKey, count: dropped, pct: dashPct(dropped, total) },
-    unknown, total, rawTotal: list.length,
-    summary: {
-      reachedContactedPlus, reachedContactedPlusPct: dashPct(reachedContactedPlus, total),
-      converted, convertedPct: dashPct(converted, total),
-    },
-  };
+  const rows = Array.from(rowsMap.values()).sort((a, b) => (b.count - a.count) || ((a.id === "__none__") - (b.id === "__none__")) || String(a.id).localeCompare(String(b.id)));
+  return { total: totalLeadIds.length, totalLeadIds, rows };
 }
 function dashWinRate(deals) {
   const won = (deals || []).filter(d => d && d.stage === "won").length;
@@ -2111,7 +2031,7 @@ function dashCompare(state, days, now, isOverdueFn, range, line) {
   };
   return ids.map(rowFor).concat([rowFor("__none__")]);
 }
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashRangeWindow, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashLeadStatusKeyFromAudit, dashLeadStatusChangesOf, dashLeadCreatedInWindow, dashEventInWindow, dashLeadFunnelByEvents, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashTaskInLine, dashFilterByLine, dashConversions, dashCompare, dashIsOverdueFallback, }; }
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashRangeWindow, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashLeadStatusKeyFromAudit, dashLeadStatusChangesOf, dashEventInWindow, dashLeadConversionsInPeriod, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashTaskInLine, dashFilterByLine, dashConversions, dashCompare, dashIsOverdueFallback, }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;

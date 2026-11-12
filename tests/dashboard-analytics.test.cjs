@@ -251,9 +251,9 @@ test('dashCompare: hàng theo BD + Chưa gán; tổng các chỉ số cộng đ�
 test('tĩnh: vDash gắn dashAnalyticsHTML; đủ nhãn trung thực + điều khiển; màu định nghĩa 1 chỗ; CSS dash- riêng', () => {
   const html = read('index.html'), shared = read('shared.js'), css = read('workspace-design.css');
   assert.ok(html.includes('dashAnalyticsHTML() + `<details class="ex-legacy-operations">'), 'vDash mở đầu bằng dashboard, khối thao tác cũ vẫn truy cập trong details');
-  assert.ok(!html.includes('Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead'), 'phễu theo sự kiện (12/11/2026): chú thích cũ "hệ thống không lưu lịch sử" đã xoá hẳn');
-  assert.ok(html.includes('Nhật ký hệ thống đầy đủ từ 31-10-2026'), 'phễu phải có chú thích nhật ký đầy đủ từ 31-10-2026 + hệ quả lead nhập lô');
-  assert.ok(html.includes('Theo lần chuyển stage trong kỳ') && html.includes('Tính theo lần chuyển stage trong kỳ'), 'phễu ghi nhãn tính theo lần chuyển stage trong kỳ từ nhật ký hệ thống');
+  assert.ok(html.includes('Nhật ký hệ thống đầy đủ từ 31-10-2026'), 'khối Chuyển đổi trong kỳ (tab Báo cáo hoạt động) phải có chú thích nhật ký đầy đủ từ 31-10-2026 + hệ quả lead nhập lô không có sự kiện thì không đếm');
+  assert.ok(html.includes('Toàn bộ · theo trạng thái hiện tại') && html.includes('Tính trên toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ'), 'phễu (đợt chiều 12/11/2026): nhãn mới nói rõ toàn bộ theo trạng thái hiện tại, không theo kỳ');
+  assert.ok(!html.includes('Theo lần chuyển stage trong kỳ') && !html.includes('dashLeadFunnelByEvents'), 'phễu theo sự kiện đã gỡ hẳn khỏi index.html');
   assert.ok(html.includes('Chưa có deal đóng'));
   assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('setDashLine'));
   assert.ok(!html.includes('setDashFunnelOwner'), 'bộ lọc chung 2026-11-05: trục Người của phễu đã gộp vào thanh lọc chung — không còn select người riêng của phễu');
@@ -316,19 +316,15 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
-  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — sự kiện
-     duy nhất là lần tạo của lead f8 (fixture phễu bên dưới) vào thẳng
-     lối ra Not yet have demand: từ đợt sửa dòng lối ra (12/11/2026)
-     dropped đếm theo SỰ KIỆN vào lối ra trong kỳ nên f8 cần sự kiện
-     này mới được đếm ở dòng lối ra; các lead khác vẫn 0 sự kiện nên
-     số phễu của chúng đến từ quy tắc sàn (lead tạo trong kỳ, không sự
-     kiện -> tính từ trạng thái lúc tạo = trạng thái hiện tại của
-     fixture), khớp số cohort cũ trên các fixture tạo-trong-kỳ. Sự
-     kiện của f8 vô hại với các fixture không có lead id f8. */
-  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [{ entityType: 'lead', entityId: 'f8', at: new Date().toISOString(), action: 'create', changes: [{ field: 'status', from: '', to: 'Not yet have demand' }] }], earliestEvents: [] }) }", ctx);
+  /* Phễu toàn bộ (đợt chiều 12/11/2026): phễu tính ĐỒNG BỘ theo
+     trạng thái hiện tại nên KHÔNG cần stub tầng nạp nhật ký nữa —
+     dòng lối ra đếm lead f8 vì trạng thái hiện tại của f8 là
+     not_yet_have_demand trong chính fixture. Stub rỗng dưới đây chỉ
+     giữ để các render ở tab Báo cáo hoạt động (nếu có) không lỗi. */
+  vm.runInContext("window.SavaData = { listLeadConversionEvents: async () => ({ windowEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
-/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+/* Render lại sau vài tick (giữ mẫu cũ; phễu nay đồng bộ nên chỉ là render bồi). */
 async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 
 test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; chuyển scope BD ẩn bảng so sánh + hiện định nghĩa công ty của BD', async () => {

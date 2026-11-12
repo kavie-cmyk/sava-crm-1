@@ -5,20 +5,20 @@
       cùng dữ kiện + bộ lọc (ca lệch cũ: kỳ 7, AI có 3 deal mở toàn tập
       nhưng chỉ 1 deal mở tạo trong kỳ: bản cũ donut ghi 3 trong khi
       Tiến trình ghi 1; bản mới cả hai ghi 1).
-   2) Dòng lối ra phễu đếm theo SỰ KIỆN vào droppedKey trong kỳ:
-      ca biên (a) vào lối ra trong kỳ rồi quay lại đường chính vẫn đếm
-      ở lối ra + vẫn tính ở đường chính; ca biên (b) đang ở lối ra
-      nhưng sự kiện vào lối ra ngoài kỳ thì KHÔNG đếm; khoảng Tuỳ
-      chỉnh có chặn trên; nhiều lần vào lối ra trong kỳ chỉ đếm 1.
+   2) Dòng lối ra phễu theo TRẠNG THÁI HIỆN TẠI (đợt chiều
+      12/11/2026 thay cho đếm-theo-sự-kiện): lead đang ở droppedKey
+      đếm ở dòng lối ra và không vào N; lead đã quay lại đường chính
+      chỉ tính ở đường chính; đổi kỳ không đổi dòng lối ra.
    3) Hoán đổi số chính/phụ MỌI thẻ KPI (executive + Phân tích): chính
       = trong kỳ (cohort), phụ = "Tổng hiện tại: N"; neo hồi quy kỳ
       "Tất cả": chính == tổng hiện tại tương ứng cho từng loại thẻ
       (Công ty / Lead / Deal đang mở / Deal đã won / Giá trị pipeline).
    4) Đổi nhãn: "Deal thắng toàn tập" -> "Tỉ lệ thắng Deal trong kỳ";
       thẻ legacy "Lead mới" -> "Lead đang ở Mới" (chỉ đổi chữ).
-   5) Đoạn "Phạm vi số liệu" viết lại (a)-(e), bỏ hẳn "Ngoại lệ duy
-      nhất"; đúng 1 dòng chú thích trong khu legacy; footnote phễu
-      executive có ý lead nhập lô không có sự kiện cho từng lead.
+   5) Đoạn "Phạm vi số liệu" (a)-(e), bỏ hẳn "Ngoại lệ duy nhất";
+      đúng 1 dòng chú thích trong khu legacy; (b) + (d) đã viết lại ở
+      đợt chiều 12/11/2026: (b) phễu toàn bộ theo trạng thái hiện tại,
+      không theo kỳ; (d) thêm khối Chuyển đổi trong kỳ theo BD.
 
    Bảng số harness (fixture cố định ở dưới, đối chiếu tay):
    deals: AI mở toàn tập 3 (tạo 40d/20d/2d) + AI won 2 (3d/50d);
@@ -46,48 +46,31 @@ function loadShared() {
 const MAIN_KEYS = ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted'];
 const NOW = new Date('2026-11-12T12:00:00+07:00'); /* kỳ 7 ngày bắt đầu 06/11/2026 */
 const ev = (leadId, at, from, to) => ({ entityType: 'lead', entityId: leadId, at, action: 'update', changes: [{ field: 'status', label: 'Trạng thái', from, to }] });
-const funnel = (D, leads, events, days, range) => D.dashLeadFunnelByEvents(leads, events, events, days === undefined ? 7 : days, NOW, range || null, MAIN_KEYS, 'not_yet_have_demand');
+const funnel = (D, leads) => D.dashLeadFunnel(leads, MAIN_KEYS, 'not_yet_have_demand');
 
-/* ---------- 2) Phễu: dòng lối ra theo sự kiện ---------- */
+/* ---------- 2) Phễu: dòng lối ra theo trạng thái hiện tại ---------- */
 
-test('lối ra (a): vào lối ra trong kỳ rồi quay lại đường chính — vẫn đếm ở lối ra VÀ vẫn tính ở đường chính', () => {
+test('lối ra (hiện tại): lead đang ở lối ra đếm ở dòng lối ra + ngoài N; lead đã quay lại đường chính chỉ tính ở đường chính', () => {
   const D = loadShared().window.SavaDash;
-  const leads = [{ id: 'A', status: 'first_message', createdAt: '2026-09-01T09:00:00+07:00' }];
-  const events = [
-    ev('A', '2026-11-08T09:00:00+07:00', 'Mới', 'Not yet have demand'),
-    ev('A', '2026-11-09T09:00:00+07:00', 'Not yet have demand', '1st message'),
-    ev('A', '2026-11-10T09:00:00+07:00', 'Not yet have demand', 'Not yet have demand'), /* vào lại lần 2: vẫn chỉ đếm 1 lead phân biệt */
+  const leads = [
+    { id: 'A', status: 'first_message', createdAt: '2026-09-01T09:00:00+07:00' },
+    { id: 'B', status: 'not_yet_have_demand', createdAt: '2026-09-01T09:00:00+07:00' },
   ];
-  const f = funnel(D, leads, events);
-  assert.equal(f.dropped.count, 1, 'lead phân biệt có sự kiện vào lối ra trong kỳ -> đếm 1 (dù vào 2 lần)');
-  assert.deepEqual(J(f.droppedLeadIds), ['A'], 'click-through dòng lối ra = đúng tập sự kiện này');
-  assert.equal(f.total, 1, 'lead vẫn vào N của đường chính');
-  assert.equal(f.levels.A, 2, 'mức đường chính = 1st message');
-  assert.equal(f.steps.find(s => s.key === 'first_message').count, 1);
+  const f = funnel(D, leads);
+  assert.equal(f.dropped.count, 1, 'chỉ B đang ở lối ra');
+  assert.deepEqual(J(f.droppedLeadIds), ['B'], 'click-through dòng lối ra = đúng tập đang ở lối ra');
+  assert.equal(f.dropped.pct, 100, 'dropped.pct = 1/1 — cùng tập với đường chính nên không vượt 100%');
+  assert.equal(f.total, 1, 'chỉ A vào N (B ở lối ra bị trừ khỏi N)');
+  assert.equal(f.steps.find(x => x.key === 'first_message').count, 1);
 });
 
-test('lối ra (b): đang ở lối ra nhưng sự kiện vào lối ra NGOÀI kỳ — không đếm ở dòng lối ra; vẫn bị trừ khỏi N', () => {
+test('lối ra: hàm phễu không nhận kỳ — cùng dữ kiện cho cùng kết quả bất kể ngữ cảnh kỳ của người gọi', () => {
   const D = loadShared().window.SavaDash;
-  const leads = [{ id: 'B', status: 'not_yet_have_demand', createdAt: '2026-09-01T09:00:00+07:00' }];
-  const events = [ev('B', '2026-11-01T09:00:00+07:00', 'Mới', 'Not yet have demand')]; /* 01/11: trước kỳ 7 (06/11) */
-  const f = funnel(D, leads, events);
-  assert.equal(f.dropped.count, 0);
-  assert.deepEqual(J(f.droppedLeadIds), []);
-  assert.equal(f.total, 0, 'trạng thái hiện tại ở lối ra vẫn bị trừ khỏi N (giữ quy tắc đường chính cũ)');
-  assert.equal(f.unknown, 0);
-  /* Cùng lead, cùng sự kiện, kỳ "Tất cả": sự kiện nằm trong cửa sổ -> đếm. */
-  const fAll = funnel(D, leads, events, null);
-  assert.equal(fAll.dropped.count, 1);
-  assert.deepEqual(J(fAll.droppedLeadIds), ['B']);
-});
-
-test('lối ra: khoảng Tuỳ chỉnh có chặn trên — sự kiện vào lối ra sau ngày "to" không đếm, trong khoảng thì đếm', () => {
-  const D = loadShared().window.SavaDash;
-  const leads = [{ id: 'C', status: 'not_yet_have_demand', createdAt: '2026-09-01T09:00:00+07:00' }];
-  const events = [ev('C', '2026-11-07T09:00:00+07:00', 'Mới', 'Not yet have demand')];
-  assert.equal(funnel(D, leads, events, null, { from: '2026-11-06', to: '2026-11-08' }).dropped.count, 1, '07/11 nằm trong [06/11, 08/11]');
-  assert.equal(funnel(D, leads, events, null, { from: '2026-11-09', to: '2026-11-10' }).dropped.count, 0, '07/11 nằm ngoài [09/11, 10/11]');
-  assert.equal(funnel(D, leads, events, null, { from: '2026-11-01', to: '2026-11-06' }).dropped.count, 0, '07/11 sau ngày "to" 06/11 -> bị chặn trên loại');
+  const leads = [{ id: 'B', status: 'not_yet_have_demand', createdAt: '2026-09-01T09:00:00+07:00' }, { id: 'C', status: 'new', createdAt: '2026-09-01T09:00:00+07:00' }];
+  const f1 = funnel(D, leads), f2 = funnel(D, leads);
+  assert.equal(f1.dropped.count, 1); assert.equal(f2.dropped.count, 1);
+  assert.deepEqual(J(f1.droppedLeadIds), ['B']);
+  assert.equal(f1.total, 1, 'C ở new vẫn vào N; B ở lối ra ngoài N');
 });
 
 /* ---------- Harness render thật (index.html) ---------- */
@@ -146,7 +129,7 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
-  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
+  vm.runInContext("window.SavaData = { listLeadConversionEvents: async () => ({ windowEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
 async function settle(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run('render()'); }
@@ -191,7 +174,7 @@ test('harness kỳ 7: donut executive AI == Tiến trình AI == 1 (ca lệch 2-v
   assert.ok(html.includes(anKpi('Deal đang mở', 2, 5)), 'Phân tích Deal đang mở: chính 2 / phụ 5');
   assert.ok(html.includes(anKpi('Deal đã won', 1, 2)), 'Phân tích Deal đã won: chính = won thuộc cohort (d4) = 1 / phụ = 2 won hiện tại');
   /* Footnote phễu executive: có ý lead nhập lô (hạng mục 5) */
-  assert.ok(html.includes('Lead nhập theo lô hàng loạt không có sự kiện cho từng lead: lead được tạo trong kỳ thì tính từ trạng thái lúc tạo'), 'footnote phễu executive bổ sung ý lead nhập lô, khớp panel chi tiết');
+  assert.ok(html.includes('phễu tính trên toàn bộ hành trình từ đầu tới cuối phễu, không chia theo kỳ và không dùng nhật ký'), 'footnote phễu executive (đợt chiều 12/11/2026): phễu toàn bộ theo trạng thái hiện tại, không theo kỳ');
 });
 
 test('harness kỳ 30: donut/Tiến trình AI == 2; KPI chính tăng theo cohort 30 ngày, phụ giữ nguyên tổng hiện tại', async () => {
@@ -253,13 +236,14 @@ test('tĩnh hạng mục 4+5: nhãn mới, đoạn Phạm vi (a)-(e) không còn
   for (const frag of [
     'Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b>',
     'tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”',
-    'Phễu Lead (gồm dòng lối ra Not yet have demand) tính theo <b>lần chuyển stage trong kỳ</b> từ nhật ký hệ thống; nhật ký đầy đủ từ 31-10-2026',
-    'lead nhập theo lô hàng loạt không có sự kiện cho từng lead nên chỉ được tính từ lần chuyển stage đầu tiên sau khi nhập (hoặc từ lúc tạo nếu tạo trong kỳ)',
+    'Phễu Lead (gồm dòng lối ra Not yet have demand) tính trên <b>toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>',
+    'khối “Chuyển đổi trong kỳ” trong tab này đếm thêm <b>số lead được chuyển đổi trong kỳ theo từng BD</b>',
+    'đếm theo sự kiện chuyển vào trạng thái “Đã chuyển đổi” trong nhật ký hệ thống, chỉ là số đếm, không tính tỉ lệ',
     'Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ',
     'Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>',
     'Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>',
   ]) assert.ok(html.includes(frag), 'đoạn Phạm vi số liệu thiếu ý: ' + frag);
   assert.equal((html.match(/ex-legacy-note/g) || []).length, 1, 'đúng 1 dòng chú thích trong khu legacy');
   assert.ok(html.includes('Chú thích: Khu legacy này không áp bộ lọc chung của Dashboard (Kỳ × Người × Mảng) — các số dưới đây không đổi theo bộ lọc chung đã chọn ở trên.'), 'nguyên văn chú thích legacy');
-  assert.ok(html.includes('Lead nhập theo lô hàng loạt không có sự kiện cho từng lead: lead được tạo trong kỳ thì tính từ trạng thái lúc tạo, lead có từ trước kỳ thì chỉ tính từ lần chuyển stage đầu tiên trong kỳ'), 'footnote phễu executive (và panel chi tiết) cùng một ý lead nhập lô');
+  assert.ok(html.includes('Lead được chuyển đổi bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển đổi thì không được đếm'), 'chú thích khối Chuyển đổi trong kỳ: lead nhập lô không có sự kiện thì không đếm (ý lead nhập lô nay nằm ở khối chuyển đổi, không còn ở phễu)');
 });

@@ -1236,18 +1236,19 @@
       return (data || []).map(auditRowToEntry);
     } catch (e) { return null; }
   }
-  /* Phễu Lead theo sự kiện (12/11/2026): nạp các mục audit của LEAD
-     trong một cửa sổ thời gian [gte, lt) (ISO; đầu nào trống = không
-     chặn đầu đó) để index.html tính phễu theo lần chuyển stage trong
-     kỳ. Đi qua q() nên TỰ ĐỘNG phân trang vượt trần 1.000 dòng/select
-     như loadAll (trang 1.000, .range, lỗi ở bất kỳ trang nào cũng ném
-     ra — caller hiện trạng thái lỗi rõ ràng, TUYỆT ĐỐI không rơi về
-     số cohort cũ). earliestForIds: với các lead tạo trong kỳ, nạp
-     thêm MỌI mục audit của từng lead (mọi thời gian, theo lô 200 id
-     qua .in) để tầng tính tìm sự kiện status sớm nhất nói chung của
-     lead (căn cứ stage khởi điểm cho quy tắc sàn). KHÁC listFor/
-     listRecent: hàm này NÉM lỗi thay vì trả null, vì người gọi phải
-     phân biệt được "nạp thất bại" với "không có sự kiện nào". */
+  /* Sự kiện audit Lead TRONG CỬA SỔ kỳ (đợt gốc 12/11/2026 cho phễu
+     theo sự kiện; từ đợt chiều 12/11/2026 chỉ còn phục vụ khối
+     "Chuyển đổi trong kỳ" ở tab Báo cáo hoạt động — phễu Lead đã quay
+     về tính theo trạng thái hiện tại, không dùng nhật ký nữa): nạp
+     các mục audit của LEAD trong cửa sổ [gte, lt) (ISO; đầu nào trống
+     = không chặn đầu đó). Đi qua q() nên TỰ ĐỘNG phân trang vượt trần
+     1.000 dòng/select như loadAll (trang 1.000, .range, lỗi ở bất kỳ
+     trang nào cũng ném ra — caller hiện trạng thái lỗi rõ ràng,
+     TUYỆT ĐỐI không hiện số 0 giả). KHÁC listFor/listRecent: hàm này
+     NÉM lỗi thay vì trả null, vì người gọi phải phân biệt được "nạp
+     thất bại" với "không có sự kiện nào". Tên xuất
+     listLeadConversionEvents là tên chính; listLeadFunnelEvents giữ
+     làm bí danh tương thích cho các nơi gọi/stub cũ. */
   async function auditListLeadFunnelEvents(opts) {
     if (!ctx.client) throw new Error('Tầng dữ liệu chưa sẵn sàng (chưa gắn client Supabase)');
     const o = opts || {};
@@ -1257,16 +1258,9 @@
       if (o.lt) x = x.lt('at', String(o.lt));
       return x.order('at', { ascending: true });
     });
-    let earliestRows = [];
-    const ids = Array.isArray(o.earliestForIds) ? [...new Set(o.earliestForIds.map(String))] : [];
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const rows = await q('audit_log', qb => qb.eq('entity_type', 'lead').in('entity_id', chunk).order('at', { ascending: true }));
-      earliestRows = earliestRows.concat(rows);
-    }
-    return { windowEvents: winRows.map(auditRowToEntry), earliestEvents: earliestRows.map(auditRowToEntry) };
+    return { windowEvents: winRows.map(auditRowToEntry) };
   }
-  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, listRecent: auditListRecent, listLeadFunnelEvents: auditListLeadFunnelEvents, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
+  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, listRecent: auditListRecent, listLeadFunnelEvents: auditListLeadFunnelEvents, listLeadConversionEvents: auditListLeadFunnelEvents, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
   if (typeof window !== 'undefined') window.SavaAudit = auditApi;
 
   /* Đăng ký flush rời trang ngay khi file được nạp (mọi trang dùng
@@ -1284,7 +1278,7 @@
        bỏ qua giá trị trả về vẫn chạy đúng như cũ. */
     syncNow: () => flushSync(),
     flushSync, flushBeforeNavigate,
-    isReady: () => ctx.ready, listLeadFunnelEvents: auditListLeadFunnelEvents, CRM_KEY, PUB_KEY, CRM_BACKUP_KEY, PUB_BACKUP_KEY,
+    isReady: () => ctx.ready, listLeadFunnelEvents: auditListLeadFunnelEvents, listLeadConversionEvents: auditListLeadFunnelEvents, CRM_KEY, PUB_KEY, CRM_BACKUP_KEY, PUB_BACKUP_KEY,
     CRM_FORMAT_KEY, SPLIT_FORMAT, CRM_JOURNAL_KEY,
     /* Chiến lược cache: phơi API bộ nhớ phiên cho shared.js + test. */
     heavy: heavyCacheApi,

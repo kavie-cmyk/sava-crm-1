@@ -1285,10 +1285,12 @@ function vDash() {
    cột trạng thái của bảng so sánh BD (đang phụ trách / đang mở / quá
    hạn) và khối "Cần xử lý" vẫn là ảnh chụp hiện tại, không đổi theo
    kỳ — ghi nhãn rõ ngay trên UI và ở đoạn "Phạm vi số liệu".
-   Phễu Lead không dùng cohort (12/11/2026) — phễu tính theo LẦN
-   CHUYỂN STAGE TRONG KỲ từ audit_log (xem khối funnelAudit* ngay
-   dưới thanh lọc + SavaDash.dashLeadFunnelByEvents); cửa sổ kỳ của
-   phễu vẫn cùng ngữ nghĩa dashCohort.
+   Phễu Lead không dùng cohort và KHÔNG theo kỳ (đợt chiều
+   12/11/2026, Zac chốt lại): phễu tính trên TOÀN BỘ lead trong phạm
+   vi Người × Mảng theo TRẠNG THÁI HIỆN TẠI qua
+   SavaDash.dashLeadFunnel — đổi Kỳ không đổi số phễu. Nhật ký
+   audit_log chỉ còn phục vụ khối "Chuyển đổi trong kỳ" ở tab Báo
+   cáo hoạt động (xem khối conversionAudit* ngay dưới).
    QUY TẮC MẢNG thống nhất cho MỌI khối bên dưới (qua
    SavaDash.dashFilterByLine / dashTaskInLine, định nghĩa ở shared.js —
    TÁI DÙNG đúng cơ chế sẵn có của app, không định nghĩa thứ hai): deal
@@ -1323,29 +1325,31 @@ function dashActiveRange() {
   if (!dashCustomFrom || !dashCustomTo || dashCustomFrom > dashCustomTo) return null;
   return { from: dashCustomFrom, to: dashCustomTo };
 }
-/* ===== Phễu Lead THEO SỰ KIỆN (đợt 12/11/2026) =====
-   Từ đợt này Phễu Lead KHÔNG còn tính theo cohort ngày tạo + trạng thái
-   hiện tại nữa: phễu tính theo LẦN CHUYỂN STAGE TRONG KỲ đọc từ
-   audit_log (hàm thuần SavaDash.dashLeadFunnelByEvents ở shared.js).
-   Đường nạp: window.SavaData.listLeadFunnelEvents (supabase-data.js,
-   phân trang vượt trần 1.000 dòng/select như loadAll) bằng client
-   Supabase của phiên member hiện tại. Cache trong phiên theo CỬA SỔ:
-   funnelAudit giữ các sự kiện của cửa sổ đã nạp rộng nhất gần nhất —
-   kỳ/phạm vi mới nằm TRONG cửa sổ đã nạp thì dùng lại ngay (hàm thuần
-   tự lọc lại theo cửa sổ đích), mở rộng ra ngoài thì nạp lại. Đổi dữ
-   kiện (dấu sync = số lead + updatedAt lớn nhất của lead thay đổi,
-   vd sau loadAll/sync mới) -> bỏ cache nạp lại. Trong lúc chưa nạp
-   xong phễu hiện "đang tải"; nạp THẤT BẠI phễu hiện "chưa tải được
-   nhật ký" + nút thử lại — TUYỆT ĐỐI không âm thầm hiện số cohort cũ.
-   Mọi khối dashboard khác (KPI, xu hướng, deal, tỉ lệ, so sánh BD)
-   vẫn dùng dashCohort như cũ, không đổi hành vi. */
-let funnelAudit = { status: "idle", gte: null, lt: null, events: [], earliestByLead: {}, stamp: "", err: "", errKey: "", loadSeq: 0 };
-/* Cửa sổ sự kiện của kỳ đang chọn, CÙNG ngữ nghĩa với dashCohort:
-   preset = [đầu ngày bắt đầu kỳ, không chặn trên) (lt = null); kỳ Tuỳ
-   chỉnh = [đầu ngày "from", đầu ngày kế tiếp của "to") — chặn trên
-   tường minh để sự kiện sau ngày "to" không lọt vào. "Tất cả" = không
-   chặn đầu nào. */
-function funnelAuditWindow() {
+/* ===== Sự kiện chuyển đổi Lead cho tab Báo cáo hoạt động
+   (khối "Chuyển đổi trong kỳ", đợt chiều 12/11/2026) =====
+   Phễu Lead KHÔNG còn dùng nhật ký nữa (phễu tính đồng bộ theo trạng
+   thái hiện tại qua dashLeadFunnel). Đường nạp audit theo cửa sổ kỳ
+   chỉ còn phục vụ khối "Chuyển đổi trong kỳ": nạp các mục audit lead
+   trong cửa sổ kỳ qua window.SavaData.listLeadConversionEvents (tên
+   cũ listLeadFunnelEvents vẫn được nhận làm bí danh tương thích;
+   supabase-data.js, phân trang vượt trần 1.000 dòng/select như
+   loadAll) bằng client Supabase của phiên member hiện tại. Cache
+   trong phiên theo CỬA SỔ: conversionAudit giữ các sự kiện của cửa
+   sổ đã nạp rộng nhất gần nhất — cửa sổ mới nằm TRONG cửa sổ đã nạp
+   thì dùng lại ngay (hàm thuần tự lọc lại theo cửa sổ đích), mở rộng
+   ra ngoài thì nạp lại. Đổi dữ kiện (dấu sync = số lead + updatedAt
+   lớn nhất của lead thay đổi, vd sau loadAll/sync mới) -> bỏ cache
+   nạp lại. Khối chỉ được nạp khi đang ở tab Báo cáo hoạt động. Trong
+   lúc chưa nạp xong khối hiện "đang tải"; nạp THẤT BẠI khối hiện
+   "chưa tải được nhật ký" + nút thử lại — TUYỆT ĐỐI không hiện số 0
+   giả. */
+let conversionAudit = { status: "idle", gte: null, lt: null, events: [], stamp: "", err: "", errKey: "", loadSeq: 0 };
+/* Cửa sổ sự kiện của kỳ đang chọn, CÙNG ngữ nghĩa với cửa sổ của
+   tab Báo cáo hoạt động / dashCohort: preset = [đầu ngày bắt đầu kỳ,
+   không chặn trên) (lt = null); kỳ Tuỳ chỉnh = [đầu ngày "from", đầu
+   ngày kế tiếp của "to") — chặn trên tường minh để sự kiện sau ngày
+   "to" không lọt vào. "Tất cả" = không chặn đầu nào. */
+function conversionAuditWindow() {
   const D = window.SavaDash;
   const range = dashActiveRange();
   if (range) {
@@ -1359,7 +1363,7 @@ function funnelAuditWindow() {
   const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - (dashPeriodDays - 1));
   return { gte: start.toISOString(), lt: null, invalid: false };
 }
-function funnelSyncStamp() {
+function conversionSyncStamp() {
   let mx = "";
   (S.leads || []).forEach(l => { const u = l && (l.updatedAt || l.createdAt); if (u && String(u) > mx) mx = String(u); });
   return (S.leads || []).length + "|" + mx;
@@ -1368,74 +1372,71 @@ function funnelSyncStamp() {
    hoặc bằng đầu dưới cần (null = không chặn = phủ mọi đầu dưới); đầu
    trên đã nạp phải muộn hơn hoặc bằng đầu trên cần (null = không
    chặn trên = phủ mọi đầu trên). */
-function funnelCacheCovers(w) {
-  if (funnelAudit.status !== "loaded") return false;
-  if (funnelAudit.gte !== null && (w.gte === null || funnelAudit.gte > w.gte)) return false;
-  if (funnelAudit.lt !== null && (w.lt === null || funnelAudit.lt < w.lt)) return false;
+function conversionCacheCovers(w) {
+  if (conversionAudit.status !== "loaded") return false;
+  if (conversionAudit.gte !== null && (w.gte === null || conversionAudit.gte > w.gte)) return false;
+  if (conversionAudit.lt !== null && (w.lt === null || conversionAudit.lt < w.lt)) return false;
   return true;
 }
-function funnelAuditEnsure() {
+function conversionAuditEnsure() {
   const D = window.SavaDash;
-  if (!D) { funnelAudit.status = "error"; funnelAudit.err = "Thiếu module tính phễu (shared.js)."; return "error"; }
-  const stamp = funnelSyncStamp();
-  if (funnelAudit.stamp && funnelAudit.stamp !== stamp && funnelAudit.status !== "loading") {
-    funnelAudit = { status: "idle", gte: null, lt: null, events: [], earliestByLead: {}, stamp: "", err: "", errKey: "", loadSeq: funnelAudit.loadSeq };
+  if (!D) { conversionAudit.status = "error"; conversionAudit.err = "Thiếu module tính chuyển đổi (shared.js)."; return "error"; }
+  const stamp = conversionSyncStamp();
+  if (conversionAudit.stamp && conversionAudit.stamp !== stamp && conversionAudit.status !== "loading") {
+    conversionAudit = { status: "idle", gte: null, lt: null, events: [], stamp: "", err: "", errKey: "", loadSeq: conversionAudit.loadSeq };
   }
-  const w = funnelAuditWindow();
-  if (w.invalid) { funnelAudit.status = "error"; funnelAudit.err = "Khoảng kỳ Tuỳ chỉnh không hợp lệ."; return "error"; }
-  /* Lead tạo trong kỳ (trên TOÀN state, chưa lọc Người/Mảng — tầng
-     tính lọc tiếp) cần sự kiện status sớm nhất nói chung cho quy tắc
-     sàn; id nào chưa có trong cache thì phải nạp bổ sung. */
-  const range = dashActiveRange(), now = new Date();
-  const createdIds = (S.leads || []).filter(l => l && D.dashLeadCreatedInWindow(l, dashPeriodDays, now, range)).map(l => String(l.id));
-  const missingEarliest = createdIds.filter(id => !(id in funnelAudit.earliestByLead));
-  if (funnelAudit.status === "loaded" && funnelCacheCovers(w) && !missingEarliest.length) return "loaded";
-  if (funnelAudit.status === "loading") return "loading";
-  const key = (w.gte || "") + "|" + (w.lt || "") + "|" + missingEarliest.join(",");
-  if (funnelAudit.status === "error" && funnelAudit.errKey === key) return "error";
+  const w = conversionAuditWindow();
+  if (w.invalid) { conversionAudit.status = "error"; conversionAudit.err = "Khoảng kỳ Tuỳ chỉnh không hợp lệ."; return "error"; }
+  if (conversionAudit.status === "loaded" && conversionCacheCovers(w)) return "loaded";
+  if (conversionAudit.status === "loading") return "loading";
+  const key = (w.gte || "") + "|" + (w.lt || "");
+  if (conversionAudit.status === "error" && conversionAudit.errKey === key) return "error";
   const api = window.SavaData;
+  const loadFn = api && (typeof api.listLeadConversionEvents === "function" ? api.listLeadConversionEvents : typeof api.listLeadFunnelEvents === "function" ? api.listLeadFunnelEvents : null);
   /* Tầng dữ liệu chưa sẵn sàng (trang vừa mở, client Supabase chưa gắn
      vào SavaData — render boot chạy trước auth/loadAll) KHÔNG phải lỗi
      nạp: giữ trạng thái chờ tạm thời để lần render sau (sau khi tầng
      dữ liệu gắn xong, app tự render lại) thử nạp thật. Chỉ lỗi của một
      lần nạp ĐÃ chạy mới là lỗi dính theo errKey ở trên. */
-  if (!api || typeof api.listLeadFunnelEvents !== "function" || (api._ctx && !api._ctx.client)) {
-    funnelAudit.status = "idle"; funnelAudit.err = "";
+  if (!loadFn || (api._ctx && !api._ctx.client)) {
+    conversionAudit.status = "idle"; conversionAudit.err = "";
     return "loading";
   }
-  funnelAudit.status = "loading"; funnelAudit.err = "";
-  const seq = ++funnelAudit.loadSeq;
-  api.listLeadFunnelEvents({ gte: w.gte, lt: w.lt, earliestForIds: missingEarliest.length ? missingEarliest : createdIds })
+  conversionAudit.status = "loading"; conversionAudit.err = "";
+  const seq = ++conversionAudit.loadSeq;
+  loadFn.call(api, { gte: w.gte, lt: w.lt })
     .then(res => {
-      if (seq !== funnelAudit.loadSeq) return;
-      const byLead = {};
-      (res.earliestEvents || []).forEach(e => { const id = String(e.entityId); (byLead[id] = byLead[id] || []).push(e); });
-      const wantIds = missingEarliest.length ? missingEarliest : createdIds;
-      wantIds.forEach(id => { funnelAudit.earliestByLead[id] = byLead[id] || []; });
-      funnelAudit.events = res.windowEvents || [];
-      funnelAudit.gte = w.gte; funnelAudit.lt = w.lt;
-      funnelAudit.stamp = funnelSyncStamp();
-      funnelAudit.status = "loaded"; funnelAudit.err = ""; funnelAudit.errKey = "";
+      if (seq !== conversionAudit.loadSeq) return;
+      conversionAudit.events = (res && (res.windowEvents || res.events)) || [];
+      conversionAudit.gte = w.gte; conversionAudit.lt = w.lt;
+      conversionAudit.stamp = conversionSyncStamp();
+      conversionAudit.status = "loaded"; conversionAudit.err = ""; conversionAudit.errKey = "";
       render();
     })
     .catch(err => {
-      if (seq !== funnelAudit.loadSeq) return;
+      if (seq !== conversionAudit.loadSeq) return;
       /* Client bị gỡ/chưa kịp gắn giữa chừng (thông điệp "chưa sẵn
          sàng" của tầng dữ liệu): về trạng thái chờ, KHÔNG render lại
          ngay (tránh vòng lặp nạp-lỗi-render), lần render tự nhiên kế
          tiếp sẽ thử lại như ca boot ở trên. */
-      if (err && /chưa sẵn sàng/.test(String(err.message || ""))) { funnelAudit.status = "idle"; funnelAudit.err = ""; return; }
-      funnelAudit.status = "error";
-      funnelAudit.err = (err && err.message) ? err.message : "lỗi không rõ";
-      funnelAudit.errKey = key;
+      if (err && /chưa sẵn sàng/.test(String(err.message || ""))) { conversionAudit.status = "idle"; conversionAudit.err = ""; return; }
+      conversionAudit.status = "error";
+      conversionAudit.err = (err && err.message) ? err.message : "lỗi không rõ";
+      conversionAudit.errKey = key;
       render();
     });
   return "loading";
 }
-function retryFunnelAudit() { funnelAudit.status = "idle"; funnelAudit.err = ""; funnelAudit.errKey = ""; render(); }
-/* Kết quả phễu vừa tính ở lần render gần nhất (kèm kỳ) — nguồn cho
-   click-through dashOpenLeadFunnelStep mở ĐÚNG tập đã đếm. */
+function retryConversionAudit() { conversionAudit.status = "idle"; conversionAudit.err = ""; conversionAudit.errKey = ""; render(); }
+/* Kết quả phễu vừa tính ở lần render gần nhất — nguồn cho
+   click-through dashOpenLeadFunnelStep mở ĐÚNG tập đã đếm. Phễu tính
+   trên toàn bộ phạm vi Người × Mảng theo trạng thái hiện tại nên
+   không kèm kỳ. */
 let dashFunnelLast = null;
+/* Kết quả khối "Chuyển đổi trong kỳ" vừa tính ở lần render gần nhất
+   (kèm kỳ) — nguồn cho click-through dashOpenLeadConversionRow mở
+   ĐÚNG tập lead đã đếm. */
+let dashConversionLast = null;
 function setDashPeriod(v) {
   if (v === "custom") {
     dashCustomActive = true;
@@ -1548,7 +1549,7 @@ function dashAnalyticsHTML() {
   const lineOpts = `<option value="" ${!dashLine ? "selected" : ""}>Tất cả mảng</option>` + Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${dashLine === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
   const lineNote = dashLine ? ` Đang lọc riêng mảng <b>${esc(LINES[dashLine].name)}</b>: deal tính theo mảng của deal, lead theo mảng của lead, công ty theo vai trò mảng (roles) của công ty; bản ghi không thuộc mảng nào không được tính. Trong bảng so sánh BD, việc không mang mảng nên được suy mảng từ đối tượng việc được gắn (deal/lead/công ty/game/sự kiện) — việc không gắn đối tượng hoặc không suy ra được mảng này không được tính.` : "";
   const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div>${customCtl}<div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div><div class="dash-ctl"><span class="dash-ctl-label">Mảng</span><select class="dash-select" onchange="setDashLine(this.value)" aria-label="Mảng — bộ lọc chung phân tích">${lineOpts}</select></div></div>
-  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung (Kỳ × Người × Mảng) áp dụng như sau: <b>(a)</b> Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b> — chỉ tính bản ghi <b>được tạo trong kỳ</b>, trạng thái/stage lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay); tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”. <b>(b)</b> Phễu Lead (gồm dòng lối ra Not yet have demand) tính theo <b>lần chuyển stage trong kỳ</b> từ nhật ký hệ thống; nhật ký đầy đủ từ 31-10-2026; lead nhập theo lô hàng loạt không có sự kiện cho từng lead nên chỉ được tính từ lần chuyển stage đầu tiên sau khi nhập (hoặc từ lúc tạo nếu tạo trong kỳ). <b>(c)</b> Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ. <b>(d)</b> Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>. <b>(e)</b> Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>.${scopeNote}${lineNote}</p></details>`;
+  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung (Kỳ × Người × Mảng) áp dụng như sau: <b>(a)</b> Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b> — chỉ tính bản ghi <b>được tạo trong kỳ</b>, trạng thái/stage lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay); tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”. <b>(b)</b> Phễu Lead (gồm dòng lối ra Not yet have demand) tính trên <b>toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>. <b>(c)</b> Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ. <b>(d)</b> Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>; khối “Chuyển đổi trong kỳ” trong tab này đếm thêm <b>số lead được chuyển đổi trong kỳ theo từng BD</b> — đếm theo sự kiện chuyển vào trạng thái “Đã chuyển đổi” trong nhật ký hệ thống, chỉ là số đếm, không tính tỉ lệ. <b>(e)</b> Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>.${scopeNote}${lineNote}</p></details>`;
   /* --- Dải KPI (hoán đổi 12/11/2026, Zac chốt): số CHÍNH = số TRONG
      KỲ theo cohort (cCompanies/cLeads/cDeals — bản ghi tạo trong kỳ,
      trạng thái hiện tại, cùng phạm vi Người × Mảng); số PHỤ = tổng
@@ -1564,22 +1565,30 @@ function dashAnalyticsHTML() {
   /* --- Xu hướng thêm mới --- */
   const trend = D.dashTrend({ company: lineScoped.companies, lead: lineScoped.leads, deal: lineScoped.deals }, dashPeriodDays, now, range);
   const trendHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Xu hướng thêm mới</h3><span class="dash-badge">${range ? periodLabel : dashPeriodDays === null ? "Tất cả" : dashPeriodDays + " ngày"}</span></div>${dashTrendChartHTML(trend)}${trend.missing ? `<p class="dash-note">⚠️ ${trend.missing} bản ghi thiếu ngày tạo — không tính vào xu hướng.</p>` : ""}</section>`;
-  /* --- Phễu Lead THEO SỰ KIỆN (12/11/2026): tính theo LẦN CHUYỂN
-     STAGE TRONG KỲ từ audit_log qua SavaDash.dashLeadFunnelByEvents,
-     trên tập lead đã lọc Người × Mảng (lineScoped.leads — owner/mảng
-     theo lead hiện tại). Đây là khối DUY NHẤT của khu Phân tích không
-     dùng cohort dashCohort nữa; cLeads ở trên vẫn phục vụ các khối
-     khác như cũ. Sự kiện nạp bất đồng bộ qua funnelAuditEnsure():
-     chưa nạp xong -> phễu hiện trạng thái đang tải; nạp lỗi -> hiện
-     "chưa tải được nhật ký" — không bao giờ rơi về số cohort cũ. --- */
+  /* --- Phễu Lead TOÀN BỘ theo trạng thái hiện tại (đợt chiều
+     12/11/2026, Zac chốt lại): tính bằng SavaDash.dashLeadFunnel trên
+     tập lead đã lọc Người × Mảng (lineScoped.leads) — KHÔNG qua
+     cohort, KHÔNG cửa sổ kỳ, KHÔNG sự kiện: đổi Kỳ không đổi số phễu,
+     chỉ đổi Người/Mảng mới đổi phạm vi. Tính đồng bộ ngay trong lần
+     render, không còn trạng thái đang tải/lỗi nhật ký ở khu phễu.
+     cLeads (cohort) ở trên vẫn phục vụ các khối khác như cũ. --- */
   const mainKeys = LEAD_STATUSES.filter(s => s.key !== "not_yet_have_demand").map(s => s.key);
-  const funnelState = funnelAuditEnsure();
-  let funnel = null;
-  if (funnelState === "loaded") {
-    const earliestEvents = [];
-    Object.values(funnelAudit.earliestByLead).forEach(arr => (arr || []).forEach(e => earliestEvents.push(e)));
-    funnel = D.dashLeadFunnelByEvents(lineScoped.leads, funnelAudit.events, earliestEvents, dashPeriodDays, now, range, mainKeys, "not_yet_have_demand");
-    dashFunnelLast = { funnel, periodLabel };
+  const funnel = D.dashLeadFunnel(lineScoped.leads, mainKeys, "not_yet_have_demand");
+  dashFunnelLast = { funnel };
+  /* --- Khối "Chuyển đổi trong kỳ" (tab Báo cáo hoạt động): chỉ nạp
+     + tính khi đang ở tab đó. Tập lead cho khối này lọc Mảng bằng
+     dashFilterByLine trên TOÀN BỘ lead (KHÔNG lọc trước theo owner —
+     trục Người áp trên kết quả gán BD bên trong
+     dashLeadConversionsInPeriod, cùng cách tab Báo cáo hoạt động lọc
+     theo người thực hiện); mảng của lead = l.line như mọi khối. --- */
+  let conversion = null, conversionState = null;
+  if (dashboardMode === "activity") {
+    conversionState = conversionAuditEnsure();
+    if (conversionState === "loaded") {
+      const convLeads = D.dashFilterByLine({ companies: [], leads: dashState.leads || [], deals: [], tasks: [] }, dashLine, S).leads;
+      conversion = D.dashLeadConversionsInPeriod(convLeads, conversionAudit.events, dashPeriodDays, now, range, dashScope);
+      dashConversionLast = { conversion, periodLabel };
+    }
   }
   /* Trình bày BẢN CHỐT (tích luỹ, trực quan): dòng mốc đầu phễu = N lead ·
      100% (KHÔNG vẽ dòng "Mới" riêng); mỗi dòng trạng thái từ Sent connect
@@ -1596,11 +1605,7 @@ function dashAnalyticsHTML() {
      ĐÚNG tập lead đã đếm ở dòng đó (bộ lọc tập ID tường minh ở view
      Lead, có chip gỡ được). */
   let funnelHTML;
-  if (funnelState !== "loaded" || !funnel) {
-    funnelHTML = funnelState === "error"
-      ? `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">Theo lần chuyển stage trong kỳ</span></h3></div><p class="dash-note">⚠️ Chưa tải được nhật ký chuyển stage${funnelAudit.err ? ` (${esc(funnelAudit.err)})` : ""} nên phễu chưa hiện số. <button type="button" class="btn ghost small" onclick="retryFunnelAudit()">Thử tải lại</button></p></section>`
-      : `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">Theo lần chuyển stage trong kỳ</span></h3></div><p class="dash-note">⏳ Đang tải nhật ký chuyển stage trong kỳ (${esc(periodLabel)})…</p></section>`;
-  } else {
+  {
   const fStart = `<div class="dash-funnel-row dash-funnel-start" role="button" tabindex="0" onclick="dashOpenLeadFunnelStep('')" onkeydown="if(event.key==='Enter')dashOpenLeadFunnelStep('')" title="Bấm để mở đúng các lead đã đếm ở dòng mốc này"><div class="dash-funnel-start-txt">Tổng lead đưa vào — ${funnel.total} lead · 100%</div><div class="dash-funnel-bar"><i style="width:${funnel.total ? 100 : 0}%;background:${cols.lead}"></i></div></div>`;
   const fBody = funnel.steps.slice(1).map((st, j) => {
     const prev = funnel.steps[j];
@@ -1609,18 +1614,20 @@ function dashAnalyticsHTML() {
     const row = `<div class="dash-funnel-row${st.count ? "" : " dash-funnel-row--zero"}" role="button" tabindex="0" onclick="dashOpenLeadFunnelStep('${st.key}')" onkeydown="if(event.key==='Enter')dashOpenLeadFunnelStep('${st.key}')" title="Bấm để mở đúng các lead đã đếm ở bước ${esc(def.label)}"><div class="dash-funnel-nm">${esc(def.label)}</div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? st.count / funnel.total * 100 : 0).toFixed(1)}%;background:${def.color}"></i></div><div class="dash-funnel-num">${st.count} lead đã tới bước này</div><div class="dash-funnel-pct"><b>${dashPctIntTxt(st.pct)}</b><span>% so với điểm bắt đầu</span><span class="dash-funnel-fromprev">${fromPrev}</span></div></div>`;
     return row;
   }).join("");
-  /* Cột LỐI RA riêng ở cuối: Not yet have demand — không có dòng % đi tiếp,
-     không vào dãy tích luỹ; số + % trên tổng ban đầu N, vẫn bấm được. */
+  /* Cột LỐI RA riêng ở cuối: Not yet have demand — lead ĐANG ở trạng
+     thái lối ra trong phạm vi (cùng tập với đường chính nên % của nó
+     luôn <= 100%); không có dòng % đi tiếp, không vào dãy tích luỹ;
+     số + % trên tổng ban đầu N, vẫn bấm được. */
   const dropDef = leadStatusDef(funnel.dropped.key) || { label: funnel.dropped.key, color: "#94a3b8" };
-  const fExit = `<div class="dash-funnel-exit"><div class="dash-funnel-row dash-funnel-exit-row" role="button" tabindex="0" onclick="dashOpenLeadFunnelStep('__dropped__')" onkeydown="if(event.key==='Enter')dashOpenLeadFunnelStep('__dropped__')" title="Bấm để mở đúng các lead ở lối ra này"><div class="dash-funnel-nm">${esc(dropDef.label)}<span class="dash-funnel-exit-sub">tạm dừng — chưa có nhu cầu</span></div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? funnel.dropped.count / funnel.total * 100 : 0).toFixed(1)}%;background:#cbd5e1"></i></div><div class="dash-funnel-num">${funnel.dropped.count} lead · ${dashPctIntTxt(funnel.dropped.pct)} trên tổng ban đầu</div></div></div>`;
+  const fExit = `<div class="dash-funnel-exit"><div class="dash-funnel-row dash-funnel-exit-row" role="button" tabindex="0" onclick="dashOpenLeadFunnelStep('__dropped__')" onkeydown="if(event.key==='Enter')dashOpenLeadFunnelStep('__dropped__')" title="Bấm để mở đúng các lead ở lối ra này"><div class="dash-funnel-nm">${esc(dropDef.label)}<span class="dash-funnel-exit-sub">tạm dừng — chưa có nhu cầu</span></div><div class="dash-funnel-bar"><i style="width:${(funnel.total ? Math.min(100, funnel.dropped.count / funnel.total * 100) : 0).toFixed(1)}%;background:#cbd5e1"></i></div><div class="dash-funnel-num">${funnel.dropped.count} lead · ${dashPctIntTxt(funnel.dropped.pct)} trên tổng ban đầu</div></div></div>`;
   const fSummary = funnel.total
     ? `<div class="dash-funnel-summary">Trong ${funnel.total} lead: ${funnel.summary.reachedContactedPlus} lead đã tới bước Đã liên hệ trở lên (${dashPctIntTxt(funnel.summary.reachedContactedPlusPct)}) · ${funnel.summary.converted} lead đã chuyển thành deal (${dashPctIntTxt(funnel.summary.convertedPct)})</div>`
     : `<div class="dash-funnel-summary">Chưa có lead nào trong phạm vi này.</div>`;
-  funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">Theo lần chuyển stage trong kỳ</span></h3></div>
-  <p class="dash-note"><b>Tính theo lần chuyển stage trong kỳ</b> (${esc(periodLabel)}) — số liệu lấy từ nhật ký hệ thống: mỗi lead được tính tới bước xa nhất mà lead đã chuyển tới trong kỳ này. Bấm một dòng để mở đúng những lead đã đếm ở dòng đó.</p>
+  funnelHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>Phễu Lead <span class="dash-badge">Toàn bộ · theo trạng thái hiện tại</span></h3></div>
+  <p class="dash-note"><b>Tính trên toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b> — mỗi lead được tính tới bước tương ứng với trạng thái hiện tại của lead, tích luỹ “đã tới bước này trở lên”. Bấm một dòng để mở đúng những lead đã đếm ở dòng đó.</p>
   <p class="dash-note">Số % lớn trên mỗi dòng: trong tổng lead ban đầu, bao nhiêu % đã tới được bước đó. Số % nhỏ có mũi tên ↓ ngay dưới % lớn: trong số lead tới bước ngay trên, bao nhiêu % đi tiếp xuống bước này.</p>
   ${fStart}${fBody}${fExit}${fSummary}
-  <p class="dash-note">Nhật ký hệ thống đầy đủ từ 31-10-2026 — các lần chuyển stage trước mốc này không có trong nhật ký. Lead nhập theo lô hàng loạt không có sự kiện cho từng lead: lead được tạo trong kỳ thì tính từ trạng thái lúc tạo, lead có từ trước kỳ thì chỉ tính từ lần chuyển stage đầu tiên trong kỳ.</p>
+  <p class="dash-note">Phễu không chia theo kỳ và không dùng nhật ký: đổi Kỳ ở bộ lọc chung không làm thay đổi số phễu — chỉ đổi Người hoặc Mảng mới thay đổi phạm vi tính. Ước theo trạng thái hiện tại của lead.</p>
   ${funnel.unknown ? `<p class="dash-note">⚠️ ${funnel.unknown} lead có trạng thái lạ (không thuộc danh sách trạng thái chuẩn) — không đưa vào phễu, không tính vào tổng lead đưa vào.</p>` : ""}</section>`;
   }
   /* --- Deal theo mảng / stage: cohort deal TẠO trong kỳ; tỉ lệ thắng
@@ -1657,7 +1664,7 @@ function dashAnalyticsHTML() {
     }).join("");
     compareHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>So sánh theo BD</h3><span class="dash-badge">bấm vào 1 BD để xem phạm vi của người đó</span></div><p class="dash-note">Kỳ đang áp dụng: <b>${periodLabel}</b> · Mảng đang áp dụng: <b>${dashLine ? esc(LINES[dashLine].name) : "Tất cả mảng"}</b>. Các cột dạng luồng — Lead mới trong kỳ, Lead đã chuyển đổi, Won / Lost — chỉ tính bản ghi <b>tạo trong kỳ</b> (trạng thái hiện tại); các cột Lead phụ trách, Deal đang mở, Việc quá hạn là <b>trạng thái hiện tại</b>, không đổi theo kỳ.${dashLine ? " Khi đang lọc một mảng, Việc quá hạn chỉ tính việc suy ra được đúng mảng đó từ đối tượng được gắn (deal/lead/công ty/game/sự kiện); việc không gắn đối tượng hoặc không thuộc mảng đang chọn không được tính." : ""}</p><div class="dash-table-wrap"><table class="dash-table"><thead><tr><th>BD</th><th>Lead phụ trách</th><th>Lead mới trong kỳ</th><th>Lead đã chuyển đổi (tỉ lệ Lead→Deal)</th><th>Deal đang mở</th><th>Won / Lost (tỉ lệ thắng)</th><th>Việc quá hạn</th></tr></thead><tbody>${trs}</tbody></table></div><p class="dash-note">Việc quá hạn: việc chưa xong và đã qua hạn theo đúng logic hạn việc của app (isOverdue). Hàng “Chưa gán” gồm lead/deal/việc chưa có người phụ trách.</p></section>`;
   }
-  const executive = dashboardExecutiveHTML({ D, dashState, lineScoped, cCompanies, cLeads, cDeals, range, now, nC, nL, nD, openDeals, funnel, funnelState, periodLabel }, controls);
+  const executive = dashboardExecutiveHTML({ D, dashState, lineScoped, cCompanies, cLeads, cDeals, range, now, nC, nL, nD, openDeals, funnel, conversion, conversionState, periodLabel }, controls);
   return executive + `<details class="ex-analytics-details"><summary>Phân tích chi tiết · đầy đủ các bước phễu và tỷ lệ chuyển đổi</summary><div class="dash-wrap">${kpis}${trendHTML}${funnelHTML}${dealHTML}${convHTML}${compareHTML}</div></details>`;
 }
 /* Read-only dashboard presentation. Filters are session UI state. */
@@ -1743,13 +1750,13 @@ function dashboardOverviewHTML(ctx) {
     + dashboardKpi('Leads', dashboardNumber(cohortLeads.length), `Tổng hiện tại: ${dashboardNumber(lineScoped.leads.length)}`, 'team', '#7052d8', "setView('leads')")
     + dashboardKpi('Deal đang mở', dashboardNumber(cohortOpen.length), `Tổng hiện tại: ${dashboardNumber(open.length)}`, 'pipeline', '#f58c25', "setView('board')")
     + dashboardKpi('Giá trị pipeline', esc(pipelineValue(cohortOpen)), `Tổng hiện tại: ${esc(pipelineValue(open))} · Deal mở tạo trong kỳ ${esc(periodLabel || '')} · AI & Metaverse`, 'money', '#e69a27', "setView('board')");
-  /* Phễu executive dùng CÙNG kết quả phễu theo sự kiện với phễu chi
-     tiết (ctx.funnel do dashAnalyticsHTML tính qua
-     dashLeadFunnelByEvents); chưa nạp xong / nạp lỗi -> panel hiện
-     đúng trạng thái đó, không hiện số nào. */
+  /* Phễu executive dùng CÙNG kết quả phễu toàn bộ theo trạng thái
+     hiện tại với phễu chi tiết (ctx.funnel do dashAnalyticsHTML tính
+     qua dashLeadFunnel trên tập Người × Mảng — không theo kỳ, tính
+     đồng bộ nên luôn có số ngay). */
   let funnelHTML;
-  if (ctx.funnelState !== 'loaded' || !funnel) {
-    funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', `Theo lần chuyển stage trong kỳ · ${esc(periodLabel)}`, 'pipeline')}<p class="ex-footnote">${ctx.funnelState === 'error' ? '⚠️ Chưa tải được nhật ký chuyển stage nên phễu chưa hiện số. Mở “Phân tích chi tiết” ở dưới để thử tải lại.' : '⏳ Đang tải nhật ký chuyển stage trong kỳ…'}</p></section>`;
+  if (!funnel) {
+    funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', 'Toàn bộ lead theo trạng thái hiện tại · không theo kỳ', 'pipeline')}<p class="ex-footnote">Chưa có dữ liệu phễu trong phạm vi này.</p></section>`;
   } else {
   const milestones = [{ key: '', label: 'Tổng lead đầu vào', count: funnel.total, pct: funnel.total ? 100 : null }]
     .concat(['sent_connect', 'in_reply', 'discovery_meeting', 'contacted', 'converted'].map(key => {
@@ -1759,7 +1766,7 @@ function dashboardOverviewHTML(ctx) {
   const colors = ['#087de4', '#29a5f5', '#7570f7', '#a15df3', '#cf69d7', '#ff9b2f'];
   const funnelRows = milestones.map((st, i) => `<button class="ex-funnel-row" onclick="dashOpenLeadFunnelStep('${st.key}')"><span class="ex-funnel-track"><span class="ex-funnel-shape" style="--ex-color:${colors[i]};width:${funnel.total ? Math.max(16, st.count / funnel.total * 100) : 16}%">${dashboardNumber(st.count)}</span></span><span class="ex-funnel-label"><i class="ex-dot" style="background:${colors[i]}"></i>${esc(st.label)}</span><b>${dashboardNumber(st.count)}</b><small>${dashPctTxt(st.pct)}</small></button>`).join('');
   const conversion = funnel.summary.convertedPct;
-  funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', `Theo lần chuyển stage trong kỳ · ${esc(periodLabel)}`, 'pipeline', `<span class="ex-pill">Lead → Deal: ${dashPctTxt(conversion)}</span>`)}<div class="ex-funnel">${funnelRows}</div><p class="ex-footnote">Tích lũy theo bước xa nhất lead đã chuyển tới trong kỳ, tính từ nhật ký hệ thống (đầy đủ từ 31-10-2026). Lead nhập theo lô hàng loạt không có sự kiện cho từng lead: lead được tạo trong kỳ thì tính từ trạng thái lúc tạo, lead có từ trước kỳ thì chỉ tính từ lần chuyển stage đầu tiên trong kỳ · ${dashboardNumber(funnel.dropped.count)} lead tạm dừng${funnel.unknown ? ` · ${dashboardNumber(funnel.unknown)} trạng thái chưa xác định` : ''}.</p></section>`;
+  funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', 'Toàn bộ lead theo trạng thái hiện tại · không theo kỳ', 'pipeline', `<span class="ex-pill">Lead → Deal: ${dashPctTxt(conversion)}</span>`)}<div class="ex-funnel">${funnelRows}</div><p class="ex-footnote">Tích lũy theo trạng thái hiện tại của lead trong phạm vi Người × Mảng — phễu tính trên toàn bộ hành trình từ đầu tới cuối phễu, không chia theo kỳ và không dùng nhật ký · ${dashboardNumber(funnel.dropped.count)} lead tạm dừng${funnel.unknown ? ` · ${dashboardNumber(funnel.unknown)} trạng thái chưa xác định` : ''}.</p></section>`;
   }
   const lines = Object.keys(LINES).filter(k => !dashLine || k === dashLine);
   const items = lines.map(k => ({ label: LINES[k].name, value: cohortOpen.filter(d => d.line === k).length, color: LINES[k].color }));
@@ -1905,6 +1912,36 @@ function dashboardActivityTypeListHTML(model) {
   const scopeTxt = `Kỳ: ${dashCustomActive ? 'Tuỳ chỉnh' : dashPeriodDays === null ? 'Tất cả' : dashPeriodDays + ' ngày'} · Người: ${dashScope === '__none__' ? 'Chưa gán' : dashScope ? esc(memberName(S, dashScope)) : 'Toàn hệ'} · Mảng: ${dashLine ? esc((LINES[dashLine] || {}).name || dashLine) : 'Tất cả mảng'}`;
   return `<section class="ex-panel ex-act-type-list">${dashboardHeading('Hoạt động loại: ' + esc(type.label), 'Trong đúng phạm vi bộ lọc chung · mới nhất trước · bấm một dòng để mở drawer của chủ và highlight hoạt động', type.icon, `<button class="ex-chip-clear" onclick="clearDashboardActivityType()" title="Bỏ lọc loại này, xem lại toàn bộ báo cáo hoạt động">✕ Đang lọc: ${esc(type.label)}</button>`)}<p class="ex-footnote">${dashboardNumber(filtered.length)} hoạt động · ${scopeTxt}</p>${rows || '<p class="ex-empty">Chưa có hoạt động loại này trong phạm vi đang chọn.</p>'}${pager}</section>`;
 }
+/* Khối "Chuyển đổi trong kỳ" (tab Báo cáo hoạt động, đợt chiều
+   12/11/2026): TỔNG số lead được chuyển đổi trong kỳ (toàn phạm vi
+   đang chọn) + bảng theo từng BD — CHỈ SỐ ĐẾM, tuyệt đối không tỉ
+   lệ/phần trăm và không thanh tỉ lệ suy ra % ở bất kỳ dạng nào. Số
+   liệu do dashAnalyticsHTML tính qua SavaDash.dashLeadConversions-
+   InPeriod từ nhật ký đã nạp (ctx.conversion / ctx.conversionState):
+   chưa nạp xong -> hiện đang tải; nạp lỗi -> hiện lỗi rõ ràng + nút
+   thử lại, KHÔNG hiện số 0 giả; ctx thiếu (harness gọi trực tiếp) ->
+   coi như đang tải. Tổng và từng dòng BD đều bấm được ->
+   dashOpenLeadConversionRow mở view Lead với đúng tập đã đếm. */
+function dashboardConversionHTML(ctx) {
+  const heading = dashboardHeading('Chuyển đổi trong kỳ', 'Số lead được chuyển đổi trong kỳ theo BD · chỉ đếm số lead, không tính tỉ lệ', 'check');
+  const note = `<p class="ex-footnote">Nguồn: nhật ký hệ thống. Nhật ký hệ thống đầy đủ từ 31-10-2026 nên kỳ chứa thời gian trước mốc này sẽ thiếu phần đầu. Lead được chuyển đổi bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển đổi thì không được đếm. Mỗi lead chỉ đếm 1 lần trong kỳ, gán cho BD thực hiện lần chuyển đổi đầu tiên của lead trong kỳ; sự kiện thiếu người thực hiện thì gán theo người phụ trách hiện tại của lead, cả hai đều không có thì vào dòng “Không rõ”.</p>`;
+  if (!ctx || ctx.conversionState !== 'loaded' || !ctx.conversion) {
+    if (ctx && ctx.conversionState === 'error') {
+      const errTxt = (typeof conversionAudit !== 'undefined' && conversionAudit.err) ? ` (${esc(conversionAudit.err)})` : '';
+      return `<section class="ex-panel ex-conversion">${heading}<p class="ex-footnote">⚠️ Chưa tải được nhật ký chuyển đổi${errTxt} nên khối chưa hiện số. <button type="button" class="btn ghost small" onclick="retryConversionAudit()">Thử tải lại</button></p>${note}</section>`;
+    }
+    return `<section class="ex-panel ex-conversion">${heading}<p class="ex-footnote">⏳ Đang tải nhật ký chuyển đổi trong kỳ (${esc((ctx && ctx.periodLabel) || '')})…</p>${note}</section>`;
+  }
+  const conv = ctx.conversion;
+  const bodyRows = conv.rows.map(r => {
+    const name = r.id === '__none__' ? 'Không rõ' : memberName(S, r.id);
+    const initials = name.trim().split(/\s+/).slice(-2).map(n => n[0]).join('').toUpperCase();
+    return `<tr><td><button class="ex-person" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này"><span class="ex-avatar">${esc(initials)}</span>${esc(name)}</button></td><td><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này">${dashboardNumber(r.count)}</button></td></tr>`;
+  }).join('');
+  const totalRow = `<p class="ex-conversion-total"><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('')" title="Bấm để mở đúng mọi lead đã đếm ở khối này">Tổng số lead được chuyển đổi trong kỳ: <b>${dashboardNumber(conv.total)}</b></button>${dashLine ? ` · Mảng: ${esc((LINES[dashLine] || {}).name || dashLine)}` : ''} · Kỳ: ${esc(ctx.periodLabel || '')}</p>`;
+  const empty = conv.total ? '' : '<p class="ex-empty">Chưa có lead nào được chuyển đổi trong kỳ này.</p>';
+  return `<section class="ex-panel ex-conversion">${heading}${totalRow}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>BD</th><th>Số lead đã chuyển đổi</th></tr></thead><tbody>${bodyRows || '<tr><td colspan="2">Chưa có dữ liệu.</td></tr>'}</tbody></table></div>${empty}${note}</section>`;
+}
 function dashboardActivityHTML(ctx) {
   const model = dashboardActivityModel(ctx.now), total = model.records.length;
   const cards = dashboardKpi('Tổng hoạt động', dashboardNumber(total), 'Ghi nhận trong kỳ đang chọn · bấm để bỏ lọc loại', 'chart', '#087de4', "clearDashboardActivityType()") + DASHBOARD_ACTIVITY_TYPES.filter(t => t.key !== 'other').map(t => dashboardKpi(t.label, dashboardNumber(model.counts[t.key]), 'Bấm để xem danh sách loại này', t.icon, t.color, "setDashboardActivityType('" + t.key + "')")).join('');
@@ -1922,7 +1959,7 @@ function dashboardActivityHTML(ctx) {
   const mix = `<section class="ex-panel ex-activity-mix">${dashboardHeading('Cơ cấu hoạt động', 'Tỷ trọng theo loại được ghi nhận · bấm một loại để xem danh sách', 'cube')}<div class="ex-mix-body">${dashboardRing(items, total, 'Hoạt động')}${mixLegend}</div></section>`;
   const table = `<section class="ex-panel ex-activity-team">${dashboardHeading('Hoạt động theo thành viên', 'Tổng hợp số hoạt động trong kỳ', 'team')}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>Thành viên</th><th>Tổng hoạt động</th>${DASHBOARD_ACTIVITY_TYPES.map(t => `<th>${t.label}</th>`).join('')}</tr></thead><tbody>${teamRows || '<tr><td colspan="7">Chưa có hoạt động.</td></tr>'}</tbody><tfoot><tr><th>Tổng cộng</th><td>${dashboardNumber(total)}</td>${DASHBOARD_ACTIVITY_TYPES.map(t => `<td>${dashboardNumber(model.counts[t.key])}</td>`).join('')}</tr></tfoot></table></div></section>`;
   const coverage = `<section class="ex-panel ex-coverage">${dashboardHeading('Phạm vi báo cáo', 'Hoạt động đã ghi nhận trên CRM', 'check')}<strong>${dashboardNumber(total)}</strong><p>hoạt động trong kỳ đang chọn</p><div class="ex-coverage-bar"></div><p class="ex-footnote">Lọc theo người thực hiện và mảng của hồ sơ gắn với hoạt động. Tin nhắn gồm Zalo/Messenger; Meeting gồm cả Demo.${model.missingDates ? ` ${dashboardNumber(model.missingDates)} hoạt động chưa có ngày hợp lệ${dashPeriodDays === null && !dashCustomActive ? ', được tính tổng và chưa thể vẽ theo thời gian' : ', chỉ hiện khi chọn Tất cả'}.` : ''}</p></section>`;
-  return `<div class="ex-kpis ex-kpis-activity">${cards}</div>${dashboardActivityTypeListHTML(model)}<div class="ex-activity-charts">${chart}${mix}${dashboardRecentActivityHTML(model.records)}</div><div class="ex-activity-bottom">${table}${coverage}</div>`;
+  return `<div class="ex-kpis ex-kpis-activity">${cards}</div>${dashboardActivityTypeListHTML(model)}${dashboardConversionHTML(ctx)}<div class="ex-activity-charts">${chart}${mix}${dashboardRecentActivityHTML(model.records)}</div><div class="ex-activity-bottom">${table}${coverage}</div>`;
 }
 function dashboardExecutiveHTML(ctx, controls) {
   const tabs = `<div class="ex-tabs" role="group" aria-label="Nội dung dashboard"><button class="${dashboardMode === 'overview' ? 'on' : ''}" aria-pressed="${dashboardMode === 'overview'}" onclick="setDashboardMode('overview')">${SavaUI.icon('overview')}Tổng quan kinh doanh</button><button class="${dashboardMode === 'activity' ? 'on' : ''}" aria-pressed="${dashboardMode === 'activity'}" onclick="setDashboardMode('activity')">${SavaUI.icon('chart')}Báo cáo hoạt động</button></div>`;
@@ -2230,24 +2267,30 @@ function leadInCreatedPeriod(l) {
    Pipeline). Ép về chế độ Block (block trạng thái đích tự
    mở sẵn) rồi setView("leads") — cùng mẫu viewLeadsOfMember. Key rỗng
    (dòng mốc "Tổng lead đưa vào") = bỏ lọc trạng thái, xem tất cả. */
-/* Bộ lọc TẬP ID TƯỜNG MINH từ phễu theo sự kiện (12/11/2026):
+/* Bộ lọc TẬP ID TƯỜNG MINH từ các khối đếm của Dashboard (gốc từ
+   phễu 12/11/2026, dùng chung cho phễu toàn bộ + khối "Chuyển đổi
+   trong kỳ" từ đợt chiều 12/11/2026):
    leadFunnelIds = { ids, set, label } — đúng các lead đã đếm ở dòng
-   phễu vừa bấm (cùng Người × Mảng × kỳ của lần tính đó). Khi đang bật,
-   tập ID này THẮNG bộ lọc trạng thái + bộ lọc ngày tạo trong
-   filteredLeads (hai cơ chế kia vẫn tồn tại và áp lại ngay khi gỡ
-   chip); các lọc còn lại (tab mảng, tìm kiếm, người phụ trách — vốn
-   nhất quán với phạm vi phễu) vẫn áp bình thường. Chip ở đầu view
-   Lead ghi rõ đang xem tập từ phễu + kỳ nào, gỡ bằng nút ✕ trên chip
-   (clearLeadFunnelIds). leadFunnelVersion tăng mỗi lần đặt/gỡ để chữ
-   ký phân trang của view Lead nhận biết mà về trang 1. */
+   vừa bấm. Khi đang bật, tập ID này THẮNG bộ lọc trạng thái + bộ lọc
+   ngày tạo trong filteredLeads (hai cơ chế kia vẫn tồn tại và áp lại
+   ngay khi gỡ chip); các lọc còn lại (tab mảng, tìm kiếm, người phụ
+   trách) vẫn áp bình thường — nơi mở tập tự đặt các lọc đó cho nhất
+   quán với phạm vi đã đếm (phễu: Người × Mảng của phễu; chuyển đổi:
+   chỉ Mảng, vì gán BD của khối chuyển đổi không đồng nhất với owner
+   của lead). Chip ở đầu view Lead ghi rõ đang xem tập đã đếm nào
+   (nhãn mang theo tên khối; riêng khối chuyển đổi còn ghi kỳ + BD,
+   phễu thì không nhắc kỳ vì phễu không theo kỳ), gỡ bằng nút ✕ trên
+   chip (clearLeadFunnelIds). leadFunnelVersion tăng mỗi lần đặt/gỡ
+   để chữ ký phân trang của view Lead nhận biết mà về trang 1. */
 let leadFunnelIds = null;
 let leadFunnelVersion = 0;
 function clearLeadFunnelIds() { if (leadFunnelIds) { leadFunnelIds = null; leadFunnelVersion++; } render(); }
-/* Bấm một dòng phễu theo sự kiện -> mở view Lead với ĐÚNG tập đã đếm
-   ở dòng đó: dòng mốc = totalLeadIds; một bước = step.leadIds (mức
-   >= bước); dòng lối ra = droppedLeadIds. Nguồn số liệu là
+/* Bấm một dòng phễu -> mở view Lead với ĐÚNG tập đã đếm ở dòng đó:
+   dòng mốc = totalLeadIds; một bước = step.leadIds (chỉ số trạng
+   thái >= bước); dòng lối ra = droppedLeadIds. Nguồn số liệu là
    dashFunnelLast do dashAnalyticsHTML lưu ở lần render phễu gần nhất
-   (đã gồm đúng Người × Mảng × kỳ của thanh lọc chung lúc tính). */
+   (đúng Người × Mảng của thanh lọc chung lúc tính — phễu không theo
+   kỳ nên nhãn tập không nhắc kỳ). */
 function dashOpenLeadFunnelStep(stepKey) {
   const last = dashFunnelLast;
   if (!last || !last.funnel) return;
@@ -2260,12 +2303,39 @@ function dashOpenLeadFunnelStep(stepKey) {
     label = (leadStatusDef(stepKey) || { label: stepKey }).label;
   }
   const idStrs = ids.map(String);
-  leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Phễu Lead — ${label} · kỳ ${last.periodLabel}` };
+  leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Phễu Lead — ${label} · toàn bộ theo trạng thái hiện tại` };
   leadFunnelVersion++;
   leadOwnerFilter = dashScope || "";
   curLine = dashLine || "all";
   leadViewMode = "block";
   if (stepKey && stepKey !== "__dropped__") leadBlockCollapsed[stepKey] = false;
+  setView("leads");
+}
+/* Bấm tổng / một dòng BD của khối "Chuyển đổi trong kỳ" -> mở view
+   Lead với ĐÚNG tập lead đã đếm: rowId "" = tổng (totalLeadIds);
+   "__none__" = dòng Không rõ; còn lại = member id của dòng BD đó.
+   Nguồn là dashConversionLast của lần render gần nhất (đã gồm kỳ ×
+   Mảng × trục Người lúc tính). leadOwnerFilter đặt "" (không lọc
+   theo owner) vì BD được gán của khối này là người thực hiện chuyển
+   đổi, không đồng nhất với owner hiện tại của lead — lọc owner sẽ
+   giấu mất lead đã đếm; tab mảng vẫn đặt theo dashLine vì tập đã đếm
+   vốn được lọc theo mảng của lead. */
+function dashOpenLeadConversionRow(rowId) {
+  const last = dashConversionLast;
+  if (!last || !last.conversion) return;
+  let ids, label;
+  if (!rowId) { ids = last.conversion.totalLeadIds || []; label = "Tất cả BD"; }
+  else {
+    const row = last.conversion.rows.find(x => x.id === rowId);
+    ids = row ? (row.leadIds || []) : [];
+    label = rowId === "__none__" ? "Không rõ" : memberName(S, rowId);
+  }
+  const idStrs = ids.map(String);
+  leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Chuyển đổi trong kỳ — ${label} · kỳ ${last.periodLabel}` };
+  leadFunnelVersion++;
+  leadOwnerFilter = "";
+  curLine = dashLine || "all";
+  leadViewMode = "block";
   setView("leads");
 }
 function dashOpenLeadStatus(statusKey) {
@@ -2319,7 +2389,7 @@ function leadViewHeadHTML() {
     ...[7, 30, 90].map(n => `<option value="${n}" ${leadCreatedPeriodDays === n ? "selected" : ""}>Tạo trong ${n} ngày</option>`),
     ...(leadCreatedRange ? [`<option value="custom" selected>Tuỳ chỉnh: ${esc(isoToDMY(leadCreatedRange.from))} → ${esc(isoToDMY(leadCreatedRange.to))}</option>`] : [])].join("");
   const periodChip = leadCreatedRange ? `<span class="chip" style="background:#0f766e" title="Bộ lọc ngày tạo theo khoảng tuỳ chỉnh mang từ Tổng quan">📅 Tạo từ ${esc(isoToDMY(leadCreatedRange.from))} đến ${esc(isoToDMY(leadCreatedRange.to))} <button type="button" onclick="clearLeadCreatedRange()" title="Bỏ lọc khoảng ngày tạo này" aria-label="Bỏ lọc khoảng ngày tạo" style="background:none;border:none;color:#fff;cursor:pointer;font:inherit;padding:0 0 0 4px">✕</button></span>` : "";
-  const funnelChip = leadFunnelIds ? `<span class="chip" style="background:#7c3aed" title="Đang xem đúng tập lead đã đếm ở dòng phễu — bộ lọc tập này thắng bộ lọc trạng thái và ngày tạo cho tới khi gỡ">🎯 Đang xem tập từ phễu: ${esc(leadFunnelIds.label)} (${leadFunnelIds.ids.length} lead) <button type="button" onclick="clearLeadFunnelIds()" title="Bỏ lọc tập từ phễu này" aria-label="Bỏ lọc tập từ phễu" style="background:none;border:none;color:#fff;cursor:pointer;font:inherit;padding:0 0 0 4px">✕</button></span>` : "";
+  const funnelChip = leadFunnelIds ? `<span class="chip" style="background:#7c3aed" title="Đang xem đúng tập lead đã đếm ở khối Dashboard vừa bấm — bộ lọc tập này thắng bộ lọc trạng thái và ngày tạo cho tới khi gỡ">🎯 Đang xem tập đã đếm: ${esc(leadFunnelIds.label)} (${leadFunnelIds.ids.length} lead) <button type="button" onclick="clearLeadFunnelIds()" title="Bỏ lọc tập đã đếm này" aria-label="Bỏ lọc tập đã đếm" style="background:none;border:none;color:#fff;cursor:pointer;font:inherit;padding:0 0 0 4px">✕</button></span>` : "";
   return `<div class="lead-view-head"><button class="btn" onclick="editLead(null)">+ Thêm lead</button>
     <div class="tabs" role="group" aria-label="Chế độ xem lead">
       <button class="${leadViewMode === "block" ? "on" : ""}" onclick="setLeadViewMode('block')">▦ Block</button>

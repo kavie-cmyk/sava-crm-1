@@ -185,12 +185,13 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
-  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
-     số phễu đến từ quy tắc sàn như harness dashboard-analytics. */
-  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
+  /* Phễu toàn bộ (đợt chiều 12/11/2026): phễu đồng bộ theo trạng
+     thái hiện tại, không cần stub nhật ký; stub chuyển đổi rỗng giữ
+     cho tab Báo cáo hoạt động (nếu render) không lỗi. */
+  vm.runInContext("window.SavaData = { listLeadConversionEvents: async () => ({ windowEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
-/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+/* Render bồi sau vài tick (giữ mẫu harness cũ; phễu nay đồng bộ). */
 async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 const ids = run => JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)')));
 
@@ -205,15 +206,15 @@ test('hành vi: thanh lọc chung là chỗ chọn DUY NHẤT cho Kỳ + Ngườ
   assert.ok(!html.includes('Người Cũ'), 'member đã ngừng hoạt động KHÔNG xuất hiện ở trục Người');
   assert.ok(html.includes('<option value="__none__"') && html.includes('>Chưa gán</option>'), 'trục Người có lựa chọn Chưa gán');
   assert.ok(html.includes('Kỳ đang áp dụng: <b>30 ngày</b>'), 'caption bảng so sánh BD ghi rõ kỳ đang áp dụng (mặc định 30)');
-  assert.ok(html.includes('Tính theo lần chuyển stage trong kỳ</b> (30 ngày)'), 'phễu ghi chú cách tính theo sự kiện trong kỳ (12/11/2026)');
+  assert.ok(html.includes('Tính trên toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>'), 'phễu ghi chú cách tính toàn bộ theo trạng thái hiện tại, không theo kỳ (đợt chiều 12/11/2026)');
 });
 
-test('hành vi: kỳ 7 + BD Yến trên render — phễu N=2, KPI mới trong kỳ, bảng so sánh ẩn; Tất cả + Toàn hệ khôi phục số toàn tập', async () => {
+test('hành vi: kỳ 7 + BD Yến trên render — phễu N=3 (toàn bộ lead của Yến, bất biến theo kỳ), KPI mới trong kỳ, bảng so sánh ẩn; Tất cả + Toàn hệ khôi phục số toàn tập', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; setDashPeriod('7'); setDashScope('yen')");
   await settleFunnel({ run });
   const html = getEl('view').innerHTML;
-  assert.ok(html.includes('Tổng lead đưa vào — 2 lead · 100%'), 'phễu theo sự kiện kỳ 7 của Yến: N=2 (lead tạo trong kỳ, quy tắc sàn)');
+  assert.ok(html.includes('Tổng lead đưa vào — 3 lead · 100%'), 'phễu của Yến: N=3 = TOÀN BỘ lead đường chính của Yến (L1 contacted + L2 converted + L3 new) — đổi kỳ 7 KHÔNG đổi phễu (đợt chiều 12/11/2026), chỉ trục Người lọc');
   assert.ok(html.includes('<div class="v">2</div><div class="s">Tổng hiện tại: 3</div>'), 'KPI Lead (Phân tích, hoán đổi 12/11/2026): số chính = lead tạo trong kỳ 7 của Yến (L1, L2) = 2; dòng phụ = Tổng hiện tại: 3');
   assert.ok(!html.includes('<h3>So sánh theo BD</h3>'), 'Người ≠ Toàn hệ -> ẩn bảng so sánh (khớp theo heading bảng: đoạn Phạm vi số liệu mới cũng nhắc chữ "So sánh theo BD")');
   run("setDashPeriod('all'); setDashScope('')");
@@ -259,5 +260,5 @@ test('hành vi: lựa chọn Kỳ + Người KHÔNG reset khi chuyển view qua 
   assert.equal(run('dashScope'), 'hoang');
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('<button class="dash-chip on" onclick="setDashPeriod(\'7\')">7 ngày</button>'), 'chip kỳ 7 ngày vẫn đang chọn sau khi quay lại');
-  assert.ok(html.includes('Tổng lead đưa vào — 1 lead · 100%'), 'phễu vẫn theo kỳ 7 của Hoàng (chỉ L4) sau khi quay lại Tổng quan');
+  assert.ok(html.includes('Tổng lead đưa vào — 1 lead · 100%'), 'phễu vẫn theo Người = Hoàng (chỉ L4 đường chính; L6 ở lối ra) sau khi quay lại Tổng quan — kỳ 7 còn giữ ở lựa chọn nhưng phễu không theo kỳ');
 });
