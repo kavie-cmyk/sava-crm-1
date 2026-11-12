@@ -185,13 +185,19 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
+  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
+     số phễu đến từ quy tắc sàn như harness dashboard-analytics. */
+  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
+/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 const ids = run => JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)')));
 
-test('hành vi: thanh lọc chung là chỗ chọn DUY NHẤT cho Kỳ + Người; trục Người chỉ gồm member active + Chưa gán', () => {
+test('hành vi: thanh lọc chung là chỗ chọn DUY NHẤT cho Kỳ + Người; trục Người chỉ gồm member active + Chưa gán', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; render()");
+  await settleFunnel({ run });
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('dash-filterbar'), 'có thanh lọc chung ở đầu khu Phân tích');
   assert.equal((html.match(/onchange="setDashScope\(this\.value\)"/g) || []).length, 1, 'đúng 1 select trục Người trong khu Phân tích');
@@ -199,17 +205,19 @@ test('hành vi: thanh lọc chung là chỗ chọn DUY NHẤT cho Kỳ + Ngườ
   assert.ok(!html.includes('Người Cũ'), 'member đã ngừng hoạt động KHÔNG xuất hiện ở trục Người');
   assert.ok(html.includes('<option value="__none__"') && html.includes('>Chưa gán</option>'), 'trục Người có lựa chọn Chưa gán');
   assert.ok(html.includes('Kỳ đang áp dụng: <b>30 ngày</b>'), 'caption bảng so sánh BD ghi rõ kỳ đang áp dụng (mặc định 30)');
-  assert.ok(html.includes('Lead tạo trong kỳ</b> (30 ngày)'), 'phễu ghi chú cohort khi kỳ ≠ Tất cả');
+  assert.ok(html.includes('Tính theo lần chuyển stage trong kỳ</b> (30 ngày)'), 'phễu ghi chú cách tính theo sự kiện trong kỳ (12/11/2026)');
 });
 
-test('hành vi: kỳ 7 + BD Yến trên render — phễu N=2, KPI mới trong kỳ, bảng so sánh ẩn; Tất cả + Toàn hệ khôi phục số toàn tập', () => {
+test('hành vi: kỳ 7 + BD Yến trên render — phễu N=2, KPI mới trong kỳ, bảng so sánh ẩn; Tất cả + Toàn hệ khôi phục số toàn tập', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; setDashPeriod('7'); setDashScope('yen')");
+  await settleFunnel({ run });
   const html = getEl('view').innerHTML;
-  assert.ok(html.includes('Tổng lead đưa vào — 2 lead · 100%'), 'phễu cohort kỳ 7 của Yến: N=2');
+  assert.ok(html.includes('Tổng lead đưa vào — 2 lead · 100%'), 'phễu theo sự kiện kỳ 7 của Yến: N=2 (lead tạo trong kỳ, quy tắc sàn)');
   assert.ok(html.includes('+2 mới trong 7 ngày gần nhất'), 'KPI lead: +2 mới trong kỳ (L1, L2)');
   assert.ok(!html.includes('So sánh theo BD'), 'Người ≠ Toàn hệ -> ẩn bảng so sánh');
   run("setDashPeriod('all'); setDashScope('')");
+  await settleFunnel({ run });
   const all = getEl('view').innerHTML;
   assert.ok(all.includes('Tổng lead đưa vào — 5 lead · 100%'), 'neo hồi quy trên render: Tất cả + Toàn hệ -> phễu N=5 như trước đợt gộp');
   assert.ok(all.includes('Kỳ đang áp dụng: <b>Tất cả</b>'));
@@ -241,14 +249,15 @@ test('hành vi: phễu click-through mang đúng trạng thái + kỳ tạo + ng
   assert.deepEqual(ids(run), ['L3', 'L5'], 'gỡ kỳ tạo -> cả hai lead new');
 });
 
-test('hành vi: lựa chọn Kỳ + Người KHÔNG reset khi chuyển view qua lại', () => {
+test('hành vi: lựa chọn Kỳ + Người KHÔNG reset khi chuyển view qua lại', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; setDashPeriod('7'); setDashScope('hoang'); render()");
+  await settleFunnel({ run });
   run("setView('leads')");
   run("setView('dash')");
   assert.equal(run('dashPeriodDays'), 7);
   assert.equal(run('dashScope'), 'hoang');
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('<button class="dash-chip on" onclick="setDashPeriod(\'7\')">7 ngày</button>'), 'chip kỳ 7 ngày vẫn đang chọn sau khi quay lại');
-  assert.ok(html.includes('Tổng lead đưa vào — 1 lead · 100%'), 'phễu vẫn theo cohort kỳ 7 của Hoàng (chỉ L4) sau khi quay lại Tổng quan');
+  assert.ok(html.includes('Tổng lead đưa vào — 1 lead · 100%'), 'phễu vẫn theo kỳ 7 của Hoàng (chỉ L4) sau khi quay lại Tổng quan');
 });

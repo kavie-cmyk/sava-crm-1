@@ -1236,7 +1236,37 @@
       return (data || []).map(auditRowToEntry);
     } catch (e) { return null; }
   }
-  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, listRecent: auditListRecent, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
+  /* Phễu Lead theo sự kiện (12/11/2026): nạp các mục audit của LEAD
+     trong một cửa sổ thời gian [gte, lt) (ISO; đầu nào trống = không
+     chặn đầu đó) để index.html tính phễu theo lần chuyển stage trong
+     kỳ. Đi qua q() nên TỰ ĐỘNG phân trang vượt trần 1.000 dòng/select
+     như loadAll (trang 1.000, .range, lỗi ở bất kỳ trang nào cũng ném
+     ra — caller hiện trạng thái lỗi rõ ràng, TUYỆT ĐỐI không rơi về
+     số cohort cũ). earliestForIds: với các lead tạo trong kỳ, nạp
+     thêm MỌI mục audit của từng lead (mọi thời gian, theo lô 200 id
+     qua .in) để tầng tính tìm sự kiện status sớm nhất nói chung của
+     lead (căn cứ stage khởi điểm cho quy tắc sàn). KHÁC listFor/
+     listRecent: hàm này NÉM lỗi thay vì trả null, vì người gọi phải
+     phân biệt được "nạp thất bại" với "không có sự kiện nào". */
+  async function auditListLeadFunnelEvents(opts) {
+    if (!ctx.client) throw new Error('Tầng dữ liệu chưa sẵn sàng (chưa gắn client Supabase)');
+    const o = opts || {};
+    const winRows = await q('audit_log', qb => {
+      let x = qb.eq('entity_type', 'lead');
+      if (o.gte) x = x.gte('at', String(o.gte));
+      if (o.lt) x = x.lt('at', String(o.lt));
+      return x.order('at', { ascending: true });
+    });
+    let earliestRows = [];
+    const ids = Array.isArray(o.earliestForIds) ? [...new Set(o.earliestForIds.map(String))] : [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const rows = await q('audit_log', qb => qb.eq('entity_type', 'lead').in('entity_id', chunk).order('at', { ascending: true }));
+      earliestRows = earliestRows.concat(rows);
+    }
+    return { windowEvents: winRows.map(auditRowToEntry), earliestEvents: earliestRows.map(auditRowToEntry) };
+  }
+  const auditApi = { recordBatch: auditRecordBatch, listFor: auditListFor, listRecent: auditListRecent, listLeadFunnelEvents: auditListLeadFunnelEvents, _flush: flushAudit, _queue: auditQueue, _queueMax: AUDIT_QUEUE_MAX };
   if (typeof window !== 'undefined') window.SavaAudit = auditApi;
 
   /* Đăng ký flush rời trang ngay khi file được nạp (mọi trang dùng
@@ -1254,7 +1284,7 @@
        bỏ qua giá trị trả về vẫn chạy đúng như cũ. */
     syncNow: () => flushSync(),
     flushSync, flushBeforeNavigate,
-    isReady: () => ctx.ready, CRM_KEY, PUB_KEY, CRM_BACKUP_KEY, PUB_BACKUP_KEY,
+    isReady: () => ctx.ready, listLeadFunnelEvents: auditListLeadFunnelEvents, CRM_KEY, PUB_KEY, CRM_BACKUP_KEY, PUB_BACKUP_KEY,
     CRM_FORMAT_KEY, SPLIT_FORMAT, CRM_JOURNAL_KEY,
     /* Chiến lược cache: phơi API bộ nhớ phiên cho shared.js + test. */
     heavy: heavyCacheApi,

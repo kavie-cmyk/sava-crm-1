@@ -195,8 +195,13 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
+  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
+     số phễu đến từ quy tắc sàn như harness dashboard-analytics. */
+  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
+/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 const ids = run => JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)')));
 const daysAgoDate = n => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
 
@@ -213,16 +218,17 @@ test('hành vi: bật Tuỳ chỉnh -> mặc định hôm nay − 29 đến hôm
   assert.ok(html.includes(`Kỳ đang áp dụng: <b>từ ${dmyOf(daysAgoDate(29))} đến ${dmyOf(new Date())}</b>`), 'caption bảng so sánh BD ghi khoảng ngày cụ thể');
 });
 
-test('hành vi: nhập khoảng 4 ngày gần nhất (kể cả dạng ddmmyyyy) -> mọi khối theo khoảng; Từ > Đến / ngày không có thật -> KHÔNG áp, giữ khoảng cũ', () => {
+test('hành vi: nhập khoảng 4 ngày gần nhất (kể cả dạng ddmmyyyy) -> mọi khối theo khoảng; Từ > Đến / ngày không có thật -> KHÔNG áp, giữ khoảng cũ', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; setDashPeriod('custom')");
+  await settleFunnel({ run });
   getEl('dashCustomFrom').value = dmyOf(daysAgoDate(3));
   getEl('dashCustomTo').value = dmyOf(new Date());
   run('setDashCustomRange()');
   assert.equal(run('dashCustomFrom'), isoOf(daysAgoDate(3)));
   let html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 3 lead · 100%'), 'phễu theo khoảng 4 ngày: L1 (2d) + L4 (3d) + L5 (1d)');
-  assert.ok(html.includes(`<b>Lead tạo trong kỳ</b> (từ ${dmyOf(daysAgoDate(3))} đến ${dmyOf(new Date())})`), 'ghi chú phễu ghi khoảng cụ thể');
+  assert.ok(html.includes(`<b>Tính theo lần chuyển stage trong kỳ</b> (từ ${dmyOf(daysAgoDate(3))} đến ${dmyOf(new Date())})`), 'ghi chú phễu ghi khoảng cụ thể');
   /* Gõ nhanh 8 số liền ddmmyyyy cũng áp được qua parseDMYtoISO dùng chung. */
   const compact = d => String(d.getDate()).padStart(2, '0') + String(d.getMonth() + 1).padStart(2, '0') + d.getFullYear();
   getEl('dashCustomFrom').value = compact(daysAgoDate(1));
@@ -248,12 +254,14 @@ test('hành vi: nhập khoảng 4 ngày gần nhất (kể cả dạng ddmmyyyy)
   assert.ok(!html.includes('NaN') && !html.includes('undefined'), 'sau các lần nhập sai, render vẫn sạch');
 });
 
-test('hành vi: khoảng hoàn toàn trong tương lai -> mọi khối 0/trống tử tế, không NaN/undefined/lỗi render', () => {
+test('hành vi: khoảng hoàn toàn trong tương lai -> mọi khối 0/trống tử tế, không NaN/undefined/lỗi render', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; setDashPeriod('custom')");
+  await settleFunnel({ run });
   getEl('dashCustomFrom').value = dmyOf(daysAgoDate(-5));
   getEl('dashCustomTo').value = dmyOf(daysAgoDate(-10));
   run('setDashCustomRange()');
+  await settleFunnel({ run });
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 0 lead · 100%'));
   assert.ok(html.includes('Chưa có lead nào trong phạm vi này.'));

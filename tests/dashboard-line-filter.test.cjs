@@ -203,13 +203,20 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
+  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
+     số phễu đến từ quy tắc sàn như harness dashboard-analytics (mọi
+     lead của fixture đều tạo trong kỳ nên số khớp neo hồi quy cũ). */
+  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
+/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 const leadIds = run => JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)')));
 
-test('hành vi: thanh lọc chung có ĐÚNG 1 select trục Mảng (Tất cả mảng + 4 mảng); phễu KHÔNG còn select mảng riêng', () => {
+test('hành vi: thanh lọc chung có ĐÚNG 1 select trục Mảng (Tất cả mảng + 4 mảng); phễu KHÔNG còn select mảng riêng', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; render()");
+  await settleFunnel({ run });
   const html = getEl('view').innerHTML;
   assert.equal((html.match(/onchange="setDashLine\(this\.value\)"/g) || []).length, 1, 'đúng 1 select trục Mảng trên thanh lọc chung');
   assert.equal((html.match(/onchange="setDashScope\(this\.value\)"/g) || []).length, 1, 'trục Người vẫn là 1 select duy nhất');
@@ -223,9 +230,10 @@ test('hành vi: thanh lọc chung có ĐÚNG 1 select trục Mảng (Tất cả 
   assert.equal((html.match(/dash-line-card/g) || []).length, 4, 'Tất cả mảng: khối Deal theo mảng hiện đủ 4 thẻ');
 });
 
-test('hành vi: lọc 1 mảng áp đồng nhất KPI + phễu + thẻ deal + caption so sánh; kết hợp AND với Kỳ + Người', () => {
+test('hành vi: lọc 1 mảng áp đồng nhất KPI + phễu + thẻ deal + caption so sánh; kết hợp AND với Kỳ + Người', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; setDashPeriod('all'); setDashLine('ai')");
+  await settleFunnel({ run });
   let html = getEl('view').innerHTML;
   assert.ok(html.includes('Lead</div><div class="v">2</div>'), 'KPI Lead (tổng theo mảng): chỉ L1 + L2 thuộc ai');
   assert.ok(html.includes('Công ty</div><div class="v">2</div>'), 'KPI Công ty: cA + cC có roles ai');

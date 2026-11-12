@@ -251,8 +251,9 @@ test('dashCompare: hàng theo BD + Chưa gán; tổng các chỉ số cộng đ�
 test('tĩnh: vDash gắn dashAnalyticsHTML; đủ nhãn trung thực + điều khiển; màu định nghĩa 1 chỗ; CSS dash- riêng', () => {
   const html = read('index.html'), shared = read('shared.js'), css = read('workspace-design.css');
   assert.ok(html.includes('dashAnalyticsHTML() + `<details class="ex-legacy-operations">'), 'vDash mở đầu bằng dashboard, khối thao tác cũ vẫn truy cập trong details');
-  assert.ok(html.includes('Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead'), 'phễu phải có ghi chú trung thực nguyên văn');
-  assert.ok(html.includes('ảnh chụp hiện tại'), 'phải ghi nhãn phễu/tỉ lệ là ảnh chụp hiện tại');
+  assert.ok(!html.includes('Ước tính theo trạng thái hiện tại — hệ thống không lưu lịch sử từng bước đi của lead'), 'phễu theo sự kiện (12/11/2026): chú thích cũ "hệ thống không lưu lịch sử" đã xoá hẳn');
+  assert.ok(html.includes('Nhật ký hệ thống đầy đủ từ 31-10-2026'), 'phễu phải có chú thích nhật ký đầy đủ từ 31-10-2026 + hệ quả lead nhập lô');
+  assert.ok(html.includes('Theo lần chuyển stage trong kỳ') && html.includes('Tính theo lần chuyển stage trong kỳ'), 'phễu ghi nhãn tính theo lần chuyển stage trong kỳ từ nhật ký hệ thống');
   assert.ok(html.includes('Chưa có deal đóng'));
   assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('setDashLine'));
   assert.ok(!html.includes('setDashFunnelOwner'), 'bộ lọc chung 2026-11-05: trục Người của phễu đã gộp vào thanh lọc chung — không còn select người riêng của phễu');
@@ -315,12 +316,20 @@ function loadIndex() {
   for (const f of ['apple-ui.js', 'shared.js', 'publishing-score.js', 'publishing-bridge.js']) vm.runInContext(read(f), ctx, { filename: f });
   [...read('index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).filter(x => x.trim())
     .forEach((code, i) => vm.runInContext(code, ctx, { filename: 'index-inline-' + i }));
+  /* Phễu theo sự kiện (12/11/2026): stub tầng nạp nhật ký — 0 sự kiện,
+     nên số phễu trong harness này đến từ quy tắc sàn (lead tạo trong
+     kỳ, không sự kiện -> tính từ trạng thái lúc tạo = trạng thái hiện
+     tại của fixture), khớp số cohort cũ trên các fixture tạo-trong-kỳ. */
+  vm.runInContext("window.SavaData = { listLeadFunnelEvents: async () => ({ windowEvents: [], earliestEvents: [] }) }", ctx);
   return { ctx, getEl, run: code => vm.runInContext(code, ctx) };
 }
+/* Chờ vòng nạp nhật ký phễu (bất đồng bộ) xong rồi render lại. */
+async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 
-test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; chuyển scope BD ẩn bảng so sánh + hiện định nghĩa công ty của BD', () => {
+test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; chuyển scope BD ẩn bảng so sánh + hiện định nghĩa công ty của BD', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; render()");
+  await settleFunnel({ run });
   const html = getEl('view').innerHTML;
   for (const needle of ['Phân tích', 'Xu hướng thêm mới', 'Phễu Lead', 'Tiến trình Deal theo mảng', 'Lead → Deal', 'So sánh theo BD', 'Tổng lead đưa vào', 'Not yet have demand', 'Yến', 'Hoàng Daden', 'Chưa gán']) {
     assert.ok(html.includes(needle), 'thiếu khối/nội dung: ' + needle);
@@ -333,14 +342,15 @@ test('hành vi: Tổng quan hiện đủ 6 khối phân tích ở Toàn hệ; ch
   run("setDashScope('')");
 });
 
-test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng phụ % đi tiếp trong dòng đích (không pill, không lặp số lead), lối ra, tóm tắt; prev=0 hiện ↓ —, không NaN', () => {
+test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng phụ % đi tiếp trong dòng đích (không pill, không lặp số lead), lối ra, tóm tắt; prev=0 hiện ↓ —, không NaN', async () => {
   const { run, getEl } = loadIndex();
   const mk = (id, status) => ({ id, company: 'c1', line: 'ai', status, name: 'Lead ' + id, person: '', note: '', source: '', when: '2026-11-02', createdAt: isoDaysAgo(1) });
   run(`S.leads = ${JSON.stringify([mk('f1', 'new'), mk('f2', 'new'), mk('f3', 'sent_connect'), mk('f4', 'first_email'), mk('f5', 'in_reply'), mk('f6', 'contacted'), mk('f7', 'converted'), mk('f8', 'not_yet_have_demand'), mk('f9', 'trang-thai-la')])}`);
   run("curView = 'dash'; render()");
+  await settleFunnel({ run });
   const html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 7 lead · 100%'), 'dòng mốc: N=7 (lối ra + trạng thái lạ không tính vào N)');
-  assert.ok(!html.includes("dashOpenLeadStatus('new')"), 'KHÔNG vẽ dòng Mới riêng');
+  assert.ok(!html.includes("dashOpenLeadFunnelStep('new')"), 'KHÔNG vẽ dòng Mới riêng');
   assert.ok(!html.includes('dash-funnel-arrow'), 'render KHÔNG còn pill .dash-funnel-arrow nào');
   assert.ok(!/trong \d+ lead đi tiếp/.test(html), 'phần % đi tiếp KHÔNG lặp số đếm lead kiểu chip cũ');
   assert.ok(html.includes('<span class="dash-funnel-fromprev">↓ 71% đi tiếp từ đầu vào</span>'), 'dòng Sent connect: % đi tiếp từ dòng mốc tổng (5/7 -> 71%) ghi "từ đầu vào", nằm trong khối % của chính dòng');
@@ -357,6 +367,7 @@ test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng
   /* Mọi lead kẹt ở Mới: các dòng tích luỹ = 0; dòng đầu (prev = N = 2) hiện 0%, các dòng sau (prev = 0) hiện ↓ —. */
   run(`S.leads = ${JSON.stringify([mk('g1', 'new'), mk('g2', 'new')])}`);
   run("render()");
+  await settleFunnel({ run });
   const zero = getEl('view').innerHTML;
   assert.ok(zero.includes('<span class="dash-funnel-fromprev">↓ 0% đi tiếp từ đầu vào</span>'), 'dòng Sent connect khi không ai đi tiếp: 0/2 = 0% từ đầu vào');
   assert.ok(zero.includes('<span class="dash-funnel-fromprev">↓ —</span>'), 'bước ngay trên = 0 lead -> dòng phụ "↓ —", không NaN');
@@ -366,6 +377,7 @@ test('hành vi phễu bản chốt: fixture N=7 số lẻ — dòng mốc, dòng
   /* N=0: câu tóm tắt thay thế, không chia cho 0. */
   run('S.leads = []');
   run("render()");
+  await settleFunnel({ run });
   assert.ok(getEl('view').innerHTML.includes('Chưa có lead nào trong phạm vi này.'));
 });
 
