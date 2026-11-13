@@ -1236,24 +1236,26 @@
       return (data || []).map(auditRowToEntry);
     } catch (e) { return null; }
   }
-  /* Sự kiện audit Lead TRONG CỬA SỔ kỳ (đợt gốc 12/11/2026 cho phễu
-     theo sự kiện; từ đợt chiều 12/11/2026 chỉ còn phục vụ khối
+  /* Sự kiện audit Lead + Deal TRONG CỬA SỔ kỳ (đợt gốc 12/11/2026 cho
+     phễu theo sự kiện; từ đợt chiều 12/11/2026 chỉ còn phục vụ khối
      "Chuyển đổi trong kỳ" ở tab Báo cáo hoạt động — phễu Lead đã quay
-     về tính theo trạng thái hiện tại, không dùng nhật ký nữa): nạp
-     các mục audit của LEAD trong cửa sổ [gte, lt) (ISO; đầu nào trống
-     = không chặn đầu đó). Đi qua q() nên TỰ ĐỘNG phân trang vượt trần
-     1.000 dòng/select như loadAll (trang 1.000, .range, lỗi ở bất kỳ
-     trang nào cũng ném ra — caller hiện trạng thái lỗi rõ ràng,
-     TUYỆT ĐỐI không hiện số 0 giả). KHÁC listFor/listRecent: hàm này
-     NÉM lỗi thay vì trả null, vì người gọi phải phân biệt được "nạp
-     thất bại" với "không có sự kiện nào". Tên xuất
+     về tính theo trạng thái hiện tại, không dùng nhật ký nữa; đợt
+     13/11/2026 khối đếm thêm stage Deal sau chuyển đổi nên đường nạp
+     lấy CẢ entity_type "deal" trong cùng một truy vấn cửa sổ): nạp
+     các mục audit của LEAD và DEAL trong cửa sổ [gte, lt) (ISO; đầu
+     nào trống = không chặn đầu đó). Đi qua q() nên TỰ ĐỘNG phân trang
+     vượt trần 1.000 dòng/select như loadAll (trang 1.000, .range, lỗi
+     ở bất kỳ trang nào cũng ném ra — caller hiện trạng thái lỗi rõ
+     ràng, TUYỆT ĐỐI không hiện số 0 giả). KHÁC listFor/listRecent: hàm
+     này NÉM lỗi thay vì trả null, vì người gọi phải phân biệt được
+     "nạp thất bại" với "không có sự kiện nào". Tên xuất
      listLeadConversionEvents là tên chính; listLeadFunnelEvents giữ
      làm bí danh tương thích cho các nơi gọi/stub cũ. */
   async function auditListLeadFunnelEvents(opts) {
     if (!ctx.client) throw new Error('Tầng dữ liệu chưa sẵn sàng (chưa gắn client Supabase)');
     const o = opts || {};
     const winRows = await q('audit_log', qb => {
-      let x = qb.eq('entity_type', 'lead');
+      let x = qb.in('entity_type', ['lead', 'deal']);
       if (o.gte) x = x.gte('at', String(o.gte));
       if (o.lt) x = x.lt('at', String(o.lt));
       return x.order('at', { ascending: true });

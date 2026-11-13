@@ -1330,7 +1330,7 @@ function dashActiveRange() {
    Phễu Lead KHÔNG còn dùng nhật ký nữa (phễu tính đồng bộ theo trạng
    thái hiện tại qua dashLeadFunnel). Đường nạp audit theo cửa sổ kỳ
    chỉ còn phục vụ khối "Chuyển đổi trong kỳ": nạp các mục audit lead
-   trong cửa sổ kỳ qua window.SavaData.listLeadConversionEvents (tên
+   + deal trong cửa sổ kỳ qua window.SavaData.listLeadConversionEvents (tên
    cũ listLeadFunnelEvents vẫn được nhận làm bí danh tương thích;
    supabase-data.js, phân trang vượt trần 1.000 dòng/select như
    loadAll) bằng client Supabase của phiên member hiện tại. Cache
@@ -1366,7 +1366,9 @@ function conversionAuditWindow() {
 function conversionSyncStamp() {
   let mx = "";
   (S.leads || []).forEach(l => { const u = l && (l.updatedAt || l.createdAt); if (u && String(u) > mx) mx = String(u); });
-  return (S.leads || []).length + "|" + mx;
+  let mxD = "";
+  (S.deals || []).forEach(d => { const u = d && (d.updatedAt || d.createdAt); if (u && String(u) > mxD) mxD = String(u); });
+  return (S.leads || []).length + "|" + mx + "|" + (S.deals || []).length + "|" + mxD;
 }
 /* Cache đã nạp có PHỦ cửa sổ w không: đầu dưới đã nạp phải sớm hơn
    hoặc bằng đầu dưới cần (null = không chặn = phủ mọi đầu dưới); đầu
@@ -1434,8 +1436,9 @@ function retryConversionAudit() { conversionAudit.status = "idle"; conversionAud
    không kèm kỳ. */
 let dashFunnelLast = null;
 /* Kết quả khối "Chuyển đổi trong kỳ" vừa tính ở lần render gần nhất
-   (kèm kỳ) — nguồn cho click-through dashOpenLeadConversionRow mở
-   ĐÚNG tập lead đã đếm. */
+   (kèm kỳ) — nguồn cho click-through dashOpenLeadConversionCell (ô
+   Lead, đúng tập đã đếm) và dashOpenDealConversionCell (ô Deal,
+   đích gần đúng ở view Pipeline). */
 let dashConversionLast = null;
 function setDashPeriod(v) {
   if (v === "custom") {
@@ -1549,7 +1552,7 @@ function dashAnalyticsHTML() {
   const lineOpts = `<option value="" ${!dashLine ? "selected" : ""}>Tất cả mảng</option>` + Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${dashLine === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
   const lineNote = dashLine ? ` Đang lọc riêng mảng <b>${esc(LINES[dashLine].name)}</b>: deal tính theo mảng của deal, lead theo mảng của lead, công ty theo vai trò mảng (roles) của công ty; bản ghi không thuộc mảng nào không được tính. Trong bảng so sánh BD, việc không mang mảng nên được suy mảng từ đối tượng việc được gắn (deal/lead/công ty/game/sự kiện) — việc không gắn đối tượng hoặc không suy ra được mảng này không được tính.` : "";
   const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div>${customCtl}<div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div><div class="dash-ctl"><span class="dash-ctl-label">Mảng</span><select class="dash-select" onchange="setDashLine(this.value)" aria-label="Mảng — bộ lọc chung phân tích">${lineOpts}</select></div></div>
-  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung (Kỳ × Người × Mảng) áp dụng như sau: <b>(a)</b> Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b> — chỉ tính bản ghi <b>được tạo trong kỳ</b>, trạng thái/stage lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay); tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”. <b>(b)</b> Phễu Lead (gồm dòng lối ra Not yet have demand) tính trên <b>toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>. <b>(c)</b> Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ. <b>(d)</b> Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>; khối “Chuyển đổi trong kỳ” trong tab này đếm thêm <b>số lead được chuyển đổi trong kỳ theo từng BD</b> — đếm theo sự kiện chuyển vào trạng thái “Đã chuyển đổi” trong nhật ký hệ thống, chỉ là số đếm, không tính tỉ lệ. <b>(e)</b> Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>.${scopeNote}${lineNote}</p></details>`;
+  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung (Kỳ × Người × Mảng) áp dụng như sau: <b>(a)</b> Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b> — chỉ tính bản ghi <b>được tạo trong kỳ</b>, trạng thái/stage lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay); tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”. <b>(b)</b> Phễu Lead (gồm dòng lối ra Not yet have demand) tính trên <b>toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>. <b>(c)</b> Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ. <b>(d)</b> Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>; khối “Chuyển đổi trong kỳ” trong tab này đếm thêm <b>số lead/deal được đưa vào từng trạng thái trong kỳ theo từng BD</b> — đếm theo sự kiện chuyển trạng thái lead và sự kiện chuyển stage deal trong nhật ký hệ thống, chỉ là số đếm, không tính tỉ lệ. <b>(e)</b> Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>.${scopeNote}${lineNote}</p></details>`;
   /* --- Dải KPI (hoán đổi 12/11/2026, Zac chốt): số CHÍNH = số TRONG
      KỲ theo cohort (cCompanies/cLeads/cDeals — bản ghi tạo trong kỳ,
      trạng thái hiện tại, cùng phạm vi Người × Mảng); số PHỤ = tổng
@@ -1576,17 +1579,19 @@ function dashAnalyticsHTML() {
   const funnel = D.dashLeadFunnel(lineScoped.leads, mainKeys, "not_yet_have_demand");
   dashFunnelLast = { funnel };
   /* --- Khối "Chuyển đổi trong kỳ" (tab Báo cáo hoạt động): chỉ nạp
-     + tính khi đang ở tab đó. Tập lead cho khối này lọc Mảng bằng
-     dashFilterByLine trên TOÀN BỘ lead (KHÔNG lọc trước theo owner —
-     trục Người áp trên kết quả gán BD bên trong
-     dashLeadConversionsInPeriod, cùng cách tab Báo cáo hoạt động lọc
-     theo người thực hiện); mảng của lead = l.line như mọi khối. --- */
+     + tính khi đang ở tab đó. Tập lead + deal cho khối này lọc Mảng
+     bằng dashFilterByLine trên TOÀN BỘ lead/deal (KHÔNG lọc trước
+     theo owner — trục Người áp trên kết quả gán BD của từng ô bên
+     trong dashConversionsByStatusInPeriod, cùng cách tab Báo cáo
+     hoạt động lọc theo người thực hiện); mảng của lead = l.line,
+     mảng của deal = d.line như mọi khối. --- */
   let conversion = null, conversionState = null;
   if (dashboardMode === "activity") {
     conversionState = conversionAuditEnsure();
     if (conversionState === "loaded") {
       const convLeads = D.dashFilterByLine({ companies: [], leads: dashState.leads || [], deals: [], tasks: [] }, dashLine, S).leads;
-      conversion = D.dashLeadConversionsInPeriod(convLeads, conversionAudit.events, dashPeriodDays, now, range, dashScope);
+      const convDeals = D.dashFilterByLine({ companies: [], leads: [], deals: dashState.deals || [], tasks: [] }, dashLine, S).deals;
+      conversion = D.dashConversionsByStatusInPeriod(convLeads, convDeals, conversionAudit.events, dashPeriodDays, now, range, dashScope);
       dashConversionLast = { conversion, periodLabel };
     }
   }
@@ -1913,20 +1918,27 @@ function dashboardActivityTypeListHTML(model) {
   return `<section class="ex-panel ex-act-type-list">${dashboardHeading('Hoạt động loại: ' + esc(type.label), 'Trong đúng phạm vi bộ lọc chung · mới nhất trước · bấm một dòng để mở drawer của chủ và highlight hoạt động', type.icon, `<button class="ex-chip-clear" onclick="clearDashboardActivityType()" title="Bỏ lọc loại này, xem lại toàn bộ báo cáo hoạt động">✕ Đang lọc: ${esc(type.label)}</button>`)}<p class="ex-footnote">${dashboardNumber(filtered.length)} hoạt động · ${scopeTxt}</p>${rows || '<p class="ex-empty">Chưa có hoạt động loại này trong phạm vi đang chọn.</p>'}${pager}</section>`;
 }
 /* Khối "Chuyển đổi trong kỳ" (tab Báo cáo hoạt động, đợt chiều
-   12/11/2026): TỔNG số lead được chuyển đổi trong kỳ (toàn phạm vi
-   đang chọn) + bảng theo từng BD — CHỈ SỐ ĐẾM, tuyệt đối không tỉ
-   lệ/phần trăm và không thanh tỉ lệ suy ra % ở bất kỳ dạng nào. Số
-   liệu do dashAnalyticsHTML tính qua SavaDash.dashLeadConversions-
-   InPeriod từ nhật ký đã nạp (ctx.conversion / ctx.conversionState):
-   chưa nạp xong -> hiện đang tải; nạp lỗi -> hiện lỗi rõ ràng + nút
-   thử lại, KHÔNG hiện số 0 giả; ctx thiếu (harness gọi trực tiếp) ->
-   coi như đang tải. Tổng và từng dòng BD đều bấm được ->
-   dashOpenLeadConversionRow mở view Lead với đúng tập đã đếm;
-   từng ô BD × Mảng bấm được qua dashOpenLeadConversionCell khi
-   số của ô > 0 (ô = 0 chỉ hiện số 0 tĩnh, mờ, không phải nút). */
+   12/11/2026; ĐỔI PHÂN LOẠI 13/11/2026, Zac chốt): bảng BD x TRẠNG
+   THÁI thay cho ma trận BD x Mảng của đợt tối 12/11 — hai nhóm cột:
+   nhóm Lead (10 trạng thái đường chính theo thứ tự vòng đời + lối ra
+   "Not yet have demand" ở cuối nhóm) và nhóm "Sau chuyển đổi (Deal)"
+   (HỢP các stage Deal của 4 pipeline — xem dashDealStageColumns ở
+   shared.js). CHỈ SỐ ĐẾM, tuyệt đối không tỉ lệ/phần trăm và không
+   thanh tỉ lệ suy ra % ở bất kỳ dạng nào. KHÔNG có cột tổng-hàng
+   (một lead/deal xuất hiện ở nhiều cột là đúng bản chất; cộng ngang
+   sẽ gây hiểu nhầm). Số liệu do dashAnalyticsHTML tính qua
+   SavaDash.dashConversionsByStatusInPeriod từ nhật ký đã nạp
+   (ctx.conversion / ctx.conversionState): chưa nạp xong -> hiện đang
+   tải; nạp lỗi -> hiện lỗi rõ ràng + nút thử lại, KHÔNG hiện số 0
+   giả; ctx thiếu (harness gọi trực tiếp) -> coi như đang tải. Ô Lead
+   > 0 bấm được -> dashOpenLeadConversionCell mở view Lead với đúng
+   tập lead của ô; ô Deal > 0 bấm được -> dashOpenDealConversionCell
+   mở view Pipeline ở mảng tương ứng (đích GẦN ĐÚNG — view Deal không
+   có cơ chế lọc theo tập ID, xem hàm đó); ô = 0 chỉ hiện số 0 tĩnh,
+   mờ, không phải nút (span.ex-cell-zero). */
 function dashboardConversionHTML(ctx) {
-  const heading = dashboardHeading('Chuyển đổi trong kỳ', 'Số lead được chuyển đổi trong kỳ theo BD · chỉ đếm số lead, không tính tỉ lệ', 'check');
-  const note = `<p class="ex-footnote">Nguồn: nhật ký hệ thống. Nhật ký hệ thống đầy đủ từ 31-10-2026 nên kỳ chứa thời gian trước mốc này sẽ thiếu phần đầu. Lead được chuyển đổi bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển đổi thì không được đếm. Mỗi lead chỉ đếm 1 lần trong kỳ, gán cho BD thực hiện lần chuyển đổi đầu tiên của lead trong kỳ; sự kiện thiếu người thực hiện thì gán theo người phụ trách hiện tại của lead, cả hai đều không có thì vào dòng “Không rõ”. Mảng của mỗi lead lấy theo mảng của lead đó.</p>`;
+  const heading = dashboardHeading('Chuyển đổi trong kỳ', 'Số lead/deal được đưa vào từng trạng thái trong kỳ theo BD · chỉ đếm số lượng, không tính tỉ lệ · một lead/deal có thể xuất hiện ở nhiều cột trạng thái', 'check');
+  const note = `<p class="ex-footnote">Nguồn: nhật ký hệ thống. Nhật ký hệ thống đầy đủ từ 31-10-2026 nên kỳ chứa thời gian trước mốc này sẽ thiếu phần đầu. Lead/deal được đưa vào trạng thái bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển trạng thái thì không được đếm. Mỗi cặp lead–trạng thái và deal–stage chỉ đếm 1 lần trong kỳ, gán cho BD thực hiện lần đầu đưa vào trạng thái đó trong kỳ; sự kiện thiếu người thực hiện thì gán theo người phụ trách hiện tại của lead/deal, cả hai đều không có thì vào dòng “Không rõ”. Một lead có thể xuất hiện ở nhiều cột trạng thái, một deal có thể xuất hiện ở nhiều cột stage. Hai nhóm cột đếm hai đối tượng khác nhau: nhóm Lead đếm lead, nhóm Sau chuyển đổi (Deal) đếm deal. Cột Deal là hợp các stage của cả bốn mảng: stage chỉ có ở một số mảng thì deal thuộc mảng khác không vào được cột đó. Bấm ô Lead mở đúng tập lead đã đếm của ô; bấm ô Deal mở Pipeline của mảng tương ứng (view Deal chưa có lọc theo tập ID nên đó là đích gần đúng, không phải đúng tập deal của ô).</p>`;
   if (!ctx || ctx.conversionState !== 'loaded' || !ctx.conversion) {
     if (ctx && ctx.conversionState === 'error') {
       const errTxt = (typeof conversionAudit !== 'undefined' && conversionAudit.err) ? ` (${esc(conversionAudit.err)})` : '';
@@ -1935,37 +1947,41 @@ function dashboardConversionHTML(ctx) {
     return `<section class="ex-panel ex-conversion">${heading}<p class="ex-footnote">⏳ Đang tải nhật ký chuyển đổi trong kỳ (${esc((ctx && ctx.periodLabel) || '')})…</p>${note}</section>`;
   }
   const conv = ctx.conversion;
-  /* Bảng ma trận BD × Mảng (đợt 12/11/2026 tối, Zac chốt): cột mảng
-     theo thứ tự cố định của byLine; cột "Chưa rõ mảng" CHỈ hiện khi
-     tổng của nó > 0. Ô mảng > 0 là nút mở đúng tập của ô đó
-     (dashOpenLeadConversionCell); ô mảng = 0 chỉ hiện số 0 tĩnh, mờ
-     (span.ex-cell-zero), KHÔNG phải nút. Ô Tổng cuối hàng + tên BD
-     mở tổng của hàng; hàng tfoot "Tổng" lấy từ byLine. */
-  const byLineOf = key => (conv.byLine || []).find(c => c.key === key) || { key, count: 0, leadIds: [] };
-  const showUnknown = byLineOf('__unknown__').count > 0;
-  const lineCols = ['game_studio', 'publishing', 'ai', 'metaverse'].concat(showUnknown ? ['__unknown__'] : []);
-  const lineName = key => key === '__unknown__' ? 'Chưa rõ mảng' : ((LINES[key] || {}).name || key);
+  const leadCols = conv.leadColumns || [];
+  const dealCols = conv.dealColumns || [];
   const cellHTML = (count, onclick, title) => count > 0
     ? `<button class="ex-cell-btn" onclick="${onclick}" title="${esc(title)}">${dashboardNumber(count)}</button>`
     : `<span class="ex-cell-zero">${dashboardNumber(count)}</span>`;
   const bodyRows = conv.rows.map(r => {
     const name = r.id === '__none__' ? 'Không rõ' : memberName(S, r.id);
     const initials = name.trim().split(/\s+/).slice(-2).map(n => n[0]).join('').toUpperCase();
-    const cells = lineCols.map(key => {
-      const cell = (r.cells || []).find(c => c.key === key) || { key, count: 0, leadIds: [] };
-      return `<td>${cellHTML(cell.count, `dashOpenLeadConversionCell('${esc(r.id)}','${esc(key)}')`, 'Bấm để mở đúng các lead đã đếm cho ô này')}</td>`;
+    const leadCells = leadCols.map(col => {
+      const cell = (r.leadCells || []).find(c => c.key === col.key) || { key: col.key, count: 0, leadIds: [] };
+      return `<td>${cellHTML(cell.count, `dashOpenLeadConversionCell('${esc(r.id)}','${esc(col.key)}')`, 'Bấm để mở đúng các lead đã đếm cho ô này')}</td>`;
     }).join('');
-    return `<tr><td><button class="ex-person" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này"><span class="ex-avatar">${esc(initials)}</span>${esc(name)}</button></td>${cells}<td><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('${esc(r.id)}')" title="Bấm để mở đúng các lead đã đếm cho dòng này"><b>${dashboardNumber(r.count)}</b></button></td></tr>`;
+    const dealCells = dealCols.map(col => {
+      const cell = (r.dealCells || []).find(c => c.key === col.key) || { key: col.key, count: 0, dealIds: [] };
+      return `<td>${cellHTML(cell.count, `dashOpenDealConversionCell('${esc(r.id)}','${esc(col.key)}')`, 'Bấm để mở Pipeline của mảng tương ứng — view Deal chưa lọc được theo đúng tập deal của ô')}</td>`;
+    }).join('');
+    return `<tr><td><span class="ex-person"><span class="ex-avatar">${esc(initials)}</span>${esc(name)}</span></td>${leadCells}${dealCells}</tr>`;
   }).join('');
-  const footCells = lineCols.map(key => {
-    const cell = byLineOf(key);
-    return `<td>${cellHTML(cell.count, `dashOpenLeadConversionCell('','${esc(key)}')`, 'Bấm để mở đúng các lead đã đếm cho cột này')}</td>`;
+  const totals = conv.columnTotals || { lead: [], deal: [] };
+  const footLead = leadCols.map(col => {
+    const cell = (totals.lead || []).find(c => c.key === col.key) || { key: col.key, count: 0, leadIds: [] };
+    return `<td>${cellHTML(cell.count, `dashOpenLeadConversionCell('','${esc(col.key)}')`, 'Bấm để mở đúng các lead đã đếm cho cột này')}</td>`;
   }).join('');
-  const footRow = `<tfoot><tr><th>Tổng</th>${footCells}<td><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('')" title="Bấm để mở đúng mọi lead đã đếm ở khối này"><b>${dashboardNumber(conv.total)}</b></button></td></tr></tfoot>`;
-  const totalRow = `<p class="ex-conversion-total"><button class="ex-cell-btn" onclick="dashOpenLeadConversionRow('')" title="Bấm để mở đúng mọi lead đã đếm ở khối này">Tổng số lead được chuyển đổi trong kỳ: <b>${dashboardNumber(conv.total)}</b></button>${dashLine ? ` · Mảng: ${esc((LINES[dashLine] || {}).name || dashLine)}` : ''} · Kỳ: ${esc(ctx.periodLabel || '')}</p>`;
-  const empty = conv.total ? '' : '<p class="ex-empty">Chưa có lead nào được chuyển đổi trong kỳ này.</p>';
-  const colCount = 1 + lineCols.length + 1;
-  return `<section class="ex-panel ex-conversion">${heading}${totalRow}<div class="ex-table-scroll"><table class="ex-table"><thead><tr><th>BD</th>${lineCols.map(key => `<th>${esc(lineName(key))}</th>`).join('')}<th>Tổng</th></tr></thead><tbody>${bodyRows || `<tr><td colspan="${colCount}">Chưa có dữ liệu.</td></tr>`}</tbody>${footRow}</table></div>${empty}${note}</section>`;
+  const footDeal = dealCols.map(col => {
+    const cell = (totals.deal || []).find(c => c.key === col.key) || { key: col.key, count: 0, dealIds: [] };
+    return `<td>${cellHTML(cell.count, `dashOpenDealConversionCell('','${esc(col.key)}')`, 'Bấm để mở Pipeline của mảng tương ứng — view Deal chưa lọc được theo đúng tập deal của cột')}</td>`;
+  }).join('');
+  const footRow = `<tfoot><tr><th>Tổng</th>${footLead}${footDeal}</tr></tfoot>`;
+  const metaRow = `<p class="ex-conversion-total">Kỳ: ${esc(ctx.periodLabel || '')}${dashLine ? ` · Mảng: ${esc((LINES[dashLine] || {}).name || dashLine)}` : ''} · Đã chuyển đổi trong kỳ: <b>${dashboardNumber(conv.total)}</b> lead</p>`;
+  const hasAny = (totals.lead || []).some(c => c.count > 0) || (totals.deal || []).some(c => c.count > 0);
+  const empty = hasAny ? '' : '<p class="ex-empty">Chưa có lead/deal nào được đưa vào trạng thái nào trong kỳ này.</p>';
+  const colCount = 1 + leadCols.length + dealCols.length;
+  const groupRow = `<tr class="ex-group-row"><th></th><th colspan="${leadCols.length}">Lead</th><th colspan="${dealCols.length}">Sau chuyển đổi (Deal)</th></tr>`;
+  const headRow = `<tr><th>BD</th>${leadCols.map(col => `<th>${esc(col.label)}</th>`).join('')}${dealCols.map(col => `<th>${esc(col.label)}</th>`).join('')}</tr>`;
+  return `<section class="ex-panel ex-conversion">${heading}${metaRow}<div class="ex-table-scroll"><table class="ex-table ex-conversion-table"><thead>${groupRow}${headRow}</thead><tbody>${bodyRows || `<tr><td colspan="${colCount}">Chưa có dữ liệu.</td></tr>`}</tbody>${footRow}</table></div>${empty}${note}</section>`;
 }
 function dashboardActivityHTML(ctx) {
   const model = dashboardActivityModel(ctx.now), total = model.records.length;
@@ -2336,65 +2352,76 @@ function dashOpenLeadFunnelStep(stepKey) {
   if (stepKey && stepKey !== "__dropped__") leadBlockCollapsed[stepKey] = false;
   setView("leads");
 }
-/* Bấm tổng / một dòng BD của khối "Chuyển đổi trong kỳ" -> mở view
-   Lead với ĐÚNG tập lead đã đếm: rowId "" = tổng (totalLeadIds);
-   "__none__" = dòng Không rõ; còn lại = member id của dòng BD đó.
-   Nguồn là dashConversionLast của lần render gần nhất (đã gồm kỳ ×
-   Mảng × trục Người lúc tính). leadOwnerFilter đặt "" (không lọc
-   theo owner) vì BD được gán của khối này là người thực hiện chuyển
-   đổi, không đồng nhất với owner hiện tại của lead — lọc owner sẽ
-   giấu mất lead đã đếm; tab mảng vẫn đặt theo dashLine vì tập đã đếm
-   vốn được lọc theo mảng của lead. */
-function dashOpenLeadConversionRow(rowId) {
+/* Bấm một Ô LEAD của khối "Chuyển đổi trong kỳ" -> mở view Lead với
+   ĐÚNG tập lead đã đếm ở ô đó: rowId "" = tổng của cột trạng thái đó
+   (lấy từ conversion.columnTotals.lead theo statusKey); rowId cụ thể
+   = ô của BD đó (lấy từ row.leadCells theo statusKey). Không tìm
+   thấy / tập rỗng -> không làm gì. leadOwnerFilter đặt "" (không lọc
+   theo owner) vì BD được gán của khối này là người thực hiện lần đầu
+   đưa vào trạng thái đó, không đồng nhất với owner hiện tại của lead
+   — lọc owner sẽ giấu mất lead đã đếm; tab mảng vẫn đặt theo dashLine
+   vì tập đã đếm vốn được lọc theo mảng của lead. Chip ghi đúng mẫu:
+   "Chuyển đổi trong kỳ — {BD} · {Trạng thái} · kỳ {kỳ}".
+   (Hàm dashOpenLeadConversionRow của bản ma trận theo mảng đã GỠ:
+   bản mới không có cột tổng-hàng nên không còn "tổng của một dòng BD"
+   để mở; nơi dùng duy nhất của nó là render cũ của chính khối này +
+   test cũ — đã kiểm grep toàn repo ngày 13/11/2026.) */
+function dashOpenLeadConversionCell(rowId, statusKey) {
   const last = dashConversionLast;
   if (!last || !last.conversion) return;
-  let ids, label;
-  if (!rowId) { ids = last.conversion.totalLeadIds || []; label = "Tất cả BD"; }
-  else {
-    const row = last.conversion.rows.find(x => x.id === rowId);
-    ids = row ? (row.leadIds || []) : [];
-    label = rowId === "__none__" ? "Không rõ" : memberName(S, rowId);
+  const conv = last.conversion;
+  const col = (conv.leadColumns || []).find(c => c.key === statusKey);
+  const statusLabel = col ? col.label : ((leadStatusDef(statusKey) || {}).label || statusKey);
+  let ids, bdLabel;
+  if (!rowId) {
+    const cell = ((conv.columnTotals || {}).lead || []).find(c => c.key === statusKey);
+    ids = cell ? (cell.leadIds || []) : [];
+    bdLabel = "Tất cả BD";
+  } else {
+    const row = conv.rows.find(x => x.id === rowId);
+    if (!row) return;
+    const cell = (row.leadCells || []).find(c => c.key === statusKey);
+    ids = cell ? (cell.leadIds || []) : [];
+    bdLabel = rowId === "__none__" ? "Không rõ" : memberName(S, rowId);
   }
+  if (!ids || !ids.length) return;
   const idStrs = ids.map(String);
-  leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Chuyển đổi trong kỳ — ${label} · kỳ ${last.periodLabel}` };
+  leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Chuyển đổi trong kỳ — ${bdLabel} · ${statusLabel} · kỳ ${last.periodLabel}` };
   leadFunnelVersion++;
   leadOwnerFilter = "";
   curLine = dashLine || "all";
   leadViewMode = "block";
   setView("leads");
 }
-/* Bấm một Ô BD × Mảng của khối "Chuyển đổi trong kỳ" -> mở view Lead
-   với ĐÚNG tập lead đã đếm ở ô đó: rowId "" = tổng của cột mảng đó
-   (lấy từ conversion.byLine theo lineKey); rowId cụ thể = ô của BD
-   đó (lấy từ row.cells theo lineKey). Không tìm thấy / tập rỗng ->
-   không làm gì. Các đặt khác y hệt dashOpenLeadConversionRow:
-   leadOwnerFilter "" và tab mảng theo dashLine vì tập đã đếm vốn
-   được lọc theo mảng của lead ở bộ lọc chung. */
-function dashOpenLeadConversionCell(rowId, lineKey) {
+/* Bấm một Ô DEAL của khối "Chuyển đổi trong kỳ" -> đích GẦN ĐÚNG
+   (khai thẳng, không giả vờ chính xác): view Deal/Pipeline KHÔNG có
+   cơ chế lọc theo tập ID tường minh như view Lead (vBoard chỉ lọc
+   theo curLine + query — khảo sát bước 0 ngày 13/11/2026), nên hàm
+   này chỉ mở view Pipeline ở MẢNG TƯƠNG ỨNG: mảng của bộ lọc chung
+   nếu đang lọc 1 mảng; ngược lại mảng chung duy nhất của các deal
+   trong ô nếu chúng cùng một mảng; các trường hợp còn lại mở
+   Pipeline mặc định (curLine "all" — board hiện Game Studio kèm ghi
+   chú chọn mảng). Người dùng sẽ thấy MỌI deal đang ở stage đó của
+   mảng, không phải đúng tập deal đã đếm của ô. */
+function dashOpenDealConversionCell(rowId, stageKey) {
   const last = dashConversionLast;
   if (!last || !last.conversion) return;
   const conv = last.conversion;
-  const lineLabel = lineKey === "__unknown__" ? "Chưa rõ mảng" : ((LINES[lineKey] || {}).name || lineKey);
-  let ids, bdLabel;
+  let ids;
   if (!rowId) {
-    const cell = (conv.byLine || []).find(c => c.key === lineKey);
-    ids = cell ? (cell.leadIds || []) : [];
-    bdLabel = "Tất cả BD";
+    const cell = ((conv.columnTotals || {}).deal || []).find(c => c.key === stageKey);
+    ids = cell ? (cell.dealIds || []) : [];
   } else {
     const row = conv.rows.find(x => x.id === rowId);
     if (!row) return;
-    const cell = (row.cells || []).find(c => c.key === lineKey);
-    ids = cell ? (cell.leadIds || []) : [];
-    bdLabel = rowId === "__none__" ? "Không rõ" : memberName(S, rowId);
+    const cell = (row.dealCells || []).find(c => c.key === stageKey);
+    ids = cell ? (cell.dealIds || []) : [];
   }
   if (!ids || !ids.length) return;
-  const idStrs = ids.map(String);
-  leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Chuyển đổi trong kỳ — ${bdLabel} · ${lineLabel} · kỳ ${last.periodLabel}` };
-  leadFunnelVersion++;
-  leadOwnerFilter = "";
-  curLine = dashLine || "all";
-  leadViewMode = "block";
-  setView("leads");
+  const dealObjs = ids.map(id => (S.deals || []).find(d => String(d.id) === String(id))).filter(Boolean);
+  const dealLines = [...new Set(dealObjs.map(d => d.line).filter(Boolean))];
+  curLine = dashLine || (dealLines.length === 1 ? dealLines[0] : "all");
+  setView("board");
 }
 function dashOpenLeadStatus(statusKey) {
   if (leadFunnelIds) { leadFunnelIds = null; leadFunnelVersion++; }

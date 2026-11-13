@@ -1777,93 +1777,219 @@ function dashEventInWindow(at, days, now, range) {
   const start = new Date(nowD); start.setDate(start.getDate() - (days - 1));
   return dashDayStart(d) >= start;
 }
-/* === Chuyển đổi Lead TRONG KỲ (đợt 12/11/2026 chiều, Zac chốt) ===
-   Hàm THUẦN đếm số lead ĐƯỢC CHUYỂN ĐỔI trong kỳ cho khối "Chuyển đổi
-   trong kỳ" ở tab Báo cáo hoạt động. CHỈ SỐ ĐẾM — hàm không tính bất
-   kỳ tỉ lệ/phần trăm nào.
+/* === Helper sự kiện audit Deal (dùng cho khối "Chuyển đổi trong kỳ") ===
+   KHẢO SÁT TAXONOMY DEAL (13/11/2026, đối chiếu code + SQL):
+   1. Sự kiện đổi stage của deal nằm trong audit_log với entity_type
+      "deal"; change mang field "stage" (KHÔNG phải "status" như lead).
+      from/to là NHÃN hiển thị: auditValue() cho deal.stage đi qua
+      auditDealStageLabel(entity, v) — tra nhãn theo LINES[line].stages
+      của CHÍNH deal trước, rồi các mảng còn lại. KHÔNG có bảng map
+      AUDIT_*_LABELS riêng cho deal như AUDIT_LEAD_STATUS_LABELS của
+      lead; nguồn sự thật của cặp key↔nhãn là LINES (shared.js).
+      Mọi nhãn stage TRÙNG nhau giữa các mảng đều trỏ về CÙNG một key
+      (vd "Term sheet / Đàm phán" -> term ở cả 4 mảng, "Ký hợp đồng —
+      Won" -> won, "Tiếp cận" -> prospect, "Khảo sát nhu cầu" ->
+      discovery, "Báo giá / Đàm phán" -> quote; riêng lost có 2 nhãn:
+      "Thua — Lost" ở game_studio/ai/metaverse và "Từ chối — Lost" ở
+      publishing), nên map ngược nhãn -> key toàn cục là đơn trị;
+      hàm dưới vẫn ưu tiên pipeline của chính deal khi có để chắc chắn.
+   2. Stage Deal KHÁC nhau theo mảng (LINES): game_studio 7 stage,
+      publishing 7, ai 8, metaverse 7; chung nhau chỉ có term/won/lost
+      (và prospect/discovery/quote giữa ai+metaverse). Won/Lost là
+      STAGE KEY riêng ("won"/"lost") ở cuối mỗi pipeline, không phải
+      field status riêng. Cột Deal của khối = HỢP mọi stage key.
+   3. Deal có người phụ trách: field "owner" trên object JS (cột
+      deals.owner_id ở DB — supabase-adapter.js ghi owner_id từ
+      d.owner, đọc ngược lại thành d.owner). Mọi mục audit (mọi loại
+      entity) đều có by_member_id -> byMemberId trong auditRowToEntry.
+   4. View Deal/Pipeline (vBoard/dealsFiltered) KHÔNG có cơ chế lọc
+      theo tập ID tường minh như view Lead (leadFunnelIds): nó chỉ
+      lọc theo curLine (tab mảng) + query. Hệ quả cho bấm-xuyên ô
+      Deal khai ở phía index.html (dashOpenDealConversionCell). */
+function dashDealStageKeyFromAudit(v, lineKey) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (typeof LINES === "undefined") return null;
+  const ordered = [];
+  if (lineKey && LINES[lineKey]) ordered.push(LINES[lineKey]);
+  Object.keys(LINES).forEach(k => { if (k !== lineKey) ordered.push(LINES[k]); });
+  for (const L of ordered) { const st = (L.stages || []).find(x => x[0] === s); if (st) return st[0]; }
+  for (const L of ordered) { const st = (L.stages || []).find(x => x[1] === s); if (st) return st[0]; }
+  return null;
+}
+/* Trích các lần chuyển stage từ 1 mục audit deal: chỉ lấy change
+   field === "stage", đổi from/to nhãn -> key (ưu tiên line của deal). */
+function dashDealStageChangesOf(entry, deal) {
+  const out = [];
+  const lineKey = typeof deal === "string" ? deal : (deal && deal.line) || null;
+  const changes = entry && Array.isArray(entry.changes) ? entry.changes : [];
+  changes.forEach(c => {
+    if (!c || c.field !== "stage" || c.batch) return;
+    out.push({ fromKey: dashDealStageKeyFromAudit(c.from, lineKey), toKey: dashDealStageKeyFromAudit(c.to, lineKey), at: entry.at || null });
+  });
+  return out;
+}
+/* Cột Deal của khối: HỢP mọi stage key của 4 pipeline, sắp theo vòng
+   đời phổ biến nhất — dùng xác suất stage (cột 3 trong LINES) tăng
+   dần làm thước vòng đời chung (target/sourcing/prospect 5% -> ...
+   -> quote 75-80% -> won 100%); bằng xác suất thì theo thứ tự xuất
+   hiện khi quét LINES (game_studio -> publishing -> ai -> metaverse);
+   "lost" luôn ở CUỐI (xác suất 0 trong LINES nhưng là kết cục đóng,
+   đặt sau won như mọi pipeline). Nhãn cột = nhãn đầu tiên gặp của
+   key đó (lost -> "Thua — Lost", nhãn của 3/4 mảng). */
+function dashDealStageColumns(linesDef) {
+  const def = linesDef || (typeof LINES !== "undefined" ? LINES : {});
+  const seen = new Map();
+  Object.keys(def || {}).forEach(k => {
+    ((def[k] && def[k].stages) || []).forEach(s => {
+      if (!seen.has(s[0])) seen.set(s[0], { key: s[0], label: s[1], prob: typeof s[2] === "number" ? s[2] : 50, ord: seen.size });
+    });
+  });
+  return Array.from(seen.values())
+    .sort((a, b) => ((a.key === "lost") - (b.key === "lost")) || (a.prob - b.prob) || (a.ord - b.ord))
+    .map(c => ({ key: c.key, label: c.label }));
+}
+/* Cột Lead của khối: đúng 10 trạng thái đường chính theo thứ tự vòng
+   đời của LEAD_STATUSES (nguồn ở index.html; ở đây lấy nhãn từ
+   AUDIT_LEAD_STATUS_LABELS — cùng một bộ nhãn) + cột lối ra
+   not_yet_have_demand ở cuối nhóm. "qualified" KHÔNG phải cột: nó
+   chỉ còn là nhãn legacy trong bảng audit, đã bỏ khỏi LEAD_STATUSES
+   từ 2026-11-03. */
+const DASH_LEAD_STATUS_COLUMN_KEYS = ["new", "sent_connect", "first_message", "first_email", "first_fu", "in_response", "in_reply", "discovery_meeting", "contacted", "converted"];
+function dashLeadStatusColumns() {
+  return DASH_LEAD_STATUS_COLUMN_KEYS.concat(["not_yet_have_demand"]).map(key => ({ key, label: AUDIT_LEAD_STATUS_LABELS[key] || key }));
+}
+/* === Chuyển đổi theo TRẠNG THÁI TRONG KỲ (đợt gốc 12/11/2026;
+   đổi phân loại 13/11/2026, Zac chốt "Cách 1" + đếm cả sau chuyển đổi) ===
+   Hàm THUẦN cho khối "Chuyển đổi trong kỳ" ở tab Báo cáo hoạt động.
+   CHỈ SỐ ĐẾM — hàm không tính bất kỳ tỉ lệ/phần trăm nào.
    Đầu vào:
-   - leads: tập lead ĐÃ lọc theo Mảng (mảng của lead = l.line qua
-     dashFilterByLine như mọi khối dashboard; trục Người KHÔNG lọc
-     theo owner ở đây — xem scopeId).
-   - events: các mục audit lead (dạng SavaAudit.auditRowToEntry:
-     { entityId, at, byMemberId, changes[] }); hàm tự lọc cửa sổ kỳ
-     bằng dashEventInWindow (preset: không chặn trên; khoảng Tuỳ
-     chỉnh: chặn cả hai đầu ngày — đúng ngữ nghĩa cửa sổ của tab Báo
-     cáo hoạt động).
+   - leads / deals: tập ĐÃ lọc theo Mảng bằng dashFilterByLine (lead
+     theo l.line, deal theo d.line như mọi khối dashboard); trục Người
+     KHÔNG lọc theo owner ở đây — xem scopeId.
+   - events: các mục audit lead + deal ĐÃ GỘP (dạng
+     SavaAudit.auditRowToEntry: { entityType, entityId, at,
+     byMemberId, changes[] }); mục thiếu entityType được hiểu là lead
+     (tương thích dữ kiện/stub cũ). Hàm tự lọc cửa sổ kỳ bằng
+     dashEventInWindow (preset: không chặn trên; khoảng Tuỳ chỉnh:
+     chặn cả hai đầu ngày — đúng ngữ nghĩa cửa sổ của tab).
    - days / now / range: cửa sổ kỳ y hệt dashCohort.
-   - scopeId (trục Người của bộ lọc chung): "" = toàn bộ; member id =
-     chỉ phần được gán cho BD đó; "__none__" = chỉ phần "Không rõ".
-   Định nghĩa:
-   - Lead được đếm khi có >= 1 sự kiện status với đích = "converted"
-     (map nhãn qua dashLeadStatusChangesOf /
-     dashLeadStatusKeyFromAudit) và `at` nằm trong cửa sổ kỳ. Nhiều
-     sự kiện converted trong kỳ vẫn chỉ đếm 1 lead (phân biệt).
-   - Gán BD: byMemberId của sự kiện converted ĐẦU TIÊN của lead đó
-     trong kỳ; sự kiện thiếu byMemberId -> ownerId hiện tại của lead;
-     cả hai đều không có -> "__none__" (hiển thị "Không rõ").
-   - Trục Người áp trên KẾT QUẢ GÁN này (cùng cách tab Báo cáo hoạt
-     động lọc theo người thực hiện hoạt động): scopeId là 1 BD thì
-     chỉ giữ các lead được gán cho BD đó.
-   Trả: { total, totalLeadIds, rows, byLine } —
-   rows: [{ id, count, leadIds, cells }] xếp count giảm dần, "Không
-   rõ" sau các BD khi bằng count; total == tổng count các rows (bất
-   biến kiểm chứng). byLine: mảng ĐÚNG 5 phần tử theo thứ tự cố định
-   [game_studio, publishing, ai, metaverse, "__unknown__"], mỗi phần
-   tử { key, count, leadIds } — tổng theo từng mảng trên đúng tập đã
-   đếm (sau áp scopeId); "__unknown__" = lead có l.line thiếu hoặc
-   không thuộc 4 key chuẩn. Mỗi row.cells là mảng 5 phần tử cùng thứ
-   tự/khóa như byLine, { key, count, leadIds } của riêng BD đó. Mảng
-   của lead lấy từ chính object lead trong đầu vào (l.line). Bất biến:
-   mỗi row count == tổng count các cells của row đó; total == tổng
-   count byLine; hợp leadIds các cells của 1 row == leadIds của row
-   đó; hợp leadIds byLine == totalLeadIds. */
-function dashLeadConversionsInPeriod(leads, events, days, now, range, scopeId) {
-  const CONV_LINE_KEYS = ["game_studio", "publishing", "ai", "metaverse", "__unknown__"];
-  const convLineKeyOf = l => CONV_LINE_KEYS.slice(0, 4).includes(l && l.line) ? l.line : "__unknown__";
-  const emptyCells = () => CONV_LINE_KEYS.map(key => ({ key, count: 0, leadIds: [] }));
-  const byLine = emptyCells();
-  const leadById = new Map();
+   - scopeId (trục Người): "" = toàn bộ; member id = chỉ các ô được
+     gán cho BD đó; "__none__" = chỉ các ô "Không rõ". Trục Người áp
+     TRÊN KẾT QUẢ GÁN của từng ô (không áp theo owner hiện tại).
+   Định nghĩa đếm (Cách 1):
+   - Cột Lead S: mỗi cặp (lead, S) đếm 1 khi trong kỳ có >= 1 sự kiện
+     status của lead với đích = S (gồm sự kiện create đặt thẳng vào S,
+     vì mục create cũng mang change status from "" -> S). Vào lại S
+     nhiều lần vẫn đếm 1. Gán BD của ô = byMemberId của sự kiện vào-S
+     ĐẦU TIÊN của lead trong kỳ; thiếu -> ownerId hiện tại của lead;
+     cả hai không có -> "__none__" ("Không rõ").
+   - Cột Deal G: mỗi cặp (deal, G) đếm 1 khi trong kỳ có >= 1 sự kiện
+     stage của deal với đích = G (gồm create đặt thẳng vào G). Gán BD
+     = byMemberId của sự kiện vào-G đầu tiên trong kỳ; thiếu -> owner
+     hiện tại của deal (d.owner; cũng nhận ownerId/owner_id nếu dữ
+     kiện mang tên đó); cả hai không có -> "__none__".
+   - Một lead/deal xuất hiện ở NHIỀU cột là đúng bản chất: không có
+     tổng-hàng; thứ tự hàng chỉ để trình bày: xếp theo tổng số ô đã
+     đếm của hàng giảm dần (chỉ là khoá sắp xếp nội bộ, không trả ra
+     như một con số của hàng), bằng nhau thì "Không rõ" sau các BD,
+     rồi theo id.
+   Trả: { total, totalLeadIds, leadColumns, dealColumns, rows,
+   columnTotals } —
+   - total / totalLeadIds: NEO HỒI QUY của đợt trước — đúng số lead +
+     tập lead của cột "Đã chuyển đổi" (nhóm Lead) sau scopeId, với
+     totalLeadIds theo thứ tự tập leads đầu vào; trên cùng dữ kiện
+     phải bằng ĐÚNG đầu ra của dashLeadConversionsInPeriod cũ
+     (byLine/cells của bản cũ đã gỡ hẳn — xem bàn giao).
+   - rows: [{ id, leadCells, dealCells }] — leadCells là mảng đúng
+     thứ tự leadColumns, mỗi ô { key, count, leadIds }; dealCells
+     đúng thứ tự dealColumns, mỗi ô { key, count, dealIds }. Hàng =
+     hợp các BD có ít nhất 1 ô được đếm (sau scopeId).
+   - columnTotals: { lead: [{ key, count, leadIds }], deal:
+     [{ key, count, dealIds }] } — tổng từng cột trên đúng các ô đã
+     đếm; bất biến: count của 1 cột == tổng count ô đó qua mọi hàng. */
+function dashConversionsByStatusInPeriod(leads, deals, events, days, now, range, scopeId) {
+  const leadColumns = dashLeadStatusColumns();
+  const dealColumns = dashDealStageColumns();
+  const leadById = new Map(), dealById = new Map();
   (leads || []).forEach(l => { if (l && l.id !== undefined && l.id !== null && l.id !== "") leadById.set(String(l.id), l); });
-  const firstByLead = new Map();
-  (events || []).forEach((e, seq) => {
-    if (!e) return;
-    const rawId = e.entityId !== undefined ? e.entityId : (e.entity_id !== undefined ? e.entity_id : e.leadId);
-    if (rawId === undefined || rawId === null) return;
-    const id = String(rawId);
-    if (!leadById.has(id)) return;
-    const isConverted = dashLeadStatusChangesOf(e).some(ch => ch.toKey === "converted");
-    if (!isConverted) return;
-    if (!dashEventInWindow(e.at, days, now, range)) return;
+  (deals || []).forEach(d => { if (d && d.id !== undefined && d.id !== null && d.id !== "") dealById.set(String(d.id), d); });
+  const firstLead = new Map(), firstDeal = new Map();
+  const keepFirst = (map, id, toKey, e, seq) => {
+    if (!toKey) return;
     const d = dashParseDate(e.at);
     const t = d ? d.getTime() : Infinity;
-    const prev = firstByLead.get(id);
-    if (!prev || t < prev.t || (t === prev.t && seq < prev.seq)) {
-      firstByLead.set(id, { t, seq, byMemberId: e.byMemberId || e.by_member_id || "" });
-    }
+    if (!map.has(id)) map.set(id, new Map());
+    const byKey = map.get(id);
+    const prev = byKey.get(toKey);
+    if (!prev || t < prev.t || (t === prev.t && seq < prev.seq)) byKey.set(toKey, { t, seq, byMemberId: e.byMemberId || e.by_member_id || "" });
+  };
+  (events || []).forEach((e, seq) => {
+    if (!e) return;
+    const rawId = e.entityId !== undefined ? e.entityId : (e.entity_id !== undefined ? e.entity_id : (e.leadId !== undefined ? e.leadId : e.dealId));
+    if (rawId === undefined || rawId === null) return;
+    const id = String(rawId);
+    const type = e.entityType || e.entity_type || "";
+    const isDeal = type === "deal";
+    if (!isDeal && type !== "lead" && type !== "") return;
+    if (isDeal ? !dealById.has(id) : !leadById.has(id)) return;
+    if (!dashEventInWindow(e.at, days, now, range)) return;
+    const changes = isDeal ? dashDealStageChangesOf(e, dealById.get(id)) : dashLeadStatusChangesOf(e);
+    changes.forEach(ch => keepFirst(isDeal ? firstDeal : firstLead, id, ch.toKey, e, seq));
   });
+  const inScope = attr => !scopeId || (scopeId === "__none__" ? attr === "__none__" : attr === scopeId);
+  const emptyLeadCells = () => leadColumns.map(c => ({ key: c.key, count: 0, leadIds: [] }));
+  const emptyDealCells = () => dealColumns.map(c => ({ key: c.key, count: 0, dealIds: [] }));
+  const columnTotals = { lead: emptyLeadCells(), deal: emptyDealCells() };
   const rowsMap = new Map();
+  const rowOf = attr => {
+    if (!rowsMap.has(attr)) rowsMap.set(attr, { id: attr, leadCells: emptyLeadCells(), dealCells: emptyDealCells() });
+    return rowsMap.get(attr);
+  };
   const totalLeadIds = [];
   (leads || []).forEach(l => {
     if (!l || l.id === undefined || l.id === null || l.id === "") return;
     const id = String(l.id);
-    const first = firstByLead.get(id);
-    if (!first) return;
-    const attr = first.byMemberId || l.ownerId || "__none__";
-    if (scopeId) {
-      if (scopeId === "__none__" ? attr !== "__none__" : attr !== scopeId) return;
-    }
-    totalLeadIds.push(id);
-    if (!rowsMap.has(attr)) rowsMap.set(attr, { id: attr, count: 0, leadIds: [], cells: emptyCells() });
-    const row = rowsMap.get(attr);
-    row.count++; row.leadIds.push(id);
-    const lk = convLineKeyOf(l);
-    const byCell = byLine.find(c => c.key === lk);
-    byCell.count++; byCell.leadIds.push(id);
-    const rowCell = row.cells.find(c => c.key === lk);
-    rowCell.count++; rowCell.leadIds.push(id);
+    const byKey = firstLead.get(id);
+    if (!byKey) return;
+    leadColumns.forEach((col, ci) => {
+      const first = byKey.get(col.key);
+      if (!first) return;
+      const attr = first.byMemberId || l.ownerId || "__none__";
+      if (!inScope(attr)) return;
+      const row = rowOf(attr);
+      row.leadCells[ci].count++; row.leadCells[ci].leadIds.push(id);
+      columnTotals.lead[ci].count++; columnTotals.lead[ci].leadIds.push(id);
+      if (col.key === "converted") totalLeadIds.push(id);
+    });
   });
-  const rows = Array.from(rowsMap.values()).sort((a, b) => (b.count - a.count) || ((a.id === "__none__") - (b.id === "__none__")) || String(a.id).localeCompare(String(b.id)));
-  return { total: totalLeadIds.length, totalLeadIds, rows, byLine };
+  (deals || []).forEach(d => {
+    if (!d || d.id === undefined || d.id === null || d.id === "") return;
+    const id = String(d.id);
+    const byKey = firstDeal.get(id);
+    if (!byKey) return;
+    dealColumns.forEach((col, ci) => {
+      const first = byKey.get(col.key);
+      if (!first) return;
+      const attr = first.byMemberId || d.owner || d.ownerId || d.owner_id || "__none__";
+      if (!inScope(attr)) return;
+      const row = rowOf(attr);
+      row.dealCells[ci].count++; row.dealCells[ci].dealIds.push(id);
+      columnTotals.deal[ci].count++; columnTotals.deal[ci].dealIds.push(id);
+    });
+  });
+  const cellSum = r => r.leadCells.reduce((a, c) => a + c.count, 0) + r.dealCells.reduce((a, c) => a + c.count, 0);
+  const rows = Array.from(rowsMap.values()).sort((a, b) => (cellSum(b) - cellSum(a)) || ((a.id === "__none__") - (b.id === "__none__")) || String(a.id).localeCompare(String(b.id)));
+  return { total: totalLeadIds.length, totalLeadIds, leadColumns, dealColumns, rows, columnTotals };
+}
+/* Tên cũ giữ làm bí danh tương thích cho nơi gọi/stub cũ: chữ ký cũ
+   (leads, events, days, now, range, scopeId) vẫn chạy — deals lấy từ
+   tham số thứ 7 tuỳ chọn (mảng deal, mặc định rỗng). Đầu ra là cấu
+   trúc MỚI (BD x trạng thái) của dashConversionsByStatusInPeriod —
+   byLine/cells của bản phân loại theo mảng đã gỡ hẳn. */
+function dashLeadConversionsInPeriod(leads, events, days, now, range, scopeId, deals) {
+  return dashConversionsByStatusInPeriod(leads, deals || [], events, days, now, range, scopeId);
 }
 function dashWinRate(deals) {
   const won = (deals || []).filter(d => d && d.stage === "won").length;
@@ -2050,7 +2176,7 @@ function dashCompare(state, days, now, isOverdueFn, range, line) {
   };
   return ids.map(rowFor).concat([rowFor("__none__")]);
 }
-if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashRangeWindow, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashLeadStatusKeyFromAudit, dashLeadStatusChangesOf, dashEventInWindow, dashLeadConversionsInPeriod, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashTaskInLine, dashFilterByLine, dashConversions, dashCompare, dashIsOverdueFallback, }; }
+if (typeof window !== "undefined") { window.SavaDash = { DASH_COLORS, dashParseDate, dashPct, dashCountNew, dashCohort, dashRangeWindow, dashTrend, dashTrendLabelIndices, dashLeadFunnel, dashLeadStatusKeyFromAudit, dashLeadStatusChangesOf, dashDealStageKeyFromAudit, dashDealStageChangesOf, dashDealStageColumns, dashLeadStatusColumns, dashEventInWindow, dashLeadConversionsInPeriod, dashConversionsByStatusInPeriod, dashWinRate, dashDealStages, dashScopeOwners, dashScopeFilter, dashTaskInLine, dashFilterByLine, dashConversions, dashCompare, dashIsOverdueFallback, }; }
 function toast(msg) {
   const t = document.getElementById("toast");
   if (!t) return;

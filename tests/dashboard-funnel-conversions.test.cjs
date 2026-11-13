@@ -1,4 +1,10 @@
-/* Đợt chiều 12/11/2026 (Zac chốt lại) — THAY file
+/* Đợt 13/11/2026 (Zac chốt): khối "Chuyển đổi trong kỳ" ĐỔI PHÂN LOẠI
+   từ BD x Mảng sang BD x TRẠNG THÁI — test ma trận-mảng cũ được thay
+   bằng test ma trận-trạng thái ở cuối file (neo converted chụp từ hàm
+   cũ trước khi sửa, deal stage, biên cửa sổ cho cả lead + deal, lọc
+   Người/Mảng cho cả hai nhóm cột, render 2 nhóm cột + không tổng-hàng).
+   Phần dưới đây là lịch sử đợt chiều 12/11/2026.
+   Đợt chiều 12/11/2026 (Zac chốt lại) — THAY file
    dashboard-funnel-events.test.cjs cũ:
    - Phễu Lead BỎ hẳn cách tính theo sự kiện (dashLeadFunnelByEvents
      đã gỡ): phễu quay về dashLeadFunnel trên toàn bộ lead trong phạm
@@ -46,6 +52,10 @@ test('dashLeadStatusKeyFromAudit: đủ 12 nhãn (gồm Đạt chuẩn legacy) +
   assert.equal(D.dashLeadStatusKeyFromAudit('nhãn lạ'), null);
   assert.equal(D.dashLeadStatusKeyFromAudit(null), null);
   assert.equal(typeof D.dashLeadConversionsInPeriod, 'function', 'hàm đếm chuyển đổi trong kỳ phải được export');
+  assert.equal(typeof D.dashConversionsByStatusInPeriod, 'function', 'hàm đếm theo trạng thái (13/11) phải được export');
+  assert.equal(typeof D.dashDealStageKeyFromAudit, 'function');
+  assert.equal(typeof D.dashDealStageChangesOf, 'function');
+  assert.equal(typeof D.dashDealStageColumns, 'function');
   assert.equal(D.dashLeadFunnelByEvents, undefined, 'hàm phễu theo sự kiện đã gỡ hẳn');
   assert.equal(D.dashLeadCreatedInWindow, undefined, 'helper sàn của phễu sự kiện đã gỡ hẳn (hết nơi dùng)');
 });
@@ -81,7 +91,11 @@ const CLEADS = [
   { id: 'L4', line: 'ai' },
   { id: 'L5', ownerId: 'yen', line: 'metaverse' },
 ];
-const conv = (D, leads, events, days, range, scope) => D.dashLeadConversionsInPeriod(leads, events, days === undefined ? 7 : days, NOW, range || null, scope || '');
+const conv = (D, leads, events, days, range, scope) => D.dashConversionsByStatusInPeriod(leads, [], events, days === undefined ? 7 : days, NOW, range || null, scope || '');
+/* Neo hồi quy converted: trích cột "Đã chuyển đổi" (nhóm Lead) của cấu
+   trúc MỚI về đúng dạng đầu ra của hàm cũ { id, count, leadIds }. */
+const convRowsOf = r => r.rows.map(row => { const c = row.leadCells.find(x => x.key === 'converted'); return c && c.count ? { id: row.id, count: c.count, leadIds: c.leadIds } : null; }).filter(Boolean);
+const convCellOf = (r, rowId, key) => { const row = r.rows.find(x => x.id === rowId); return row ? row.leadCells.find(x => x.key === key) : undefined; };
 
 test('chuyển đổi: nhiều sự kiện converted trong kỳ -> đếm 1, gán người của sự kiện ĐẦU TIÊN trong kỳ', () => {
   const D = loadShared().window.SavaDash;
@@ -92,7 +106,7 @@ test('chuyển đổi: nhiều sự kiện converted trong kỳ -> đếm 1, gá
   ];
   const r = conv(D, CLEADS, events);
   assert.equal(r.total, 1);
-  assert.deepEqual(J(r.rows.map(x => ({ id: x.id, count: x.count, leadIds: x.leadIds }))), [{ id: 'hoang', count: 1, leadIds: ['L1'] }], 'sự kiện đầu tiên (08/11, Hoàng) quyết định người được gán (đầu ra cũ của rows giữ nguyên; cells kiểm ở test ma trận riêng)');
+  assert.deepEqual(J(convRowsOf(r)), [{ id: 'hoang', count: 1, leadIds: ['L1'] }], 'sự kiện đầu tiên (08/11, Hoàng) quyết định người được gán ở cột converted');
 });
 
 test('chuyển đổi: sự kiện ngoài cửa sổ không đếm; preset không chặn trên (sự kiện sau "now" vẫn trong cửa sổ)', () => {
@@ -129,9 +143,9 @@ test('chuyển đổi: byMemberId rỗng -> fallback owner hiện tại; cả ha
   ];
   const r = conv(D, CLEADS, events);
   assert.equal(r.total, 3);
-  const sum = r.rows.reduce((a, x) => a + x.count, 0);
-  assert.equal(sum, r.total, 'tổng toàn phạm vi == tổng các dòng BD + Không rõ');
-  const byId = Object.fromEntries(r.rows.map(x => [x.id, x]));
+  const sum = convRowsOf(r).reduce((a, x) => a + x.count, 0);
+  assert.equal(sum, r.total, 'tổng toàn phạm vi == tổng cột converted qua các dòng BD + Không rõ');
+  const byId = Object.fromEntries(convRowsOf(r).map(x => [x.id, x]));
   assert.equal(byId.yen.count, 1); assert.equal(byId.hoang.count, 1); assert.equal(byId.__none__.count, 1);
 });
 
@@ -147,7 +161,7 @@ test('chuyển đổi: chuyển đổi -> kéo ra -> chuyển lại trong kỳ v
   const aiLeads = CLEADS.filter(l => l.line === 'ai');
   const r = conv(D, aiLeads, events);
   assert.equal(r.total, 1, 'chỉ L1, đếm đúng 1 lần dù chuyển lại, và giữ người của lần đầu (Yến)');
-  assert.deepEqual(J(r.rows.map(x => ({ id: x.id, count: x.count, leadIds: x.leadIds }))), [{ id: 'yen', count: 1, leadIds: ['L1'] }]);
+  assert.deepEqual(J(convRowsOf(r)), [{ id: 'yen', count: 1, leadIds: ['L1'] }]);
 });
 
 test('chuyển đổi: trục Người áp trên kết quả gán — scope 1 BD chỉ còn phần của BD đó; scope __none__ chỉ còn Không rõ', () => {
@@ -163,107 +177,172 @@ test('chuyển đổi: trục Người áp trên kết quả gán — scope 1 BD
   assert.equal(conv(D, CLEADS, events, 7, null, 'yen').total, 1);
 });
 
-/* ---------- dashLeadConversionsInPeriod: phân loại theo mảng (BD × Mảng) ---------- */
+/* ---------- dashConversionsByStatusInPeriod: phân loại theo TRẠNG THÁI (BD × Trạng thái, 13/11/2026) ---------- */
 
-const MLEADS = [
-  { id: 'M1', ownerId: 'yen', line: 'game_studio' },
-  { id: 'M2', ownerId: 'yen', line: 'publishing' },
-  { id: 'M3', ownerId: 'hoang', line: 'ai' },
-  { id: 'M4', ownerId: 'hoang', line: 'metaverse' },
-  { id: 'M5', ownerId: 'yen', line: 'ai' },
-  { id: 'M6', ownerId: 'hoang', line: 'game_studio' },
-  { id: 'M7', ownerId: 'yen', line: 'la-khong-chuan' }, /* line lạ -> __unknown__ */
-  { id: 'M8', ownerId: 'hoang' }, /* thiếu line -> __unknown__ */
-  { id: 'M9', line: 'publishing' }, /* không owner + sự kiện không byMemberId -> __none__ */
-];
-const MEVENTS = [
-  ev('M1', '2026-11-08T09:00:00+07:00', 'yen'),
-  ev('M2', '2026-11-08T09:05:00+07:00', 'yen'),
-  ev('M3', '2026-11-08T09:10:00+07:00', 'hoang'),
-  ev('M4', '2026-11-08T09:15:00+07:00', 'hoang'),
-  ev('M5', '2026-11-08T09:20:00+07:00', 'yen'),
-  ev('M6', '2026-11-08T09:25:00+07:00', 'hoang'),
-  ev('M7', '2026-11-08T09:30:00+07:00', 'yen'),
-  ev('M8', '2026-11-08T09:35:00+07:00', 'hoang'),
-  ev('M9', '2026-11-08T09:40:00+07:00', ''),
-];
-const LINE_KEYS5 = ['game_studio', 'publishing', 'ai', 'metaverse', '__unknown__'];
-function assertMatrixInvariants(r, label) {
-  assert.deepEqual(J(r.byLine.map(c => c.key)), LINE_KEYS5, label + ': byLine đúng 5 phần tử, đúng thứ tự cố định');
-  assert.equal(r.byLine.reduce((a, c) => a + c.count, 0), r.total, label + ': total == tổng count byLine');
-  const byUnion = J(r.byLine.flatMap(c => c.leadIds)).slice().sort();
-  assert.deepEqual(byUnion, J(r.totalLeadIds).slice().sort(), label + ': hợp leadIds byLine == totalLeadIds');
-  assert.equal(new Set(byUnion).size, byUnion.length, label + ': leadIds byLine không trùng');
-  for (const row of r.rows) {
-    assert.deepEqual(J(row.cells.map(c => c.key)), LINE_KEYS5, label + ': cells của ' + row.id + ' đúng 5 phần tử, đúng thứ tự');
-    assert.equal(row.cells.reduce((a, c) => a + c.count, 0), row.count, label + ': count dòng ' + row.id + ' == tổng count các cells');
-    const cellUnion = J(row.cells.flatMap(c => c.leadIds)).slice().sort();
-    assert.deepEqual(cellUnion, J(row.leadIds).slice().sort(), label + ': hợp leadIds cells của ' + row.id + ' == leadIds của dòng');
-    assert.equal(new Set(cellUnion).size, cellUnion.length, label + ': cells của ' + row.id + ' không trùng lead');
+test('neo converted: cột Đã chuyển đổi của hàm MỚI bằng ĐÚNG đầu ra hàm CŨ chụp trước khi sửa (mọi scope + Tuỳ chỉnh)', () => {
+  const D = loadShared().window.SavaDash;
+  /* Bộ dữ kiện kiểm thử này đã chạy qua hàm CŨ (bb59e99) TRƯỚC khi sửa
+     và đầu ra dưới đây là nguyên văn bản chụp đó:
+     scope "" -> total 5 [L1,L2,L3,L4,L6], hoang 2 [L1,L3], yen 2 [L2,L6], __none__ 1 [L4];
+     scope yen -> 2 [L2,L6]; hoang -> 2 [L1,L3]; __none__ -> 1 [L4];
+     range 06-08/11 -> total 3 [L1,L3,L4], hoang 2 [L1,L3], __none__ 1 [L4]. */
+  const leads = [
+    { id: 'L1', ownerId: 'yen', line: 'ai' }, { id: 'L2', ownerId: 'yen', line: 'ai' },
+    { id: 'L3', ownerId: 'hoang', line: 'ai' }, { id: 'L4', line: 'ai' },
+    { id: 'L5', ownerId: 'yen', line: 'metaverse' }, { id: 'L6', ownerId: 'hoang', line: 'publishing' },
+  ];
+  const events = [
+    ev('L1', '2026-11-08T09:00:00+07:00', 'hoang'), ev('L1', '2026-11-10T09:00:00+07:00', 'yen'),
+    ev('L2', '2026-11-08T09:00:00+07:00', '', 'Sent connect', 'Mới'), ev('L2', '2026-11-09T09:00:00+07:00', ''),
+    ev('L3', '2026-11-08T10:00:00+07:00', ''),
+    ev('L4', '2026-11-08T11:00:00+07:00', ''),
+    ev('L5', '2026-11-01T09:00:00+07:00', 'yen'),
+    ev('L6', '2026-11-11T09:00:00+07:00', 'hoang', 'Đã liên hệ', 'Mới'), ev('L6', '2026-11-11T10:00:00+07:00', 'yen'),
+  ];
+  const byIdSorted = r => Object.fromEntries(convRowsOf(r).map(x => [x.id, { count: x.count, leadIds: x.leadIds }]));
+  const all = conv(D, leads, events);
+  assert.equal(all.total, 5); assert.deepEqual(J(all.totalLeadIds), ['L1', 'L2', 'L3', 'L4', 'L6']);
+  assert.deepEqual(J(byIdSorted(all)), { hoang: { count: 2, leadIds: ['L1', 'L3'] }, yen: { count: 2, leadIds: ['L2', 'L6'] }, __none__: { count: 1, leadIds: ['L4'] } }, 'theo từng BD phải bằng bản chụp cũ');
+  const ct = all.columnTotals.lead.find(c => c.key === 'converted');
+  assert.equal(ct.count, 5); assert.deepEqual(J(ct.leadIds), ['L1', 'L2', 'L3', 'L4', 'L6'], 'tổng cột converted == totalLeadIds cũ');
+  assert.deepEqual(J(conv(D, leads, events, 7, null, 'yen').totalLeadIds), ['L2', 'L6']);
+  assert.deepEqual(J(conv(D, leads, events, 7, null, 'hoang').totalLeadIds), ['L1', 'L3']);
+  assert.deepEqual(J(conv(D, leads, events, 7, null, '__none__').totalLeadIds), ['L4']);
+  const rng = conv(D, leads, events, null, { from: '2026-11-06', to: '2026-11-08' });
+  assert.equal(rng.total, 3); assert.deepEqual(J(rng.totalLeadIds), ['L1', 'L3', 'L4']);
+  assert.deepEqual(J(byIdSorted(rng)), { hoang: { count: 2, leadIds: ['L1', 'L3'] }, __none__: { count: 1, leadIds: ['L4'] } });
+});
+
+test('trạng thái lead: cấu trúc cột đúng 11 (10 đường chính + lối ra cuối); không còn byLine/cells', () => {
+  const D = loadShared().window.SavaDash;
+  const r = conv(D, CLEADS, []);
+  assert.deepEqual(J(r.leadColumns.map(c => c.key)), ['new', 'sent_connect', 'first_message', 'first_email', 'first_fu', 'in_response', 'in_reply', 'discovery_meeting', 'contacted', 'converted', 'not_yet_have_demand']);
+  assert.equal(r.leadColumns[10].label, 'Not yet have demand');
+  assert.equal(r.byLine, undefined, 'byLine (phân loại theo mảng) đã gỡ');
+  const r2 = conv(D, CLEADS, [ev('L1', '2026-11-08T09:00:00+07:00', 'yen')]);
+  assert.equal(r2.rows[0].cells, undefined, 'rows[].cells (ma trận mảng) đã gỡ');
+  assert.ok(Array.isArray(r2.rows[0].leadCells) && Array.isArray(r2.rows[0].dealCells), 'rows mang leadCells + dealCells');
+  assert.equal(r2.rows[0].leadCells.length, 11); assert.equal(r2.rows[0].dealCells.length, r2.dealColumns.length);
+});
+
+test('trạng thái lead: lead qua nhiều trạng thái trong kỳ — mỗi cột đếm 1 dù vào lại nhiều lần; mỗi cột gán đúng người của trạng thái đó; create đặt thẳng vào trạng thái giữa', () => {
+  const D = loadShared().window.SavaDash;
+  const leads = [{ id: 'A1', ownerId: 'yen', line: 'ai' }, { id: 'A2', ownerId: 'hoang', line: 'ai' }];
+  const sev = (id, at, by, to, from, action) => ({ entityType: 'lead', entityId: id, at, byMemberId: by || '', action: action || 'update', changes: [{ field: 'status', from: from || '', to }] });
+  const events = [
+    sev('A1', '2026-11-07T09:00:00+07:00', 'yen', 'Sent connect', 'Mới'),
+    sev('A1', '2026-11-08T09:00:00+07:00', 'hoang', '1st message', 'Sent connect'), /* BD khác động vào ở trạng thái khác */
+    sev('A1', '2026-11-09T09:00:00+07:00', 'yen', 'Sent connect', '1st message'), /* vào lại Sent connect: vẫn 1, vẫn gán Yến (lần đầu) */
+    sev('A1', '2026-11-10T09:00:00+07:00', 'hoang', '1st message', 'Sent connect'),
+    sev('A2', '2026-11-08T09:00:00+07:00', 'hoang', 'In reply', '', 'create'), /* create đặt thẳng vào trạng thái giữa */
+    sev('A2', '2026-11-08T10:00:00+07:00', '', 'Not yet have demand', 'In reply'), /* lối ra; byMemberId rỗng -> fallback owner hoang */
+  ];
+  const r = conv(D, leads, events);
+  assert.equal(convCellOf(r, 'yen', 'sent_connect').count, 1); assert.deepEqual(J(convCellOf(r, 'yen', 'sent_connect').leadIds), ['A1']);
+  assert.equal(convCellOf(r, 'hoang', 'first_message').count, 1); assert.deepEqual(J(convCellOf(r, 'hoang', 'first_message').leadIds), ['A1'], 'cột first_message của A1 gán Hoàng — người đầu tiên đưa vào trạng thái đó, khác người của cột sent_connect');
+  assert.equal(convCellOf(r, 'hoang', 'in_reply').count, 1, 'create đặt thẳng vào In reply vẫn đếm');
+  assert.equal(convCellOf(r, 'hoang', 'not_yet_have_demand').count, 1, 'lối ra đếm ở cột cuối nhóm Lead, fallback owner khi sự kiện thiếu byMemberId');
+  const tot = k => r.columnTotals.lead.find(c => c.key === k).count;
+  assert.equal(tot('sent_connect'), 1); assert.equal(tot('first_message'), 1); assert.equal(tot('in_reply'), 1); assert.equal(tot('not_yet_have_demand'), 1);
+  assert.equal(tot('converted'), 0); assert.equal(r.total, 0, 'không lead nào converted trong dữ kiện này');
+  /* Bất biến: tổng từng cột == tổng ô cột đó qua mọi hàng. */
+  for (const col of r.leadColumns) {
+    const sumRows = r.rows.reduce((a, row) => a + row.leadCells.find(c => c.key === col.key).count, 0);
+    assert.equal(r.columnTotals.lead.find(c => c.key === col.key).count, sumRows, 'bất biến cột lead ' + col.key);
   }
-  assert.equal(r.rows.reduce((a, x) => a + x.count, 0), r.total, label + ': total == tổng count các rows (bất biến cũ)');
-}
-
-test('chuyển đổi × mảng: byLine khớp tổng tay đủ 4 mảng + __unknown__ (line lạ/thiếu); cells từng BD khớp; bất biến ba chiều', () => {
-  const D = loadShared().window.SavaDash;
-  const r = conv(D, MLEADS, MEVENTS);
-  assert.equal(r.total, 9);
-  const byKey = Object.fromEntries(r.byLine.map(c => [c.key, c]));
-  assert.equal(byKey.game_studio.count, 2); assert.deepEqual(J(byKey.game_studio.leadIds), ['M1', 'M6']);
-  assert.equal(byKey.publishing.count, 2); assert.deepEqual(J(byKey.publishing.leadIds), ['M2', 'M9']);
-  assert.equal(byKey.ai.count, 2); assert.deepEqual(J(byKey.ai.leadIds), ['M3', 'M5']);
-  assert.equal(byKey.metaverse.count, 1); assert.deepEqual(J(byKey.metaverse.leadIds), ['M4']);
-  assert.equal(byKey.__unknown__.count, 2); assert.deepEqual(J(byKey.__unknown__.leadIds), ['M7', 'M8']);
-  const rowOf = id => r.rows.find(x => x.id === id);
-  const cellOf = (row, key) => row.cells.find(c => c.key === key);
-  assert.equal(rowOf('yen').count, 4);
-  assert.equal(cellOf(rowOf('yen'), 'game_studio').count, 1);
-  assert.equal(cellOf(rowOf('yen'), 'publishing').count, 1);
-  assert.equal(cellOf(rowOf('yen'), 'ai').count, 1);
-  assert.equal(cellOf(rowOf('yen'), 'metaverse').count, 0);
-  assert.equal(cellOf(rowOf('yen'), '__unknown__').count, 1);
-  assert.deepEqual(J(cellOf(rowOf('yen'), '__unknown__').leadIds), ['M7']);
-  assert.equal(rowOf('hoang').count, 4);
-  assert.equal(cellOf(rowOf('hoang'), 'game_studio').count, 1);
-  assert.equal(cellOf(rowOf('hoang'), 'ai').count, 1);
-  assert.equal(cellOf(rowOf('hoang'), 'metaverse').count, 1);
-  assert.equal(cellOf(rowOf('hoang'), '__unknown__').count, 1);
-  assert.equal(rowOf('__none__').count, 1, 'M9 gán Không rõ');
-  assert.equal(cellOf(rowOf('__none__'), 'publishing').count, 1);
-  assert.deepEqual(J(cellOf(rowOf('__none__'), 'publishing').leadIds), ['M9']);
-  assertMatrixInvariants(r, 'toàn phạm vi');
-  /* Đầu ra cũ trên cùng dữ kiện không đổi: total/rows (id/count/leadIds) như hành vi trước đợt. */
-  assert.deepEqual(J(r.rows.map(x => ({ id: x.id, count: x.count, leadIds: x.leadIds }))), [
-    { id: 'hoang', count: 4, leadIds: ['M3', 'M4', 'M6', 'M8'] },
-    { id: 'yen', count: 4, leadIds: ['M1', 'M2', 'M5', 'M7'] },
-    { id: '__none__', count: 1, leadIds: ['M9'] },
-  ], 'thứ tự rows + đầu ra cũ giữ nguyên (bằng count: BD trước, Không rõ sau; hoang < yen theo localeCompare)');
 });
 
-test('chuyển đổi × mảng: scopeId = 1 BD thì byLine chỉ còn phần của BD đó và vẫn khớp ba chiều', () => {
+test('trạng thái lead: biên cửa sổ ICT cho sự kiện lead (preset + Tuỳ chỉnh chặn trên) + lọc Người + lọc Mảng (đầu vào đã lọc)', () => {
   const D = loadShared().window.SavaDash;
-  const r = conv(D, MLEADS, MEVENTS, 7, null, 'yen');
-  assert.equal(r.total, 4);
-  const byKey = Object.fromEntries(r.byLine.map(c => [c.key, c.count]));
-  assert.deepEqual(byKey, { game_studio: 1, publishing: 1, ai: 1, metaverse: 0, __unknown__: 1 }, 'byLine trong scope Yến chỉ gồm lead gán Yến');
-  assert.equal(r.rows.length, 1); assert.equal(r.rows[0].id, 'yen');
-  assertMatrixInvariants(r, 'scope yen');
-  const rn = conv(D, MLEADS, MEVENTS, 7, null, '__none__');
-  assert.equal(rn.total, 1);
-  assert.deepEqual(Object.fromEntries(rn.byLine.map(c => [c.key, c.count])), { game_studio: 0, publishing: 1, ai: 0, metaverse: 0, __unknown__: 0 });
-  assertMatrixInvariants(rn, 'scope __none__');
+  const leads = [{ id: 'B1', ownerId: 'yen', line: 'ai' }, { id: 'B2', ownerId: 'yen', line: 'metaverse' }];
+  const events = [
+    ev('B1', '2026-11-05T16:59:59.000Z', 'yen', 'Sent connect', 'Mới'), /* 23:59:59 ICT 05/11 — ngoài kỳ 7 */
+    ev('B1', '2026-11-05T17:00:00.000Z', 'yen', 'Sent connect', 'Mới'), /* 00:00 ICT 06/11 — trong kỳ */
+    ev('B2', '2026-11-08T09:00:00+07:00', 'yen', 'Sent connect', 'Mới'),
+  ];
+  const r = conv(D, leads, events);
+  assert.equal(r.columnTotals.lead.find(c => c.key === 'sent_connect').count, 2);
+  const rng = conv(D, leads, events, null, { from: '2026-11-06', to: '2026-11-07' });
+  assert.equal(rng.columnTotals.lead.find(c => c.key === 'sent_connect').count, 1, 'Tuỳ chỉnh chặn trên: sự kiện 08/11 của B2 bị loại');
+  assert.deepEqual(J(rng.columnTotals.lead.find(c => c.key === 'sent_connect').leadIds), ['B1']);
+  const scoped = conv(D, leads, events, 7, null, 'hoang');
+  assert.equal(scoped.columnTotals.lead.find(c => c.key === 'sent_connect').count, 0, 'lọc Người Hoàng: mọi ô đều gán Yến nên rỗng');
+  const aiOnly = conv(D, leads.filter(l => l.line === 'ai'), events);
+  assert.equal(aiOnly.columnTotals.lead.find(c => c.key === 'sent_connect').count, 1, 'lọc Mảng ai (đầu vào đã qua dashFilterByLine): chỉ B1');
 });
 
-test('chuyển đổi × mảng: đầu vào đã lọc sẵn 1 mảng (mô phỏng dashLine) thì cột mảng khác = 0, Tổng == cột mảng đó', () => {
+/* ---------- Deal: taxonomy + đếm stage ---------- */
+
+const dev = (dealId, at, byMemberId, to, from, action) => ({ entityType: 'deal', entityId: dealId, at, byMemberId: byMemberId || '', action: action || 'update', changes: [{ field: 'stage', label: 'Giai đoạn', from: from || '', to }] });
+const CDEALS = [
+  { id: 'D1', owner: 'yen', line: 'ai' },
+  { id: 'D2', owner: 'hoang', line: 'game_studio' },
+  { id: 'D3', line: 'publishing' }, /* không owner */
+  { id: 'D4', owner: 'yen', line: 'metaverse' },
+];
+const convD = (D, deals, dealEvents, days, range, scope, leads, leadEvents) => D.dashConversionsByStatusInPeriod(leads || [], deals, [...(leadEvents || []), ...(dealEvents || [])], days === undefined ? 7 : days, NOW, range || null, scope || '');
+const dealCellOf = (r, rowId, key) => { const row = r.rows.find(x => x.id === rowId); return row ? row.dealCells.find(x => x.key === key) : undefined; };
+
+test('deal taxonomy: dashDealStageKeyFromAudit map nhãn -> key (ưu tiên line của deal) + nhận thẳng key + nhãn lạ -> null; dashDealStageChangesOf chỉ lấy field stage', () => {
   const D = loadShared().window.SavaDash;
-  const aiOnly = MLEADS.filter(l => l.line === 'ai');
-  const r = conv(D, aiOnly, MEVENTS);
-  assert.equal(r.total, 2);
-  const byKey = Object.fromEntries(r.byLine.map(c => [c.key, c.count]));
-  assert.deepEqual(byKey, { game_studio: 0, publishing: 0, ai: 2, metaverse: 0, __unknown__: 0 });
-  assert.equal(r.total, byKey.ai, 'Tổng == cột mảng ai');
-  for (const row of r.rows) for (const c of row.cells) assert.equal(c.count, c.key === 'ai' ? c.count : 0, 'cells ngoài mảng ai đều 0');
-  assertMatrixInvariants(r, 'lọc sẵn mảng ai');
+  assert.equal(D.dashDealStageKeyFromAudit('Ký hợp đồng — Won'), 'won');
+  assert.equal(D.dashDealStageKeyFromAudit('Thua — Lost'), 'lost');
+  assert.equal(D.dashDealStageKeyFromAudit('Từ chối — Lost', 'publishing'), 'lost');
+  assert.equal(D.dashDealStageKeyFromAudit('Term sheet / Đàm phán'), 'term');
+  assert.equal(D.dashDealStageKeyFromAudit('Đánh giá build', 'publishing'), 'build_eval');
+  assert.equal(D.dashDealStageKeyFromAudit('Demo / Prototype', 'metaverse'), 'proto');
+  assert.equal(D.dashDealStageKeyFromAudit('quote'), 'quote');
+  assert.equal(D.dashDealStageKeyFromAudit('nhãn lạ'), null);
+  const ch = D.dashDealStageChangesOf({ at: '2026-11-08T09:00:00+07:00', changes: [{ field: 'stage', from: 'Tiếp cận', to: 'Báo giá / Đàm phán' }, { field: 'title', from: 'a', to: 'b' }] }, { line: 'ai' });
+  assert.deepEqual(J(ch), [{ fromKey: 'prospect', toKey: 'quote', at: '2026-11-08T09:00:00+07:00' }]);
+});
+
+test('deal taxonomy: cột Deal = HỢP 19 stage của 4 pipeline, sắp theo vòng đời (xác suất tăng dần), won áp cuối, lost cuối cùng', () => {
+  const D = loadShared().window.SavaDash;
+  const cols = D.dashDealStageColumns();
+  assert.deepEqual(J(cols.map(c => c.key)), ['target', 'sourcing', 'prospect', 'contacted', 'screening', 'discovery', 'pitched', 'build_eval', 'usecase', 'concept', 'evaluating', 'demo', 'biz_eval', 'proto', 'poc', 'term', 'quote', 'won', 'lost']);
+  assert.equal(cols.find(c => c.key === 'lost').label, 'Thua — Lost');
+  assert.equal(cols.find(c => c.key === 'won').label, 'Ký hợp đồng — Won');
+});
+
+test('deal: tạo ở stage giữa; chuyển Won trong kỳ; chuyển Lost NGOÀI cửa sổ -> không đếm; fallback owner deal; không owner + không by -> Không rõ', () => {
+  const D = loadShared().window.SavaDash;
+  const events = [
+    dev('D1', '2026-11-07T09:00:00+07:00', 'yen', 'POC / Pilot', '', 'create'), /* tạo thẳng ở stage giữa */
+    dev('D1', '2026-11-09T09:00:00+07:00', 'hoang', 'Ký hợp đồng — Won', 'POC / Pilot'),
+    dev('D1', '2026-11-10T09:00:00+07:00', 'yen', 'Ký hợp đồng — Won', 'POC / Pilot'), /* vào lại Won: vẫn 1, gán Hoàng (lần đầu) */
+    dev('D2', '2026-11-01T09:00:00+07:00', 'hoang', 'Thua — Lost', 'Đã pitch'), /* ngoài kỳ 7 -> không đếm */
+    dev('D2', '2026-11-08T09:00:00+07:00', '', 'Đã pitch', 'Đã liên hệ'), /* by rỗng -> fallback owner hoang */
+    dev('D3', '2026-11-08T09:00:00+07:00', '', 'Từ chối — Lost', 'Sơ tuyển'), /* không by, không owner -> Không rõ; nhãn Lost riêng của publishing */
+    dev('D4', '2026-11-20T09:00:00+07:00', 'yen', 'Báo giá / Đàm phán', 'Demo / Prototype'), /* sau now: preset không chặn trên -> đếm */
+  ];
+  const r = convD(D, CDEALS, events);
+  assert.equal(dealCellOf(r, 'yen', 'poc').count, 1); assert.deepEqual(J(dealCellOf(r, 'yen', 'poc').dealIds), ['D1']);
+  assert.equal(dealCellOf(r, 'hoang', 'won').count, 1, 'Won gán người của lần vào Won ĐẦU TIÊN (Hoàng), không phải lần vào lại của Yến');
+  assert.equal(dealCellOf(r, 'hoang', 'pitched').count, 1, 'fallback owner của deal khi sự kiện thiếu byMemberId');
+  assert.equal(dealCellOf(r, '__none__', 'lost').count, 1); assert.deepEqual(J(dealCellOf(r, '__none__', 'lost').dealIds), ['D3']);
+  assert.equal(r.columnTotals.deal.find(c => c.key === 'lost').count, 1, 'Lost ngoài cửa sổ của D2 không đếm — chỉ D3');
+  assert.equal(r.columnTotals.deal.find(c => c.key === 'quote').count, 1, 'preset không chặn trên cho cả sự kiện deal');
+  for (const col of r.dealColumns) {
+    const sumRows = r.rows.reduce((a, row) => a + row.dealCells.find(c => c.key === col.key).count, 0);
+    assert.equal(r.columnTotals.deal.find(c => c.key === col.key).count, sumRows, 'bất biến cột deal ' + col.key);
+  }
+});
+
+test('deal: biên Tuỳ chỉnh chặn trên + lọc Người + lọc Mảng cho nhóm cột Deal', () => {
+  const D = loadShared().window.SavaDash;
+  const events = [
+    dev('D1', '2026-11-08T23:59:59+07:00', 'yen', 'Ký hợp đồng — Won', 'POC / Pilot'),
+    dev('D4', '2026-11-09T00:00:00+07:00', 'yen', 'Ký hợp đồng — Won', 'Báo giá / Đàm phán'),
+  ];
+  const rng = convD(D, CDEALS, events, null, { from: '2026-11-06', to: '2026-11-08' });
+  assert.equal(rng.columnTotals.deal.find(c => c.key === 'won').count, 1, 'Tuỳ chỉnh chặn trên áp cho cả sự kiện deal');
+  assert.deepEqual(J(rng.columnTotals.deal.find(c => c.key === 'won').dealIds), ['D1']);
+  const scoped = convD(D, CDEALS, events, 7, null, 'hoang');
+  assert.equal(scoped.columnTotals.deal.find(c => c.key === 'won').count, 0, 'lọc Người Hoàng: ô Won gán Yến nên rỗng');
+  const aiOnly = convD(D, CDEALS.filter(d => d.line === 'ai'), events);
+  assert.equal(aiOnly.columnTotals.deal.find(c => c.key === 'won').count, 1, 'lọc Mảng ai (deal theo d.line): chỉ D1');
+  assert.deepEqual(J(aiOnly.columnTotals.deal.find(c => c.key === 'won').dealIds), ['D1']);
 });
 
 /* ---------- Harness đường nạp: phân trang qua supabase-data.js ---------- */
@@ -413,7 +492,7 @@ test('UI phễu: click-through mở đúng tập đã đếm + chip không nhắ
   assert.deepEqual(idsOf(h.run), ['LC'], 'dòng lối ra = lead đang ở lối ra');
 });
 
-test('UI chuyển đổi: khối hiện tổng + bảng theo BD (chỉ số đếm, không %), click-through đúng tập + chip ghi khối/kỳ/BD; cache thu hẹp không nạp lại, mở rộng nạp lại', async () => {
+test('UI chuyển đổi: khối hiện bảng theo trạng thái (chỉ số đếm, không %), click-through ô Lead đúng tập + chip ghi khối/BD/trạng thái/kỳ; cache thu hẹp không nạp lại, mở rộng nạp lại', async () => {
   let calls = 0;
   const todayISO = new Date().toISOString();
   const stub = async () => {
@@ -431,11 +510,12 @@ test('UI chuyển đổi: khối hiện tổng + bảng theo BD (chỉ số đ�
   assert.equal(calls, 1, 'nạp lần đầu khi mở tab Báo cáo hoạt động');
   const html = h.getEl('view').innerHTML;
   const seg = html.slice(html.indexOf('Chuyển đổi trong kỳ'), html.indexOf('Xu hướng hoạt động'));
-  assert.ok(seg.includes('Tổng số lead được chuyển đổi trong kỳ: <b>3</b>'), 'tổng = 3 lead phân biệt');
+  assert.ok(seg.includes('Đã chuyển đổi trong kỳ: <b>3</b> lead'), 'dòng meta: cột converted = 3 lead phân biệt (neo tổng cũ)');
   assert.ok(seg.includes('Yến') && seg.includes('Hoàng Daden') && seg.includes('Không rõ'), 'đủ 3 dòng gán: Yến / Hoàng (fallback owner) / Không rõ');
   assert.ok(!seg.includes('%'), 'khối chuyển đổi TUYỆT ĐỐI không có % ở bất kỳ dạng nào');
   assert.ok(seg.includes('Nhật ký hệ thống đầy đủ từ 31-10-2026'), 'chú thích nguồn + mốc nhật ký đầy đủ');
-  assert.ok(seg.includes('không có sự kiện chuyển đổi thì không được đếm'), 'chú thích lead nhập lô không có sự kiện thì không đếm');
+  assert.ok(seg.includes('không có sự kiện chuyển trạng thái thì không được đếm'), 'chú thích thao tác ngoài app không có sự kiện thì không đếm');
+  assert.ok(seg.includes('một lead/deal có thể xuất hiện ở nhiều cột'), 'phụ đề nói rõ một lead/deal ở nhiều cột');
   /* Thu hẹp kỳ 30 -> 7: cache phủ -> không nạp lại. Mở rộng 7 -> 90: nạp lại. */
   h.run("setDashPeriod('7')");
   assert.equal(calls, 1, 'thu hẹp kỳ dùng lại cache');
@@ -443,63 +523,74 @@ test('UI chuyển đổi: khối hiện tổng + bảng theo BD (chỉ số đ�
   await settle(h);
   assert.equal(calls, 2, 'mở rộng kỳ nạp lại');
   h.run("setDashPeriod('30')");
-  /* Click-through từng dòng + tổng. */
-  h.run("dashOpenLeadConversionRow('yen')");
-  assert.deepEqual(idsOf(h.run), ['LA'], 'dòng Yến = chỉ LA');
+  /* Click-through ô Lead converted từng dòng + tổng cột. */
+  h.run("dashOpenLeadConversionCell('yen','converted')");
+  assert.deepEqual(idsOf(h.run), ['LA'], 'ô Yến × Đã chuyển đổi = chỉ LA');
   let v = h.getEl('view').innerHTML;
-  assert.ok(v.includes('Chuyển đổi trong kỳ — Yến · kỳ 30 ngày'), 'chip ghi khối + BD + kỳ');
+  assert.ok(v.includes('Chuyển đổi trong kỳ — Yến · Đã chuyển đổi · kỳ 30 ngày'), 'chip ghi khối + BD + trạng thái + kỳ');
   h.run("setView('dash'); dashboardMode = 'activity'; render()");
   await settle(h);
-  h.run("dashOpenLeadConversionRow('__none__')");
-  assert.deepEqual(idsOf(h.run), ['LC'], 'dòng Không rõ = chỉ LC');
+  h.run("dashOpenLeadConversionCell('__none__','converted')");
+  assert.deepEqual(idsOf(h.run), ['LC'], 'ô Không rõ × Đã chuyển đổi = chỉ LC');
   h.run("setView('dash'); dashboardMode = 'activity'; render()");
   await settle(h);
-  h.run("dashOpenLeadConversionRow('')");
-  assert.deepEqual(idsOf(h.run).sort(), ['LA', 'LB', 'LC'], 'số tổng = mọi lead đã đếm');
+  h.run("dashOpenLeadConversionCell('','converted')");
+  assert.deepEqual(idsOf(h.run).sort(), ['LA', 'LB', 'LC'], 'ô tổng cột Đã chuyển đổi = mọi lead đã đếm ở cột đó');
+  assert.ok(h.getEl('view').innerHTML.includes('Chuyển đổi trong kỳ — Tất cả BD · Đã chuyển đổi · kỳ 30 ngày'), 'chip ô tổng cột ghi Tất cả BD + trạng thái + kỳ');
 });
 
-test('UI chuyển đổi × mảng: bảng ma trận BD × Mảng — cột Chưa rõ mảng ẩn khi tổng của nó = 0; ô 0 tĩnh mờ không phải nút; ô > 0 + tfoot bấm-xuyên đúng tập ô', async () => {
+test('UI chuyển đổi × trạng thái: 2 nhóm cột Lead/Deal có tiêu đề nhóm; cột mảng + Chưa rõ mảng biến mất; không cột tổng-hàng; ô 0 tĩnh mờ; ô Deal bấm mở Pipeline mảng tương ứng (gần đúng)', async () => {
   const todayISO = new Date().toISOString();
   const stub = async () => ({ windowEvents: [
     ev('LA', todayISO, 'yen'),
     ev('LB', todayISO, ''), /* fallback owner hoang */
-    ev('LC', todayISO, ''), /* Không rõ */
+    { entityType: 'deal', entityId: 'DA', at: todayISO, byMemberId: 'yen', action: 'update', changes: [{ field: 'stage', from: 'POC / Pilot', to: 'Ký hợp đồng — Won' }] },
   ] });
   const h = loadIndex(stub);
+  h.run("S.deals.push({ id: 'DA', company: 'c1', line: 'ai', stage: 'won', owner: 'yen', title: 'Deal A' })");
   h.run("curView = 'dash'; dashboardMode = 'activity'; render()");
   await settle(h);
   const html = h.getEl('view').innerHTML;
   const seg = html.slice(html.indexOf('Chuyển đổi trong kỳ'), html.indexOf('Xu hướng hoạt động'));
-  for (const col of ['BD', 'Game Studio', 'Publishing', 'AI', 'Metaverse', 'Tổng']) assert.ok(seg.includes('<th>' + col + '</th>'), 'có cột ' + col);
-  assert.ok(!seg.includes('Chưa rõ mảng'), 'tổng __unknown__ = 0 (mọi lead đều mảng ai) -> KHÔNG hiện cột Chưa rõ mảng');
-  assert.ok(seg.includes("dashOpenLeadConversionCell('yen','ai')"), 'ô Yến × AI > 0 là nút bấm-xuyên theo ô');
-  assert.ok(seg.includes("dashOpenLeadConversionCell('','ai')"), 'ô tfoot cột AI > 0 là nút bấm-xuyên tổng cột');
-  assert.ok(seg.includes('<tfoot>'), 'có hàng tfoot Tổng lấy từ byLine');
-  assert.ok(!seg.includes("dashOpenLeadConversionCell('yen','game_studio')"), 'ô Yến × Game Studio = 0 KHÔNG phải nút');
-  assert.ok(!seg.includes("dashOpenLeadConversionCell('','game_studio')"), 'ô tfoot Game Studio = 0 KHÔNG phải nút');
+  assert.ok(seg.includes('<th colspan="11">Lead</th>'), 'tiêu đề nhóm Lead phủ 11 cột (10 đường chính + lối ra)');
+  assert.ok(seg.includes('<th colspan="19">Sau chuyển đổi (Deal)</th>'), 'tiêu đề nhóm Deal phủ 19 cột (hợp stage 4 mảng)');
+  for (const col of ['Mới', 'Sent connect', 'Đã chuyển đổi', 'Not yet have demand', 'Danh sách mục tiêu', 'Ký hợp đồng — Won', 'Thua — Lost']) assert.ok(seg.includes('<th>' + col + '</th>'), 'có cột ' + col);
+  assert.ok(!seg.includes('Chưa rõ mảng'), 'cột Chưa rõ mảng của ma trận mảng cũ đã biến mất');
+  for (const col of ['Game Studio', 'Publishing', 'Metaverse']) assert.ok(!seg.includes('<th>' + col + '</th>'), 'cột mảng ' + col + ' đã biến mất khỏi thead');
+  const thead = seg.slice(seg.indexOf('<thead>'), seg.indexOf('</thead>'));
+  assert.ok(!thead.includes('Tổng'), 'KHÔNG có cột tổng-hàng trong thead');
+  assert.ok(seg.includes("dashOpenLeadConversionCell('yen','converted')"), 'ô Yến × Đã chuyển đổi > 0 là nút bấm-xuyên Lead theo ô');
+  assert.ok(seg.includes("dashOpenLeadConversionCell('','converted')"), 'ô tfoot cột Đã chuyển đổi > 0 là nút bấm-xuyên tổng cột Lead');
+  assert.ok(seg.includes("dashOpenDealConversionCell('yen','won')"), 'ô Yến × Won > 0 là nút mở Pipeline (Deal)');
+  assert.ok(seg.includes("dashOpenDealConversionCell('','won')"), 'ô tfoot cột Won > 0 là nút mở Pipeline (Deal)');
+  assert.ok(!seg.includes("dashOpenLeadConversionCell('yen','new')"), 'ô Yến × Mới = 0 KHÔNG phải nút');
   assert.ok(seg.includes('ex-cell-zero'), 'ô 0 hiện tĩnh với class mờ ex-cell-zero');
-  assert.ok(!seg.includes('%'), 'khối ma trận vẫn tuyệt đối không có %');
-  assert.ok(seg.includes('Mảng của mỗi lead lấy theo mảng của lead đó.'), 'chú thích có câu nguồn mảng đã thêm');
-  /* Bấm-xuyên theo ô: ô thường, ô tổng cột, ô 0 không làm gì. */
-  h.run("dashOpenLeadConversionCell('yen','ai')");
-  assert.deepEqual(idsOf(h.run), ['LA'], 'ô Yến × AI = chỉ LA');
-  assert.ok(h.getEl('view').innerHTML.includes('Chuyển đổi trong kỳ — Yến · AI · kỳ 30 ngày'), 'chip ghi khối + BD + mảng + kỳ');
+  assert.ok(!seg.includes('%'), 'khối ma trận trạng thái vẫn tuyệt đối không có %');
+  assert.ok(seg.includes('hai đối tượng khác nhau'), 'chú thích nói rõ hai nhóm cột đếm hai đối tượng khác nhau');
+  assert.ok(seg.includes('đích gần đúng'), 'chú thích khai thẳng bấm ô Deal là đích gần đúng');
+  /* Bấm ô Lead: đúng tập. */
+  h.run("dashOpenLeadConversionCell('yen','converted')");
+  assert.deepEqual(idsOf(h.run), ['LA'], 'ô Yến × Đã chuyển đổi = chỉ LA');
   h.run("setView('dash'); dashboardMode = 'activity'; render()");
   await settle(h);
-  h.run("dashOpenLeadConversionCell('','ai')");
-  assert.deepEqual(idsOf(h.run).sort(), ['LA', 'LB', 'LC'], 'ô tổng cột AI = mọi lead mảng ai đã đếm');
-  assert.ok(h.getEl('view').innerHTML.includes('Chuyển đổi trong kỳ — Tất cả BD · AI · kỳ 30 ngày'), 'chip ô tổng cột ghi Tất cả BD + mảng + kỳ');
+  /* Bấm ô Deal: mở view Pipeline ở mảng của deal trong ô (ai) — đích gần đúng. */
+  h.run("dashOpenDealConversionCell('yen','won')");
+  assert.equal(h.run('curView'), 'board', 'ô Deal mở view Pipeline');
+  assert.equal(h.run('curLine'), 'ai', 'Pipeline mở ở mảng tương ứng của deal trong ô (ai)');
   h.run("setView('dash'); dashboardMode = 'activity'; render()");
   await settle(h);
-  h.run("dashOpenLeadConversionCell('yen','game_studio')");
-  assert.equal(h.run('curView'), 'dash', 'ô 0 (tập rỗng) -> không làm gì, vẫn ở dashboard');
+  /* Ô 0: không làm gì. */
+  h.run("dashOpenLeadConversionCell('yen','new')");
+  assert.equal(h.run('curView'), 'dash', 'ô Lead 0 (tập rỗng) -> không làm gì, vẫn ở dashboard');
+  h.run("dashOpenDealConversionCell('yen','lost')");
+  assert.equal(h.run('curView'), 'dash', 'ô Deal 0 (tập rỗng) -> không làm gì, vẫn ở dashboard');
 });
 
-test('UI chuyển đổi × mảng: cột Chưa rõ mảng CHỈ xuất hiện khi tổng của nó > 0 + bấm-xuyên ô unknown đúng tập', async () => {
+test('UI chuyển đổi × trạng thái: lead line lạ vẫn đếm theo trạng thái (không còn cột Chưa rõ mảng)', async () => {
   const todayISO = new Date().toISOString();
   const stub = async () => ({ windowEvents: [
     ev('LA', todayISO, 'yen'),
-    ev('LD', todayISO, 'yen'), /* lead line lạ -> __unknown__ */
+    ev('LD', todayISO, 'yen'), /* lead line lạ — bản cũ vào cột __unknown__; bản mới đếm theo trạng thái như mọi lead (dashLine đang Tất cả mảng) */
   ] });
   const h = loadIndex(stub);
   h.run("S.leads.push({ id: 'LD', company: 'c1', line: 'la-khong-chuan', status: 'converted', ownerId: 'yen', name: 'Lead D', person: '', note: '', source: '', when: '2026-11-02', createdAt: new Date().toISOString() })");
@@ -507,12 +598,10 @@ test('UI chuyển đổi × mảng: cột Chưa rõ mảng CHỈ xuất hiện k
   await settle(h);
   const html = h.getEl('view').innerHTML;
   const seg = html.slice(html.indexOf('Chuyển đổi trong kỳ'), html.indexOf('Xu hướng hoạt động'));
-  assert.ok(seg.includes('<th>Chưa rõ mảng</th>'), 'tổng __unknown__ = 1 > 0 -> hiện cột Chưa rõ mảng');
-  assert.ok(seg.includes("dashOpenLeadConversionCell('yen','__unknown__')"), 'ô Yến × Chưa rõ mảng là nút');
+  assert.ok(!seg.includes('Chưa rõ mảng'), 'không còn cột Chưa rõ mảng');
   assert.ok(!seg.includes('%'), 'khối vẫn không có %');
-  h.run("dashOpenLeadConversionCell('yen','__unknown__')");
-  assert.deepEqual(idsOf(h.run), ['LD'], 'ô Yến × Chưa rõ mảng = chỉ LD');
-  assert.ok(h.getEl('view').innerHTML.includes('Chuyển đổi trong kỳ — Yến · Chưa rõ mảng · kỳ 30 ngày'), 'chip ghi tên mảng Chưa rõ mảng');
+  h.run("dashOpenLeadConversionCell('yen','converted')");
+  assert.deepEqual(idsOf(h.run).sort(), ['LA', 'LD'], 'ô Yến × Đã chuyển đổi gồm cả lead line lạ');
 });
 
 test('UI chuyển đổi: đang nạp -> hiện đang tải; nạp lỗi -> hiện lỗi + nút thử lại, KHÔNG số 0 giả; phễu ở Tổng quan vẫn hiện số khi nhật ký lỗi', async () => {
@@ -525,7 +614,7 @@ test('UI chuyển đổi: đang nạp -> hiện đang tải; nạp lỗi -> hi�
   const html = hErr.getEl('view').innerHTML;
   assert.ok(html.includes('Chưa tải được nhật ký chuyển đổi'), 'nạp lỗi phải hiện lỗi rõ ràng');
   assert.ok(html.includes('retryConversionAudit()'), 'có nút thử tải lại');
-  assert.ok(!html.includes('Tổng số lead được chuyển đổi trong kỳ'), 'lỗi thì không hiện tổng (không số 0 giả)');
+  assert.ok(!html.includes('Đã chuyển đổi trong kỳ:'), 'lỗi thì không hiện dòng meta số (không số 0 giả)');
   hErr.run("dashboardMode = 'overview'; render()");
   assert.equal(funnelTotalOf(hErr.getEl('view').innerHTML), 2, 'phễu không phụ thuộc nhật ký: vẫn hiện N=2 khi nạp chuyển đổi lỗi');
 });
