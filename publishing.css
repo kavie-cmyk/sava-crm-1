@@ -1,4 +1,4 @@
-:root{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#23343c;background:#f5f6f8;--mut:var(--muted);--accent:var(--accent);--line:var(--border);--surface:var(--surface);
+:root{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#23343c;background:#f5f6f8;--mut:var(--muted);--line:var(--border);--surface:var(--surface);
 /* GĐ2: token chuẩn (bản sao đồng bộ với apple-design.css — publishing/mkt không nạp apple-design.css) */
 --bg-page: #F4F6F8; --surface: #FFFFFF; --surface-soft: #EAF1F6;
   --ink: #162830; --ink-2: #42586A; --muted: #536571;

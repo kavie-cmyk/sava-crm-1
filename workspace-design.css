@@ -7,7 +7,7 @@
   --workspace-ink: var(--ink); --workspace-muted: var(--muted); --workspace-accent: var(--accent);
   --workspace-bg: var(--bg-page); --workspace-border: var(--border); --workspace-soft: var(--accent-soft);
   --workspace-shadow: var(--sh-1);
-  --sidebar: 248px; --acc: var(--workspace-accent); --accent: var(--workspace-accent);
+  --sidebar: 248px; --acc: var(--workspace-accent);
   --bg: var(--workspace-bg); --txt: var(--workspace-ink); --mut: var(--workspace-muted);
   --line: var(--workspace-border); font-optical-sizing: auto; color-scheme: light;
 }
@@ -454,7 +454,7 @@ td.list-stt {color:#64748b;font-weight:600}
 /* (GĐ2: khối :root ghi đè cuối file đã hợp nhất vào :root đầu — hết tự ghi đè.) */
 .crm-shell .side,
 .publishing-shell .layout > aside {
-  background: #eaf0f3;
+  background: var(--surface-soft);
   border-color: #dbe4e9;
 }
 .crm-shell .workspace-header,

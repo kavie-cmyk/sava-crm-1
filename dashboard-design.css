@@ -45,7 +45,7 @@
 }
 .ex-tabs .on {
   color: white;
-  background: linear-gradient(130deg, #7564e6, #594bc7);
+  background: var(--accent);
   box-shadow: 0 2px 5px #44348c24;
 }
 .ex-tabs .ui-icon {
@@ -963,7 +963,7 @@
 .ex-coverage-bar {
   height: 8px;
   border-radius: 6px;
-  background: linear-gradient(90deg, #6453d3, #a38af4);
+  background: var(--accent);
   margin: 15px 0;
 }
 .ex-empty {
