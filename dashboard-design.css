@@ -455,11 +455,11 @@
 .ex-stages {
   display: flex;
   gap: 6px;
-  /* 204px = 188px cũ + 16px: bù đúng phần nhãn stage cố định cao thêm
-     (49px -> 65px, xem .ex-stage > span:last-child) để vùng vẽ của track
+  /* 220px = 204px trước GĐ2 + 16px: bù đúng phần nhãn stage cố định cao thêm
+     (65px -> 81px, xem .ex-stage > span:last-child) để vùng vẽ của track
      giữ nguyên chiều cao như trước (nội dung 109px), chỉ trục đáy đổi vị
      trí xuống cho mọi cột cùng đứng trên một đáy. */
-  height: 204px;
+  height: 220px;
 }
 .ex-stage {
   flex: 1;
@@ -507,11 +507,11 @@
      và đáy cột — lệch nhau tới ~24px: các track cùng đỉnh nhưng đáy tản
      mát, biểu đồ trông như cột treo từ miệng trên xuống (Zac báo
      09/11/2026, đo bằng Chromium headless trên nhãn stage thật). Cố định
-     65px = 4 dòng x 16.2px ở sàn chữ 12px (GĐ2, trước đây 49px ở 9px), phủ nhãn dài nhất đo được ở bề rộng panel
+     81px = 5 dòng x 16.2px ở sàn chữ 12px (GĐ2, trước đây 49px ở 9px), phủ nhãn dài nhất đo được ở bề rộng panel
      hẹp nhất ("Term sheet / Đàm phán" = 48.56px); nhãn dài hơn nữa bị
      overflow:hidden cắt như nhãn .dash-col-lb của Chart B. Mọi track từ
      đây có cùng chiều cao -> đáy cột trùng cạnh dưới vùng vẽ. */
-  height: 65px;
+  height: 81px;
   overflow: hidden;
   text-align: center;
   /* Xuống dòng GIỮA CÁC TỪ; chỉ xẻ từ khi một từ đơn dài hơn cả cột

@@ -235,7 +235,7 @@ html.sava-locked .auth-context {display:block;max-width:450px;flex:1;align-self:
 .dash-col-plot {position:relative;flex:1 1 auto;width:100%;min-height:0;display:flex;align-items:flex-end;justify-content:center;padding-top:21px}
 .dash-col-num {position:absolute;top:0;left:0;right:0;text-align:center;font-size:12px;font-weight:700;color:#213846}
 .dash-col-bar {width:min(34px,80%);border-radius:5px 5px 0 0}
-.dash-col-lb {font-size:12px;line-height:1.35;color:var(--muted);text-align:center;margin-top:5px;height:34px;overflow:hidden}
+.dash-col-lb {font-size:12px;line-height:1.35;color:var(--muted);text-align:center;margin-top:5px;height:49px;overflow:hidden}
 .dash-conv-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:18px}
 .dash-conv {display:flex;gap:16px;align-items:center;margin-bottom:0}
 .dash-conv h3 {font-size:14.5px;margin:0 0 4px;color:#294552}

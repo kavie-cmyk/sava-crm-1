@@ -55,11 +55,11 @@ test('tĩnh chart A: nhãn stage chiều cao CỐ ĐỊNH để mọi đáy trac
   const css = read('dashboard-design.css');
   const m = css.match(/\.ex-stage > span:last-child \{([^}]*)\}/);
   assert.ok(m, 'phải có rule nhãn .ex-stage > span:last-child');
-  assert.ok(/height:\s*65px/.test(m[1]), 'nhãn cố định 65px (4 dòng x 16.2px ở sàn chữ 12px, GĐ2 redesign 13/11/2026) — min-height làm đáy track lệch theo độ dài nhãn');
+  assert.ok(/height:\s*81px/.test(m[1]), 'nhãn cố định 81px (5 dòng x 16.2px ở sàn chữ 12px, GĐ2 redesign 13/11/2026) — min-height làm đáy track lệch theo độ dài nhãn');
   assert.ok(!/min-height\s*:/.test(m[1]), 'không được quay lại min-height cho nhãn (đáy cột hết trục chung)');
   assert.ok(/overflow:\s*hidden/.test(m[1]), 'nhãn dài hơn 4 dòng bị cắt gọn như .dash-col-lb của chart B');
   const stages = css.match(/\.ex-stages \{([^}]*)\}/);
-  assert.ok(stages && /height:\s*204px/.test(stages[1]), '.ex-stages 204px = 188 cũ + 16 bù nhãn 49->65px (sàn chữ 12px, GĐ2), vùng vẽ giữ nguyên');
+  assert.ok(stages && /height:\s*220px/.test(stages[1]), '.ex-stages 220px = 204 cũ + 16 bù nhãn 65->81px (sàn chữ 12px, GĐ2), vùng vẽ giữ nguyên');
   const track = css.match(/\.ex-stage-track \{([^}]*)\}/);
   assert.ok(track && /align-items:\s*end/.test(track[1]), 'cột vẫn neo đáy trong track (align-items:end)');
 });
@@ -74,5 +74,5 @@ test('tĩnh chart B: cột nằm trong vùng vẽ .dash-col-plot, số tuyệt �
   const num = css.match(/\.dash-col-num \{([^}]*)\}/);
   assert.ok(num && /position:\s*absolute/.test(num[1]), 'số đặt tuyệt đối trong vùng chừa, không chiếm vùng vẽ');
   const lb = css.match(/\.dash-col-lb \{([^}]*)\}/);
-  assert.ok(lb && /height:\s*34px/.test(lb[1]), 'nhãn cố định chiều cao để vùng vẽ mọi cột bằng nhau (34px = 2 dòng ở sàn chữ 12px, GĐ2 redesign 13/11/2026; trước 26px ở 9.5px)');
+  assert.ok(lb && /height:\s*49px/.test(lb[1]), 'nhãn cố định chiều cao để vùng vẽ mọi cột bằng nhau (49px = 3 dòng ở sàn chữ 12px, GĐ2 redesign 13/11/2026; trước 26px ở 9.5px)');
 });
