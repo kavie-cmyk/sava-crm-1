@@ -1935,9 +1935,123 @@ function dashboardActivityTypeListHTML(model) {
    tập lead của ô; ô Deal > 0 bấm được -> dashOpenDealConversionCell
    mở view Pipeline ở mảng tương ứng (đích GẦN ĐÚNG — view Deal không
    có cơ chế lọc theo tập ID, xem hàm đó); ô = 0 chỉ hiện số 0 tĩnh,
-   mờ, không phải nút (span.ex-cell-zero). */
+   mờ, không phải nút (span.ex-cell-zero). Trên bảng (chỉ khi đã nạp
+   xong, có số) là hai biểu đồ vẽ từ cùng kết quả này —
+   dashboardConversionChartsHTML: donut 2 phần theo tổng lượt vào
+   trạng thái + cột xếp chồng theo BD; trạng thái đang tải/lỗi KHÔNG
+   hiện chart và không hiện số giả như trước. */
+/* === Biểu đồ của khối "Chuyển đổi trong kỳ" (13/11/2026, Zac chốt
+   thêm sau đợt bảng BD x trạng thái): CHỈ là lớp trình bày vẽ từ
+   ĐÚNG kết quả của SavaDash.dashConversionsByStatusInPeriod (cùng
+   rows / columnTotals / leadColumns / dealColumns của bảng) — không
+   đếm lại, không định nghĩa mới. Hai phần:
+   (1) Cột xếp chồng theo BD: 30 cột đúng thứ tự bảng (11 Lead rồi 19
+   Deal), mỗi cột xếp chồng các khúc theo BD, chiều cao khúc tỉ lệ
+   count của ô (BD x trạng thái), màu khúc = màu thành viên của app
+   (calMemberColor — hash FNV-1a + CAL_TASK_PALETTE như Lịch/Việc;
+   dòng "Không rõ" __none__ dùng xám trung tính
+   CAL_TASK_UNASSIGNED_COLOR #64748b). Tổng cột ghi trên đỉnh cột;
+   cột tổng 0 giữ vị trí + nhãn + số 0 ở chân cột. TUYỆT ĐỐI không có
+   ký tự % trong biểu đồ cột. Bấm một khúc = ĐÚNG handler của ô bảng
+   tương ứng (dashOpenLeadConversionCell / dashOpenDealConversionCell
+   với cùng rowId + key) — không đường bấm mới.
+   (2) Donut ĐÚNG 2 phần theo TỔNG LƯỢT vào trạng thái: "Trước chuyển
+   đổi (Lead)" = tổng count 11 cột Lead, "Sau chuyển đổi (Deal)" =
+   tổng count 19 cột Deal (tổng trên columnTotals). % ở legend donut
+   là nơi DUY NHẤT có % trong khối và caption bắt buộc nói rõ đó là
+   tỉ trọng trên tổng lượt vào trạng thái, không phải tỉ trọng lead. */
+const CONV_DONUT_LEAD_COLOR = '#6253ce'; /* tím thương hiệu của dashboard (--ex-purple) */
+const CONV_DONUT_DEAL_COLOR = '#e11d48'; /* hồng đỏ — cả hai màu donut CỐ Ý không thuộc CAL_TASK_PALETTE và khác 4 màu thành viên hiện tại (#2563eb/#059669/#d97706/#64748b) để không nhầm với legend BD của chart cột */
+function dashboardConversionMemberColor(rowId) {
+  if (rowId === '__none__') return (typeof CAL_TASK_UNASSIGNED_COLOR !== 'undefined') ? CAL_TASK_UNASSIGNED_COLOR : '#64748b';
+  return (typeof calMemberColor === 'function') ? calMemberColor(rowId) : '#64748b';
+}
+function dashboardConversionDonutHTML(leadTurns, dealTurns) {
+  const total = leadTurns + dealTurns;
+  const caption = `<p class="ex-footnote ex-conversion-donut-caption">Tỉ trọng tính trên tổng lượt vào trạng thái trong kỳ — không phải tỉ trọng lead, vì một lead/deal đi qua nhiều trạng thái.</p>`;
+  if (!total) {
+    return `<div class="ex-conversion-donut"><h4 class="ex-conversion-chart-title">Trước / sau chuyển đổi</h4><div class="ex-ring ex-conversion-donut-ring"><svg viewBox="0 0 144 144" role="img" aria-label="Chưa có lượt vào trạng thái nào trong kỳ"><circle cx="72" cy="72" r="56" fill="none" stroke="#e2e8f0" stroke-width="20"/></svg><div><strong>0</strong><span>lượt vào trạng thái</span></div></div><p class="ex-empty ex-conversion-donut-empty">Chưa có lượt vào trạng thái nào trong kỳ</p>${caption}</div>`;
+  }
+  const items = [
+    { label: 'Trước chuyển đổi (Lead)', value: leadTurns, color: CONV_DONUT_LEAD_COLOR },
+    { label: 'Sau chuyển đổi (Deal)', value: dealTurns, color: CONV_DONUT_DEAL_COLOR },
+  ];
+  const legend = `<ul class="ex-legend ex-conversion-donut-legend">${items.map(it => `<li><span class="ex-dot" style="background:${it.color}"></span><span>${esc(it.label)}</span><b>${dashboardNumber(it.value)}</b><small>${dashPctTxt(it.value / total * 100)}</small></li>`).join('')}</ul>`;
+  return `<div class="ex-conversion-donut"><h4 class="ex-conversion-chart-title">Trước / sau chuyển đổi</h4><div class="ex-conversion-donut-body">${dashboardRing(items, total, 'lượt vào trạng thái')}${legend}</div>${caption}</div>`;
+}
+function dashboardConversionStackedChartHTML(conv) {
+  const leadCols = conv.leadColumns || [], dealCols = conv.dealColumns || [];
+  const totals = conv.columnTotals || { lead: [], deal: [] };
+  const totalOf = (kind, key) => { const c = ((totals[kind] || []).find(x => x.key === key)) || { count: 0 }; return c.count || 0; };
+  const columns = leadCols.map(c => ({ kind: 'lead', key: c.key, label: c.label, total: totalOf('lead', c.key) }))
+    .concat(dealCols.map(c => ({ kind: 'deal', key: c.key, label: c.label, total: totalOf('deal', c.key) })));
+  const maxV = Math.max(0, ...columns.map(c => c.total));
+  /* Thang trục đứng: mốc tick là SỐ NGUYÊN — bước tick nguyên nhỏ nhất
+     cho tối đa ~5 khoảng khi maxV lớn, yMax là bội của bước tick. */
+  const step = maxV <= 5 ? 1 : Math.ceil(maxV / 5);
+  const yMax = Math.max(1, Math.ceil(maxV / step) * step);
+  const W = 1106, H = 342, left = 38, right = 10, top = 24, axisY = 216, groupLabelY = 330;
+  const plotH = axisY - top, slot = 34, barW = 22, groupGap = 18;
+  const colX = i => left + i * slot + (i >= leadCols.length ? groupGap : 0);
+  const yOf = v => axisY - v / yMax * plotH;
+  let svg = '';
+  for (let t = 0; t <= yMax; t += step) {
+    const y = yOf(t);
+    svg += `<line x1="${left}" x2="${W - right}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e5e9f5"/><text x="${left - 7}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#66748d">${t}</text>`;
+  }
+  svg += `<line x1="${left}" x2="${W - right}" y1="${axisY}" y2="${axisY}" stroke="#cbd5e1"/>`;
+  const leadEndX = leadCols.length ? colX(leadCols.length - 1) + slot : left;
+  const dealStartX = dealCols.length ? colX(leadCols.length) : leadEndX;
+  if (leadCols.length && dealCols.length) svg += `<line x1="${((leadEndX + dealStartX) / 2).toFixed(1)}" x2="${((leadEndX + dealStartX) / 2).toFixed(1)}" y1="${top - 6}" y2="${axisY}" stroke="#b9c8ec" stroke-dasharray="4 3"/>`;
+  columns.forEach((col, ci) => {
+    const x = colX(ci), cx = x + slot / 2;
+    /* Các khúc của cột theo đúng thứ tự hàng của bảng (rows đã sắp);
+       toạ độ tích luỹ từ chân cột lên. Khúc count 0 không vẽ. */
+    const segs = [];
+    let acc = 0;
+    (conv.rows || []).forEach(r => {
+      const cells = col.kind === 'lead' ? (r.leadCells || []) : (r.dealCells || []);
+      const cell = cells.find(c => c.key === col.key) || { count: 0 };
+      const n = cell.count || 0;
+      if (!n) return;
+      const yTop = yOf(acc + n), yBot = yOf(acc);
+      segs.push({ rowId: r.id, n, yTop, yBot, cy: (yTop + yBot) / 2, color: dashboardConversionMemberColor(r.id) });
+      acc += n;
+    });
+    segs.forEach(s => {
+      svg += `<rect class="ex-conversion-seg" x="${(cx - barW / 2).toFixed(1)}" y="${s.yTop.toFixed(1)}" width="${barW}" height="${Math.max(1, s.yBot - s.yTop).toFixed(1)}" fill="${s.color}"/>`;
+    });
+    /* Vùng bấm (hitbox) vẽ SAU, trong suốt, phủ lên từng khúc: ranh
+       giới giữa hai khúc kề = trung điểm hai TÂM khúc nên các vùng
+       bấm không bao giờ chồng nhau; khúc mỏng 1 đơn vị vẫn được vùng
+       bấm cao ít nhất ~10px nhờ mượn nửa khoảng tới tâm khúc kề, khúc
+       trên cùng nới thêm tối đa 6px lên trên đỉnh cột, khúc dưới cùng
+       chạm trục ngang là dừng. */
+    segs.forEach((s, si) => {
+      const hitTop = si === segs.length - 1 ? Math.max(top - 4, s.yTop - 6) : (s.cy + segs[si + 1].cy) / 2;
+      const hitBot = si === 0 ? axisY : (s.cy + segs[si - 1].cy) / 2;
+      const name = s.rowId === '__none__' ? 'Không rõ' : memberName(S, s.rowId);
+      const handler = col.kind === 'lead' ? `dashOpenLeadConversionCell('${esc(s.rowId)}','${esc(col.key)}')` : `dashOpenDealConversionCell('${esc(s.rowId)}','${esc(col.key)}')`;
+      const tip = `${name} · ${col.label}: ${dashboardNumber(s.n)} ${col.kind === 'lead' ? 'lead' : 'deal'}`;
+      svg += `<rect class="ex-conversion-hit" x="${(cx - slot / 2).toFixed(1)}" y="${hitTop.toFixed(1)}" width="${slot}" height="${Math.max(2, hitBot - hitTop).toFixed(1)}" fill="transparent" style="cursor:pointer" onclick="${handler}"><title>${esc(tip)}</title></rect>`;
+    });
+    if (col.total > 0) svg += `<text class="ex-conversion-coltotal" x="${cx.toFixed(1)}" y="${(yOf(col.total) - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="#253c5c">${dashboardNumber(col.total)}</text>`;
+    else svg += `<text class="ex-conversion-colzero" x="${cx.toFixed(1)}" y="${axisY - 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#94a3b8">0</text>`;
+    svg += `<text class="ex-conversion-xlabel" x="${cx.toFixed(1)}" y="${axisY + 12}" text-anchor="end" font-size="10" fill="#475569" transform="rotate(-52 ${cx.toFixed(1)} ${axisY + 12})">${esc(col.label)}</text>`;
+  });
+  const groupLabel = (x0, x1, txt) => `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${groupLabelY}" text-anchor="middle" font-size="11" font-weight="700" fill="#405477">${esc(txt)}</text>`;
+  if (leadCols.length) svg += groupLabel(left, leadEndX, 'Lead — trước chuyển đổi');
+  if (dealCols.length) svg += groupLabel(dealStartX, colX(columns.length - 1) + slot, 'Sau chuyển đổi (Deal)');
+  const legend = `<ul class="ex-legend ex-conversion-legend">${(conv.rows || []).map(r => `<li><span class="ex-dot" style="background:${dashboardConversionMemberColor(r.id)}"></span><span>${esc(r.id === '__none__' ? 'Không rõ' : memberName(S, r.id))}</span></li>`).join('')}</ul>`;
+  return `<div class="ex-conversion-bars"><h4 class="ex-conversion-chart-title">Lượt vào từng trạng thái theo BD</h4><div class="ex-table-scroll ex-conversion-chart-scroll"><svg class="ex-conversion-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Biểu đồ cột xếp chồng lượt vào từng trạng thái theo BD">${svg}</svg></div>${legend}<p class="ex-footnote">Mỗi cột là một trạng thái, chiều cao khúc tỉ lệ với số lượt của BD đó ở trạng thái đó; số trên đỉnh cột là tổng của cột. Bấm một khúc để mở đúng phần đã đếm như bấm ô tương ứng trong bảng dưới đây.</p></div>`;
+}
+function dashboardConversionChartsHTML(conv) {
+  const totals = conv.columnTotals || { lead: [], deal: [] };
+  const sum = arr => (arr || []).reduce((a, c) => a + (c.count || 0), 0);
+  return `<div class="ex-conversion-charts">${dashboardConversionDonutHTML(sum(totals.lead), sum(totals.deal))}${dashboardConversionStackedChartHTML(conv)}</div>`;
+}
 function dashboardConversionHTML(ctx) {
-  const heading = dashboardHeading('Chuyển đổi trong kỳ', 'Số lead/deal được đưa vào từng trạng thái trong kỳ theo BD · chỉ đếm số lượng, không tính tỉ lệ · một lead/deal có thể xuất hiện ở nhiều cột trạng thái', 'check');
+  const heading = dashboardHeading('Chuyển đổi trong kỳ', 'Số lead/deal được đưa vào từng trạng thái trong kỳ theo BD · chỉ đếm số lượng, không tính tỉ lệ · một lead/deal có thể xuất hiện ở nhiều cột trạng thái · kèm biểu đồ cột theo BD và donut trước/sau chuyển đổi ngay dưới đây', 'check');
   const note = `<p class="ex-footnote">Nguồn: nhật ký hệ thống. Nhật ký hệ thống đầy đủ từ 31-10-2026 nên kỳ chứa thời gian trước mốc này sẽ thiếu phần đầu. Lead/deal được đưa vào trạng thái bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển trạng thái thì không được đếm. Mỗi cặp lead–trạng thái và deal–stage chỉ đếm 1 lần trong kỳ, gán cho BD thực hiện lần đầu đưa vào trạng thái đó trong kỳ; sự kiện thiếu người thực hiện thì gán theo người phụ trách hiện tại của lead/deal, cả hai đều không có thì vào dòng “Không rõ”. Một lead có thể xuất hiện ở nhiều cột trạng thái, một deal có thể xuất hiện ở nhiều cột stage. Hai nhóm cột đếm hai đối tượng khác nhau: nhóm Lead đếm lead, nhóm Sau chuyển đổi (Deal) đếm deal. Cột Deal là hợp các stage của cả bốn mảng: stage chỉ có ở một số mảng thì deal thuộc mảng khác không vào được cột đó. Bấm ô Lead mở đúng tập lead đã đếm của ô; bấm ô Deal mở Pipeline của mảng tương ứng (view Deal chưa có lọc theo tập ID nên đó là đích gần đúng, không phải đúng tập deal của ô).</p>`;
   if (!ctx || ctx.conversionState !== 'loaded' || !ctx.conversion) {
     if (ctx && ctx.conversionState === 'error') {
@@ -1981,7 +2095,7 @@ function dashboardConversionHTML(ctx) {
   const colCount = 1 + leadCols.length + dealCols.length;
   const groupRow = `<tr class="ex-group-row"><th></th><th colspan="${leadCols.length}">Lead</th><th colspan="${dealCols.length}">Sau chuyển đổi (Deal)</th></tr>`;
   const headRow = `<tr><th>BD</th>${leadCols.map(col => `<th>${esc(col.label)}</th>`).join('')}${dealCols.map(col => `<th>${esc(col.label)}</th>`).join('')}</tr>`;
-  return `<section class="ex-panel ex-conversion">${heading}${metaRow}<div class="ex-table-scroll"><table class="ex-table ex-conversion-table"><thead>${groupRow}${headRow}</thead><tbody>${bodyRows || `<tr><td colspan="${colCount}">Chưa có dữ liệu.</td></tr>`}</tbody>${footRow}</table></div>${empty}${note}</section>`;
+  return `<section class="ex-panel ex-conversion">${heading}${metaRow}${dashboardConversionChartsHTML(conv)}<div class="ex-table-scroll"><table class="ex-table ex-conversion-table"><thead>${groupRow}${headRow}</thead><tbody>${bodyRows || `<tr><td colspan="${colCount}">Chưa có dữ liệu.</td></tr>`}</tbody>${footRow}</table></div>${empty}${note}</section>`;
 }
 function dashboardActivityHTML(ctx) {
   const model = dashboardActivityModel(ctx.now), total = model.records.length;

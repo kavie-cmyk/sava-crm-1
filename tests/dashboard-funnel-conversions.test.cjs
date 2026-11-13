@@ -512,7 +512,10 @@ test('UI chuyển đổi: khối hiện bảng theo trạng thái (chỉ số đ
   const seg = html.slice(html.indexOf('Chuyển đổi trong kỳ'), html.indexOf('Xu hướng hoạt động'));
   assert.ok(seg.includes('Đã chuyển đổi trong kỳ: <b>3</b> lead'), 'dòng meta: cột converted = 3 lead phân biệt (neo tổng cũ)');
   assert.ok(seg.includes('Yến') && seg.includes('Hoàng Daden') && seg.includes('Không rõ'), 'đủ 3 dòng gán: Yến / Hoàng (fallback owner) / Không rõ');
-  assert.ok(!seg.includes('%'), 'khối chuyển đổi TUYỆT ĐỐI không có % ở bất kỳ dạng nào');
+  /* Đợt biểu đồ 13/11/2026: % CHỈ được phép ở legend của donut (tỉ
+     trọng lượt vào trạng thái); bảng + chart cột vẫn tuyệt đối không %. */
+  const segNoDonut = seg.slice(0, seg.indexOf('ex-conversion-donut')) + seg.slice(seg.indexOf('ex-conversion-bars'));
+  assert.ok(!segNoDonut.includes('%'), 'ngoài donut, khối chuyển đổi TUYỆT ĐỐI không có % ở bất kỳ dạng nào');
   assert.ok(seg.includes('Nhật ký hệ thống đầy đủ từ 31-10-2026'), 'chú thích nguồn + mốc nhật ký đầy đủ');
   assert.ok(seg.includes('không có sự kiện chuyển trạng thái thì không được đếm'), 'chú thích thao tác ngoài app không có sự kiện thì không đếm');
   assert.ok(seg.includes('một lead/deal có thể xuất hiện ở nhiều cột'), 'phụ đề nói rõ một lead/deal ở nhiều cột');
@@ -565,7 +568,8 @@ test('UI chuyển đổi × trạng thái: 2 nhóm cột Lead/Deal có tiêu đ�
   assert.ok(seg.includes("dashOpenDealConversionCell('','won')"), 'ô tfoot cột Won > 0 là nút mở Pipeline (Deal)');
   assert.ok(!seg.includes("dashOpenLeadConversionCell('yen','new')"), 'ô Yến × Mới = 0 KHÔNG phải nút');
   assert.ok(seg.includes('ex-cell-zero'), 'ô 0 hiện tĩnh với class mờ ex-cell-zero');
-  assert.ok(!seg.includes('%'), 'khối ma trận trạng thái vẫn tuyệt đối không có %');
+  const segNoDonut2 = seg.slice(0, seg.indexOf('ex-conversion-donut')) + seg.slice(seg.indexOf('ex-conversion-bars'));
+  assert.ok(!segNoDonut2.includes('%'), 'bảng ma trận trạng thái + chart cột vẫn tuyệt đối không có % (% chỉ ở legend donut)');
   assert.ok(seg.includes('hai đối tượng khác nhau'), 'chú thích nói rõ hai nhóm cột đếm hai đối tượng khác nhau');
   assert.ok(seg.includes('đích gần đúng'), 'chú thích khai thẳng bấm ô Deal là đích gần đúng');
   /* Bấm ô Lead: đúng tập. */
@@ -599,7 +603,8 @@ test('UI chuyển đổi × trạng thái: lead line lạ vẫn đếm theo tr�
   const html = h.getEl('view').innerHTML;
   const seg = html.slice(html.indexOf('Chuyển đổi trong kỳ'), html.indexOf('Xu hướng hoạt động'));
   assert.ok(!seg.includes('Chưa rõ mảng'), 'không còn cột Chưa rõ mảng');
-  assert.ok(!seg.includes('%'), 'khối vẫn không có %');
+  const segNoDonut3 = seg.slice(0, seg.indexOf('ex-conversion-donut')) + seg.slice(seg.indexOf('ex-conversion-bars'));
+  assert.ok(!segNoDonut3.includes('%'), 'khối vẫn không có % ngoài legend donut');
   h.run("dashOpenLeadConversionCell('yen','converted')");
   assert.deepEqual(idsOf(h.run).sort(), ['LA', 'LD'], 'ô Yến × Đã chuyển đổi gồm cả lead line lạ');
 });
@@ -617,4 +622,130 @@ test('UI chuyển đổi: đang nạp -> hiện đang tải; nạp lỗi -> hi�
   assert.ok(!html.includes('Đã chuyển đổi trong kỳ:'), 'lỗi thì không hiện dòng meta số (không số 0 giả)');
   hErr.run("dashboardMode = 'overview'; render()");
   assert.equal(funnelTotalOf(hErr.getEl('view').innerHTML), 2, 'phễu không phụ thuộc nhật ký: vẫn hiện N=2 khi nạp chuyển đổi lỗi');
+});
+
+/* ---------- Biểu đồ khối "Chuyển đổi trong kỳ" (13/11/2026, Zac chốt thêm) ----------
+   Chỉ lớp trình bày từ cùng kết quả dashConversionsByStatusInPeriod:
+   cột xếp chồng theo BD (màu thành viên calMemberColor, bấm khúc =
+   đúng handler ô bảng, không % trong vùng chart cột) + donut 2 phần
+   theo tổng LƯỢT vào trạng thái (% duy nhất của khối, kèm caption
+   bắt buộc) + ca biên donut rỗng / một phần 0. */
+
+function chartSegOf(h) {
+  const html = h.getEl('view').innerHTML;
+  return html.slice(html.indexOf('Chuyển đổi trong kỳ'), html.indexOf('Xu hướng hoạt động'));
+}
+function chartSvgOf(seg) {
+  const start = seg.indexOf('<svg class="ex-conversion-chart"');
+  const end = seg.indexOf('</svg>', start);
+  return { tag: seg.slice(start, seg.indexOf('>', start) + 1), inner: seg.slice(seg.indexOf('>', start) + 1, end) };
+}
+async function loadChartFixture() {
+  const todayISO = new Date().toISOString();
+  const stub = async () => ({ windowEvents: [
+    ev('LA', todayISO, 'yen', 'Đã liên hệ', 'Mới'),
+    ev('LA', todayISO, 'yen'),
+    ev('LB', todayISO, '', 'Sent connect', 'Mới'), /* fallback owner hoang */
+    ev('LC', todayISO, ''), /* Không rõ */
+    { entityType: 'deal', entityId: 'DA', at: todayISO, byMemberId: 'yen', action: 'update', changes: [{ field: 'stage', from: 'POC / Pilot', to: 'Ký hợp đồng — Won' }] },
+  ] });
+  const h = loadIndex(stub);
+  h.run("S.deals.push({ id: 'DA', company: 'c1', line: 'ai', stage: 'won', owner: 'yen', title: 'Deal A' })");
+  h.run("curView = 'dash'; dashboardMode = 'activity'; render()");
+  await settle(h);
+  return h;
+}
+
+test('UI biểu đồ chuyển đổi: donut 2 phần theo tổng lượt (Lead 4 / Deal 1 / tổng 5) + % chỉ ở legend donut + caption nguyên văn bắt buộc + màu donut khác màu thành viên', async () => {
+  const h = await loadChartFixture();
+  const seg = chartSegOf(h);
+  assert.ok(seg.includes('ex-conversion-charts'), 'khối phải có vùng biểu đồ phía trên bảng');
+  assert.ok(seg.indexOf('ex-conversion-charts') < seg.indexOf('<table'), 'biểu đồ nằm TRÊN bảng trong cùng khối');
+  const donut = seg.slice(seg.indexOf('ex-conversion-donut'), seg.indexOf('ex-conversion-bars'));
+  assert.ok(donut.includes('Trước chuyển đổi (Lead)') && donut.includes('Sau chuyển đổi (Deal)'), 'donut đúng 2 phần với đúng nhãn');
+  assert.ok(donut.includes('<b>4</b>') && donut.includes('80%'), 'phần Lead = 4 lượt (contacted 1 + converted 2 + sent_connect 1) = 80% tổng lượt');
+  assert.ok(donut.includes('<b>1</b>') && donut.includes('20%'), 'phần Deal = 1 lượt (won) = 20% tổng lượt');
+  assert.ok(donut.includes('<strong>5</strong>') && donut.includes('lượt vào trạng thái'), 'tâm donut hiện tổng 5 kèm nhãn "lượt vào trạng thái"');
+  assert.ok(donut.includes('Tỉ trọng tính trên tổng lượt vào trạng thái trong kỳ — không phải tỉ trọng lead, vì một lead/deal đi qua nhiều trạng thái.'), 'caption donut bắt buộc, nguyên văn');
+  assert.ok(donut.includes('#6253ce') && donut.includes('#e11d48'), 'donut dùng 2 màu đã chốt #6253ce / #e11d48');
+  for (const memberColor of ['#2563eb', '#059669', '#d97706', '#64748b'])
+    assert.ok(!['#6253ce', '#e11d48'].includes(memberColor), 'màu donut không trùng màu thành viên ' + memberColor);
+});
+
+test('UI biểu đồ chuyển đổi: cột xếp chồng — cấu trúc cột/khúc khớp dữ kiện vào, màu khúc = calMemberColor (Không rõ = xám), tổng trên đỉnh, cột 0 ở chân, nhãn nhóm, KHÔNG % trong chart cột', async () => {
+  const h = await loadChartFixture();
+  const seg = chartSegOf(h);
+  const { inner } = chartSvgOf(seg);
+  assert.ok(!inner.includes('%'), 'vùng vẽ chart cột tuyệt đối không có ký tự %');
+  assert.ok(inner.includes('Lead — trước chuyển đổi') && inner.includes('Sau chuyển đổi (Deal)'), 'có nhãn nhóm dưới trục cho 2 nhóm cột');
+  assert.ok(inner.indexOf('>Mới</text>') < inner.indexOf('>Đã chuyển đổi</text>') && inner.indexOf('>Đã chuyển đổi</text>') < inner.indexOf('>Danh sách mục tiêu</text>'), 'thứ tự cột = đúng thứ tự bảng: Lead (…Đã chuyển đổi…) rồi Deal (Danh sách mục tiêu…)');
+  /* Khúc có số: yen×contacted, yen×converted, yen×won, hoang×sent_connect, __none__×converted = 5 */
+  assert.equal((inner.match(/ex-conversion-seg/g) || []).length, 5, 'đúng 5 khúc có count > 0');
+  assert.ok(inner.includes('fill="#d97706"'), 'khúc của Yến dùng màu thành viên của Yến (#d97706 qua calMemberColor)');
+  assert.ok(inner.includes('fill="' + h.run("calMemberColor('hoang')") + '"'), 'khúc của Hoàng dùng đúng calMemberColor(hoang)');
+  assert.ok(inner.includes('fill="#64748b"'), 'khúc Không rõ dùng xám trung tính #64748b');
+  /* Tổng cột: converted = 2 là tổng lớn nhất, ghi trên đỉnh cột */
+  assert.ok(/ex-conversion-coltotal[^>]*>2<\/text>/.test(inner), 'tổng cột Đã chuyển đổi = 2 ghi trên đỉnh cột');
+  /* Cột tổng 0: 30 cột − 4 cột có số (sent_connect, contacted, converted, won) = 26 số 0 ở chân cột */
+  assert.equal((inner.match(/ex-conversion-colzero/g) || []).length, 26, '26 cột tổng 0 vẫn giữ vị trí + số 0 ở chân cột');
+  /* Trục đứng: mốc tick là số nguyên */
+  assert.ok(/>\d+<\/text>/.test(inner), 'trục đứng có mốc số nguyên');
+});
+
+test('UI biểu đồ chuyển đổi: bấm khúc = đúng handler ô bảng tương ứng + tooltip đúng mẫu lead/deal + vùng bấm phủ mọi khúc có số', async () => {
+  const h = await loadChartFixture();
+  const seg = chartSegOf(h);
+  const { inner } = chartSvgOf(seg);
+  assert.equal((inner.match(/ex-conversion-hit/g) || []).length, 5, 'mỗi khúc có số có đúng 1 vùng bấm');
+  assert.ok(inner.includes(`onclick="dashOpenLeadConversionCell('yen','converted')"`), 'khúc Yến × Đã chuyển đổi bấm đúng handler ô Lead của bảng');
+  assert.ok(inner.includes(`onclick="dashOpenDealConversionCell('yen','won')"`), 'khúc Yến × Won bấm đúng handler ô Deal của bảng');
+  assert.ok(inner.includes(`onclick="dashOpenLeadConversionCell('__none__','converted')"`), 'khúc Không rõ bấm đúng handler với rowId __none__');
+  assert.ok(inner.includes('<title>Yến · Đã chuyển đổi: 1 lead</title>'), 'tooltip nhóm Lead: "{BD} · {Trạng thái}: {n} lead"');
+  assert.ok(inner.includes('<title>Yến · Ký hợp đồng — Won: 1 deal</title>'), 'tooltip nhóm Deal: "{BD} · {Trạng thái}: {n} deal"');
+  /* Bấm thật qua handler dùng chung: đúng tập như ô bảng */
+  h.run("dashOpenLeadConversionCell('yen','converted')");
+  assert.deepEqual(idsOf(h.run), ['LA'], 'handler của khúc cho đúng tập lead của ô tương ứng');
+});
+
+test('UI biểu đồ chuyển đổi: ca biên donut — cả hai phần 0 -> vòng xám + câu trống; một phần 0 -> vòng một màu đầy + legend ghi 0', async () => {
+  const hEmpty = loadIndex(async () => ({ windowEvents: [] }));
+  hEmpty.run("curView = 'dash'; dashboardMode = 'activity'; render()");
+  await settle(hEmpty);
+  const segE = chartSegOf(hEmpty);
+  assert.ok(segE.includes('Chưa có lượt vào trạng thái nào trong kỳ'), 'cả hai phần 0: hiện câu trống bắt buộc');
+  assert.ok(segE.includes('stroke="#e2e8f0"'), 'cả hai phần 0: vòng xám trống');
+  assert.ok(!segE.includes('ex-conversion-seg'), 'không có khúc nào khi không có sự kiện');
+  assert.equal((chartSvgOf(segE).inner.match(/ex-conversion-colzero/g) || []).length, 30, 'cả 30 cột đều là cột 0 ở ca rỗng');
+  assert.ok(!segE.includes('NaN'), 'ca rỗng không sinh NaN');
+
+  const todayISO = new Date().toISOString();
+  const hLeadOnly = loadIndex(async () => ({ windowEvents: [ev('LA', todayISO, 'yen')] }));
+  hLeadOnly.run("curView = 'dash'; dashboardMode = 'activity'; render()");
+  await settle(hLeadOnly);
+  const segL = chartSegOf(hLeadOnly);
+  const donutL = segL.slice(segL.indexOf('ex-conversion-donut'), segL.indexOf('ex-conversion-bars'));
+  assert.ok(donutL.includes('Sau chuyển đổi (Deal)') && donutL.includes('<b>0</b>') && donutL.includes('0%'), 'một phần 0: legend vẫn ghi 0 lượt + 0% cho phần Deal');
+  assert.ok(donutL.includes('100%'), 'phần Lead chiếm trọn 100% tổng lượt');
+  assert.ok(!donutL.includes('Chưa có lượt vào trạng thái nào'), 'có lượt thì không hiện câu trống');
+});
+
+test('UI biểu đồ chuyển đổi: lỗi nạp -> không chart, không số giả; đang nạp -> không chart', async () => {
+  const hErr = loadIndex(async () => { throw new Error('mất mạng giả lập'); });
+  hErr.run("curView = 'dash'; dashboardMode = 'activity'; render()");
+  await settle(hErr);
+  const htmlErr = hErr.getEl('view').innerHTML;
+  assert.ok(htmlErr.includes('Chưa tải được nhật ký chuyển đổi'), 'lỗi vẫn hiện rõ như cũ');
+  assert.ok(!htmlErr.includes('ex-conversion-charts'), 'lỗi thì không hiện biểu đồ');
+  const hLoad = loadIndex(() => new Promise(() => {}));
+  hLoad.run("curView = 'dash'; dashboardMode = 'activity'; render()");
+  assert.ok(hLoad.getEl('view').innerHTML.includes('Đang tải nhật ký chuyển đổi'), 'đang nạp vẫn hiện trạng thái đang tải như cũ');
+  assert.ok(!hLoad.getEl('view').innerHTML.includes('ex-conversion-charts'), 'đang nạp thì không hiện biểu đồ');
+});
+
+test('tĩnh biểu đồ chuyển đổi: chỉ index.html + dashboard-design.css mang bề mặt chart; mkt.html / publishing.html không dính', () => {
+  const idx = read('index.html');
+  assert.ok(idx.includes('dashboardConversionChartsHTML') && idx.includes('dashboardConversionStackedChartHTML') && idx.includes('dashboardConversionDonutHTML'), 'index.html có đủ 3 hàm dựng biểu đồ của khối');
+  assert.ok(read('dashboard-design.css').includes('.ex-conversion-charts'), 'CSS của biểu đồ nằm ở dashboard-design.css');
+  for (const f of ['mkt.html', 'publishing.html'])
+    assert.ok(!read(f).includes('ex-conversion-charts'), f + ' không bị ảnh hưởng');
 });

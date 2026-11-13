@@ -662,6 +662,96 @@
   background: #eff2fb;
   border-bottom-color: #eff2fb;
 }
+/* Biểu đồ của khối "Chuyển đổi trong kỳ" (13/11/2026): donut gọn một
+   phía + chart cột chiếm phần còn lại, chart cột cuộn ngang trong
+   phần của nó (cùng cơ chế .ex-table-scroll của bảng); khung hẹp thì
+   xếp dọc — donut trên, chart cột dưới — và donut luôn trọn, không
+   cuộn ngang. */
+.ex-conversion-charts {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  margin: 12px 0 4px;
+}
+.ex-conversion-donut {
+  flex: 0 0 300px;
+  max-width: 300px;
+  min-width: 0;
+}
+.ex-conversion-bars {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ex-conversion-chart-title {
+  margin: 0 0 10px;
+  color: #294161;
+  font-size: 11px;
+}
+.ex-conversion-donut-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ex-conversion-donut-body .ex-ring {
+  width: 132px;
+}
+/* Nhãn tâm donut của khối này ("lượt vào trạng thái") dài hơn nhãn
+   tâm của các donut khác trong app: thu cỡ chữ + cho xuống dòng gọn
+   trong lỗ vòng, số tổng cũng thu lại cho cân. */
+.ex-conversion-donut .ex-ring > div strong {
+  font-size: 24px;
+}
+.ex-conversion-donut .ex-ring > div span {
+  font-size: 8px;
+  line-height: 1.3;
+  max-width: 62px;
+  text-align: center;
+}
+.ex-conversion-donut-legend li {
+  grid-template-columns: 8px minmax(35px, 1fr) max-content max-content;
+}
+.ex-conversion-chart-scroll {
+  border: 1px solid #edf0f6;
+  border-radius: 10px;
+  background: #fbfcff;
+}
+.ex-conversion-chart {
+  display: block;
+  width: 100%;
+  min-width: 1060px;
+  height: auto;
+}
+.ex-conversion-hit:hover {
+  fill: #0f172a;
+  fill-opacity: 0.07;
+}
+.ex-conversion-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin-top: 8px;
+}
+.ex-conversion-legend li {
+  display: flex;
+  grid-template-columns: none;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 10px;
+}
+@media (max-width: 900px) {
+  .ex-conversion-charts {
+    flex-direction: column;
+  }
+  .ex-conversion-donut {
+    flex: none;
+    max-width: 340px;
+    width: 100%;
+  }
+  .ex-conversion-bars {
+    width: 100%;
+  }
+}
 .ex-person {
   display: flex;
   gap: 7px;
