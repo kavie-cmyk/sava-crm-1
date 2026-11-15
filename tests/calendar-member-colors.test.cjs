@@ -18,9 +18,28 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 
+/* Ngày tham chiếu GHIM CỨNG = Thứ 4 2026-11-11 (giữa tuần Thứ 2–Chủ
+   nhật 09–15/11/2026, giữa tháng 11): mọi offset của fixture (-3..+2)
+   đều nằm trong CÙNG tuần và CÙNG tháng với ngày neo ở cả hai chế độ
+   Tháng lẫn Tuần. TRƯỚC ĐÂY fixture bám "hôm nay" thật: khi ngày chạy
+   là Chủ nhật, việc/sự kiện ở +1 ngày rơi sang Thứ 2 TUẦN SAU nên
+   không có segment trong tuần đang xem -> segOf() = null -> test sập
+   TypeError dòng 109 (chỉ fail 8/8 Chủ nhật, qua 54/54 ngày còn lại).
+   Đó là lỗi của TEST, không phải của app: harness tầng app (mock ngày
+   hệ thống qua đủ 7 thứ, fixture tuyệt đối) cho thấy app cắt segment
+   ở biên tuần ĐÚNG thiết kế vào mọi ngày, kể cả Chủ nhật — xem
+   tests/calendar-week-boundary.test.cjs (test hồi quy ma trận ngày).
+   Ghim bằng 2 lớp: iso() tính từ ngày ghim + MockDate tiêm vào ngữ
+   cảnh VM để todayStr()/isOverdue() trong app cũng thấy cùng 1 ngày. */
+const PINNED_TODAY = '2026-11-11'; /* Thứ 4 */
+const _pinParts = PINNED_TODAY.split('-').map(Number);
+class MockDate extends Date {
+  constructor(...args) { if (args.length === 0) super(_pinParts[0], _pinParts[1] - 1, _pinParts[2], 12, 0, 0, 0); else super(...args); }
+  static now() { return new Date(_pinParts[0], _pinParts[1] - 1, _pinParts[2], 12, 0, 0, 0).getTime(); }
+}
 function iso(offsetDays) {
-  const d = new Date(); d.setDate(d.getDate() + offsetDays);
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const dt = new Date(Date.UTC(_pinParts[0], _pinParts[1] - 1, _pinParts[2] + offsetDays));
+  return dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
 }
 function fixtureState() {
   return {
@@ -55,7 +74,7 @@ function loadIndex(state) {
     remove() {}, focus() {}, click() {}, querySelector: () => makeEl(), querySelectorAll: () => [], closest: () => null });
   const elements = new Map();
   const getEl = id => { if (!elements.has(id)) elements.set(id, makeEl(id)); return elements.get(id); };
-  const ctx = vm.createContext({ console, localStorage: ls,
+  const ctx = vm.createContext({ console, localStorage: ls, Date: MockDate,
     document: { readyState: 'complete', body: makeEl('body'), getElementById: getEl, querySelector: s => getEl('qs:' + s), querySelectorAll: () => [], createElement: t => makeEl(t), addEventListener() {} },
     location: { search: '', href: 'http://localhost/index.html' },
     addEventListener() {},
