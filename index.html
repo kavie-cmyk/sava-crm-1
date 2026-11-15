@@ -1228,7 +1228,7 @@ function kpiHTML() {
   const item = (label, value, description, icon, cls='') => `<div class="kpi ${cls}"><span class="kpi-icon">${SavaUI.icon(icon)}</span><div class="k">${label}</div><div class="v ${typeof value === 'string' ? 'text-value' : ''}">${value}</div><div class="s">${description}</div></div>`;
   return `<div class="kpis">${item('Deal đang mở', open.length, `Trên tổng ${ds.length} cơ hội`, 'pipeline')}
     ${gameMode ? item('Mô hình doanh thu', 'Rev share', 'Xem thỏa thuận trong từng deal', 'money') : item('Giá trị pipeline', pipelineValue(open), 'Giá trị hợp đồng dự kiến · AI & Metaverse', 'money')}
-    ${item('Deal cần theo dõi', open.filter(d=>d.idle>=5).length, 'Chưa cập nhật từ 5 ngày trở lên', 'clock', 'attention')}
+    ${item('Deal cần theo dõi', open.filter(d=>dealIdleDays(d)>=5).length, 'Chưa cập nhật từ 5 ngày trở lên', 'clock', 'attention')}
     ${item('Lead đang ở Mới', S.leads.filter(l=>(curLine==='all'||l.line===curLine)&&l.status==='new').length, 'Chưa xử lý trong hộp Leads', 'inbox')}
   </div>`;
 }
@@ -1791,7 +1791,7 @@ function dashboardOverviewHTML(ctx) {
   const options = lines.map(k => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(LINES[k].name)}</option>`).join('');
   const pipelineHTML = `<section class="ex-panel">${dashboardHeading('Deal Pipeline theo mảng', `Phân bổ deal đang mở · chỉ tính deal tạo trong kỳ (${esc(periodLabel || '')})`, 'cube', `<select class="ex-pipeline-select" aria-label="Pipeline hiển thị" onchange="setDashboardPipeline(this.value)" ${curLine !== 'all' ? 'disabled title="Đang khoá theo mảng đã chọn ở tab mảng đầu trang"' : 'title="Chọn mảng để xem cột stage"'}>${options}</select>`)}<div class="ex-pipeline"><div class="ex-distribution">${dashboardRing(items, items.reduce((n, i) => n + i.value, 0), 'Deal đang mở')}${dashboardLegend(items, cohortOpen.length)}</div><div class="ex-stage-chart"><h4>Pipeline: ${esc(pipeline ? pipeline.name : '—')}</h4><div class="ex-stages">${stageBars}</div><p class="ex-footnote">Từng stage gồm cả Won · chỉ tính deal tạo trong kỳ, stage lấy theo hiện tại.</p></div></div></section>`;
   const overdue = lineScoped.tasks.filter(t => isOverdue(t)).length;
-  const followup = open.filter(d => d.idle >= 5).length;
+  const followup = open.filter(d => dealIdleDays(d) >= 5).length;
   const replies = cLeads.filter(l => l.status === 'in_reply').length;
   const actions = `<section class="ex-panel ex-actions">${dashboardHeading('Cần xử lý', 'Các đầu việc cần chú ý', 'spark')}<button onclick="setView('board')"><span class="ex-action-icon orange">${SavaUI.icon('pipeline')}</span><span><b>${dashboardNumber(followup)}</b> deal cần follow-up<small>Chưa cập nhật từ 5 ngày</small></span>${SavaUI.icon('arrow')}</button><button onclick="setView('tasks')"><span class="ex-action-icon purple">${SavaUI.icon('meeting')}</span><span><b>${dashboardNumber(overdue)}</b> việc quá hạn<small>Trong phạm vi quyền xem việc</small></span>${SavaUI.icon('arrow')}</button><button onclick="dashOpenLeadStatus('in_reply')"><span class="ex-action-icon blue">${SavaUI.icon('mail')}</span><span><b>${dashboardNumber(replies)}</b> lead đang ở In reply<small>Lead tạo trong kỳ đang chọn</small></span>${SavaUI.icon('arrow')}</button></section>`;
   return `<div class="ex-kpis">${cards}</div><div class="ex-overview-charts">${funnelHTML}${pipelineHTML}</div><div class="ex-overview-bottom">${dashboardTeamHTML(ctx)}${actions}</div>`;
@@ -2142,6 +2142,45 @@ function isOverdue(t) {
   if (isValidDateStr(t.dueDate)) return t.dueDate < todayStr();
   return !!t.overdue;
 }
+/* ===== Số ngày deal chưa cập nhật — TÍNH TẠI LÚC ĐỌC (đợt 15/11/2026) =====
+   Bệnh cũ: d.idle (DB idle_days, nhãn "Số ngày chưa cập nhật") là số LƯU
+   SẴN — chỉ được đặt 0 khi tạo/sửa/chuyển stage, KHÔNG có cơ chế nào tăng
+   theo thời gian nên thẻ deal luôn hiện "0 ngày", cảnh báo "🔥 nguội"
+   (≥5 ngày) không bao giờ cháy và hai số Dashboard đọc nó luôn bằng 0.
+   Cách sửa (Zac chốt 15/11): KHÔNG đọc số lưu sẵn nữa — MỌI nơi hiển thị/
+   đếm/lọc đều tính qua dealIdleDays(d) từ dấu updatedAt của deal:
+   - Ngày lịch theo Asia/Ho_Chi_Minh (cùng quy ước fmtDateDMY của app lấy
+     thành phần ngày của mốc thời gian theo múi giờ này; ngày thuần
+     yyyy-mm-dd lấy trực tiếp thành phần, không qua Date).
+   - Hiệu số ngày tính bằng mốc UTC nửa đêm như eventDaysInfo sẵn có.
+   - Cập nhật hôm nay = 0, hôm qua = 1 (03-11 -> 15-11 = 12).
+   - Fallback an toàn: thiếu/không đọc được updatedAt -> dùng createdAt;
+     thiếu cả hai -> 0. Không bao giờ NaN/âm (dấu ở tương lai -> 0).
+   Field d.idle VẪN được ghi 0 như cũ ở các điểm tạo/sửa/chuyển stage và
+   adapter vẫn round-trip idle_days nguyên vẹn (cột NOT NULL) — chỉ là từ
+   nay KHÔNG còn nơi đọc nghiệp vụ nào dùng nó. */
+/* Ngày lịch (yyyy-mm-dd) của một mốc thời gian theo Asia/Ho_Chi_Minh;
+   chuỗi ngày thuần yyyy-mm-dd trả nguyên; không đọc được -> "". */
+function saigonDateStrOf(v) {
+  if (v === null || v === undefined || v === "") return "";
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return isValidDateStr(v) ? v : "";
+  const dt = v instanceof Date ? v : new Date(v);
+  if (Number.isNaN(dt.getTime())) return "";
+  const o = {};
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(dt).forEach(x => { o[x.type] = x.value; });
+  return o.year + "-" + o.month + "-" + o.day;
+}
+/* Số ngày lịch từ lần cập nhật cuối của deal tới hôm nay. Tham số now
+   (Date/mốc ISO/chuỗi ngày) chỉ để test ghim mốc; mặc định = bây giờ. */
+function dealIdleDays(d, now) {
+  if (!d || typeof d !== "object") return 0;
+  const srcIso = saigonDateStrOf(d.updatedAt) || saigonDateStrOf(d.createdAt);
+  if (!srcIso) return 0;
+  const todayIso = now !== undefined && now !== null && now !== "" ? saigonDateStrOf(now) : saigonDateStrOf(new Date());
+  if (!todayIso) return 0;
+  const days = Math.round((Date.parse(todayIso + "T00:00:00Z") - Date.parse(srcIso + "T00:00:00Z")) / 86400000);
+  return Number.isFinite(days) && days > 0 ? days : 0;
+}
 /* ===== Liên kết nguồn của việc (task) =====
    Một việc gắn với TỐI ĐA MỘT đối tượng nguồn:
    - Deal:    t.deal    — cơ chế cũ, adapter ghi xuống cột tasks.deal_id.
@@ -2233,10 +2272,10 @@ function vBoard() {
     const amt = {}; ds.forEach(d => { if (d.amount) amt[d.cur] = (amt[d.cur]||0)+d.amount; });
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
     const sds = applyListSort("deals", ds, d => d.title || "");
-    const cards = sds.map((d, di) => { const gt = dealVisibleGame(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
+    const cards = sds.map((d, di) => { const gt = dealVisibleGame(d); const idleDays = dealIdleDays(d); return `<div class="dcard" draggable="true" ondragstart="drag(event,'${d.id}')" onclick="openDeal('${d.id}')">
       <div class="t"><span class="list-stt">#${di + 1}</span> ${esc(d.title)}</div><div class="c">${esc(comp(d.company).name)}${gt ? " · 🎮 " + esc(gt.title) : ""}</div>${line === "metaverse" ? `<div class="c">🏭 ${esc(dealVerticalLabel(d))}</div>` : ""}
       <div class="a">${isGame(d) ? "🤝 " + esc(d.term?.rev_share || "Chưa có term") + (d.contract?.url ? ' · 📄 có link HĐ' : '') : money(d.amount, d.cur)}</div>
-      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(fmtWhen(d.due || "") || "—")}</span>${sysUpdatedSpan(d)}<span class="${d.idle>=5?'stale':''}">${d.idle>=5?"🔥 nguội "+d.idle+" ngày":""+d.idle+" ngày"}</span></div></div>`; }).join("");
+      <div class="meta"><span>👤 ${esc(memberName(S, d.owner))}</span><span>📅 ${esc(fmtWhen(d.due || "") || "—")}</span>${sysUpdatedSpan(d)}<span class="${idleDays>=5?'stale':''}">${idleDays>=5?"🔥 nguội "+idleDays+" ngày":""+idleDays+" ngày"}</span></div></div>`; }).join("");
     /* Khung cuộn pipeline (workspace-design.css .board.pipeline-board):
        h4 + .sum nằm NGOÀI vùng cuộn .col-cards nên header cột luôn cố định
        ở đầu cột; chỉ danh sách thẻ cuộn dọc trong .col-cards. Handler
