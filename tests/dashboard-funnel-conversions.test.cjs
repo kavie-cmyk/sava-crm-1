@@ -470,9 +470,9 @@ test('UI phễu: bất biến theo Kỳ — 7/30/90/Tất cả/Tuỳ chỉnh cù
   assert.ok(!html.includes('Theo lần chuyển stage'), 'không còn nhãn phễu theo sự kiện ở bất kỳ bề mặt nào');
   h.run("setDashScope('yen')");
   assert.equal(funnelTotalOf(h.getEl('view').innerHTML), 1, 'phạm vi Yến: chỉ LA');
-  h.run("setDashScope(''); setDashLine('metaverse')");
+  h.run("setDashScope(''); setLine('metaverse')");
   assert.equal(funnelTotalOf(h.getEl('view').innerHTML), 0, 'phạm vi mảng metaverse: không lead nào');
-  h.run("setDashLine('')");
+  h.run("setLine('all')");
 });
 
 test('UI phễu: click-through mở đúng tập đã đếm + chip không nhắc kỳ; gỡ chip khôi phục', async () => {
@@ -594,7 +594,7 @@ test('UI chuyển đổi × trạng thái: lead line lạ vẫn đếm theo tr�
   const todayISO = new Date().toISOString();
   const stub = async () => ({ windowEvents: [
     ev('LA', todayISO, 'yen'),
-    ev('LD', todayISO, 'yen'), /* lead line lạ — bản cũ vào cột __unknown__; bản mới đếm theo trạng thái như mọi lead (dashLine đang Tất cả mảng) */
+    ev('LD', todayISO, 'yen'), /* lead line lạ — bản cũ vào cột __unknown__; bản mới đếm theo trạng thái như mọi lead (tab mảng đang ở Tất cả mảng) */
   ] });
   const h = loadIndex(stub);
   h.run("S.leads.push({ id: 'LD', company: 'c1', line: 'la-khong-chuan', status: 'converted', ownerId: 'yen', name: 'Lead D', person: '', note: '', source: '', when: '2026-11-02', createdAt: new Date().toISOString() })");

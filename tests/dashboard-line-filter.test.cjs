@@ -1,7 +1,10 @@
-/* TRỤC "MẢNG" của bộ lọc chung khu Phân tích (Tổng quan) — 2026-11-05:
-   - Thanh .dash-filterbar có trục THỨ BA: Mảng (dashLine = "" Tất cả
-     mảng / game_studio / publishing / ai / metaverse), single-select
-     như Kỳ + Người, giữ trong phiên, ba trục kết hợp AND.
+/* TRỤC "MẢNG" của Dashboard — BẢN GOM 15/11/2026 (Zac chốt một bộ chọn duy nhất):
+   - Dashboard KHÔNG còn select Mảng riêng: mảng đọc từ tab mảng toàn
+     cục ở đầu trang (curLine = "all" Tất cả mảng / game_studio /
+     publishing / ai / metaverse) qua helper dashboardLineKey() duy
+     nhất ("all" -> "" không lọc). Thanh .dash-filterbar của Dashboard
+     chỉ còn Kỳ × Người; ba trục Kỳ × Người × Mảng (ở tab đầu trang)
+     vẫn kết hợp AND và giữ trong phiên.
    - Định nghĩa mảng TÁI DÙNG cơ chế sẵn có của app: deal theo d.line;
      lead theo l.line (đúng bộ lọc mảng RIÊNG của phễu trước đợt này —
      select riêng đó đã GỠ, hợp nhất lên thanh chung); công ty theo
@@ -213,16 +216,19 @@ function loadIndex() {
 async function settleFunnel(h) { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); h.run("render()"); }
 const leadIds = run => JSON.parse(JSON.stringify(run('filteredLeads().map(l => l.id)')));
 
-test('hành vi: thanh lọc chung có ĐÚNG 1 select trục Mảng (Tất cả mảng + 4 mảng); phễu KHÔNG còn select mảng riêng', async () => {
+test('hành vi: Dashboard KHÔNG còn select Mảng riêng — tab mảng toàn cục là bộ chọn duy nhất (Tất cả + 4 mảng); phễu KHÔNG còn select mảng riêng', async () => {
   const { run, getEl } = loadIndex();
   run("curView = 'dash'; render()");
   await settleFunnel({ run });
   const html = getEl('view').innerHTML;
-  assert.equal((html.match(/onchange="setDashLine\(this\.value\)"/g) || []).length, 1, 'đúng 1 select trục Mảng trên thanh lọc chung');
-  assert.equal((html.match(/onchange="setDashScope\(this\.value\)"/g) || []).length, 1, 'trục Người vẫn là 1 select duy nhất');
-  for (const opt of ['<option value="" selected>Tất cả mảng</option>', '<option value="game_studio"', '<option value="publishing"', '<option value="ai"', '<option value="metaverse"']) {
-    assert.ok(html.includes(opt), 'thiếu lựa chọn mảng: ' + opt);
+  assert.equal((html.match(/onchange="setDashLine\(this\.value\)"/g) || []).length, 0, 'select Mảng riêng của Dashboard đã gỡ hẳn (0 select)');
+  assert.ok(!html.includes('setDashLine'), 'không còn handler đặt mảng riêng của Dashboard trong markup');
+  assert.equal((html.match(/onchange="setDashScope\(this\.value\)"/g) || []).length, 1, 'trục Người vẫn là 1 select duy nhất trong thanh lọc Dashboard (Kỳ × Người)');
+  const tabs = getEl('linetabs').innerHTML;
+  for (const k of ['all', 'game_studio', 'publishing', 'ai', 'metaverse']) {
+    assert.ok(tabs.includes(`onclick="setLine('${k}')"`), 'tab mảng toàn cục thiếu lựa chọn: ' + k);
   }
+  assert.ok(tabs.includes('<button class="on" onclick="setLine(\'all\')">'), 'mặc định tab Tất cả đang chọn');
   assert.ok(!html.includes('Lọc phễu theo mảng'), 'select mảng RIÊNG của phễu đã gỡ hẳn');
   assert.ok(!html.includes('setDashFunnelLine(this.value)'), 'không còn đường onchange riêng của phễu');
   assert.ok(html.includes('Mảng đang áp dụng: <b>Tất cả mảng</b>'), 'caption bảng so sánh BD ghi mảng đang áp dụng');
@@ -232,7 +238,7 @@ test('hành vi: thanh lọc chung có ĐÚNG 1 select trục Mảng (Tất cả 
 
 test('hành vi: lọc 1 mảng áp đồng nhất KPI + phễu + thẻ deal + caption so sánh; kết hợp AND với Kỳ + Người', async () => {
   const { run, getEl } = loadIndex();
-  run("curView = 'dash'; setDashPeriod('all'); setDashLine('ai')");
+  run("curView = 'dash'; setDashPeriod('all'); setLine('ai')");
   await settleFunnel({ run });
   let html = getEl('view').innerHTML;
   assert.ok(html.includes('Lead</div><div class="v">2</div>'), 'KPI Lead (tổng theo mảng): chỉ L1 + L2 thuộc ai');
@@ -242,25 +248,25 @@ test('hành vi: lọc 1 mảng áp đồng nhất KPI + phễu + thẻ deal + ca
   assert.ok(html.includes('<h3>AI</h3>'), 'thẻ deal còn lại là AI');
   assert.ok(html.includes('Mảng đang áp dụng: <b>AI</b>'), 'caption so sánh BD ghi mảng AI');
   assert.ok(html.includes('Đang lọc riêng mảng <b>AI</b>'), 'ghi chú dưới thanh lọc giải thích định nghĩa mảng đang áp');
-  run("setDashLine('metaverse')");
+  run("setLine('metaverse')");
   html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 1 lead · 100%'), 'phễu metaverse: chỉ L3 đường chính (L6 là lối ra)');
   assert.ok(html.includes('<h3>Metaverse</h3>'));
   /* AND với Người: Hoàng + ai -> không lead nào; Yến + ai + kỳ 7 -> L1 + L2. */
-  run("setDashLine('ai'); setDashScope('hoang')");
+  run("setLine('ai'); setDashScope('hoang')");
   html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 0 lead · 100%') && html.includes('Chưa có lead nào trong phạm vi này.'), 'Hoàng × ai: giao nhau rỗng, hiện tử tế');
   run("setDashScope('yen'); setDashPeriod('7')");
   html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 2 lead · 100%'), 'Yến × ai × kỳ 7: L1 (2d) + L2 (5d)');
-  run("setDashPeriod('all'); setDashScope(''); setDashLine('')");
+  run("setDashPeriod('all'); setDashScope(''); setLine('all')");
   html = getEl('view').innerHTML;
   assert.ok(html.includes('Tổng lead đưa vào — 5 lead · 100%'), 'về Tất cả mảng: số khôi phục nguyên vẹn (neo hồi quy)');
 });
 
 test('hành vi: phễu click-through mang CẢ mảng sang view Lead qua curLine (áp Block + Pipeline), gỡ được tại tab mảng; lựa chọn mảng giữ qua chuyển view', () => {
   const { run, getEl } = loadIndex();
-  run("curView = 'dash'; setDashPeriod('all'); setDashLine('metaverse')");
+  run("curView = 'dash'; setDashPeriod('all'); setLine('metaverse')");
   run("dashOpenLeadStatus('new')");
   assert.equal(run('curView'), 'leads');
   assert.equal(run('curLine'), 'metaverse', 'mảng được chở sang bằng curLine — cơ chế lọc mảng sẵn có của view Lead');
@@ -271,14 +277,13 @@ test('hành vi: phễu click-through mang CẢ mảng sang view Lead qua curLine
   run("setLine('all')");
   assert.deepEqual(leadIds(run), ['L3', 'L5'], 'về tab Tất cả: cả hai lead new (vẫn lọc trạng thái new + kỳ Tất cả)');
   /* Mảng = Tất cả ở Tổng quan: click phễu đặt curLine về all, không kẹt mảng cũ. */
-  run("curView = 'dash'; setDashLine(''); dashOpenLeadStatus('converted')");
+  run("curView = 'dash'; setLine('all'); dashOpenLeadStatus('converted')");
   assert.equal(run('curLine'), 'all');
   assert.deepEqual(leadIds(run), ['L2', 'L4'], 'converted mọi mảng: L2 (ai) + L4 (publishing)');
-  /* Giữ trong phiên: */
-  run("setView('dash'); setDashLine('ai')");
-  assert.equal(run('dashLine'), 'ai', 'setDashLine đặt đúng trục mảng chung');
+  /* Giữ trong phiên: lựa chọn ở tab mảng toàn cục là curLine, giữ qua chuyển view. */
+  run("setView('dash'); setLine('ai')");
+  assert.equal(run('curLine'), 'ai', 'setLine đặt đúng mảng chung duy nhất');
   run("setView('leads'); setView('dash')");
-  assert.equal(run('dashLine'), 'ai', 'lựa chọn mảng không reset khi chuyển view');
-  const html = getEl('view').innerHTML;
-  assert.ok(html.includes('<option value="ai" selected>AI</option>'), 'select trục Mảng vẫn chọn AI sau khi quay lại Tổng quan');
+  assert.equal(run('curLine'), 'ai', 'lựa chọn mảng không reset khi chuyển view');
+  assert.ok(getEl('linetabs').innerHTML.includes('<button class="on" onclick="setLine(\'ai\')">'), 'tab mảng toàn cục vẫn chọn AI sau khi quay lại Tổng quan');
 });

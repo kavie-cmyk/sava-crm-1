@@ -1260,7 +1260,7 @@ function vDash() {
     return `<div class="activity-item" ${o&&o.target?`onclick="dashOpenActivity('${a.id}')" title="Bấm để mở hồ sơ của chủ hoạt động và highlight hoạt động này"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(head)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
   }).join('') || '<div class="empty-state">Không có hoạt động phù hợp.</div>';
   const dashActDeals = S.deals.filter(d => curLine === 'all' || d.line === curLine);
-  document.getElementById('view').innerHTML = dashAnalyticsHTML() + `<details class="ex-legacy-operations"><summary>Pipeline chi tiết, việc cần làm & ghi hoạt động</summary><p class="dash-note ex-legacy-note">Chú thích: Khu legacy này không áp bộ lọc chung của Dashboard (Kỳ × Người × Mảng) — các số dưới đây không đổi theo bộ lọc chung đã chọn ở trên.</p>` + kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + `</details>`;
+  document.getElementById('view').innerHTML = dashAnalyticsHTML() + `<details class="ex-legacy-operations"><summary>Pipeline chi tiết, việc cần làm & ghi hoạt động</summary><p class="dash-note ex-legacy-note">Chú thích: Khu legacy này không áp Kỳ × Người của Dashboard — các số dưới đây không đổi theo Kỳ × Người đã chọn ở trên, nhưng CÓ theo Mảng ở tab mảng đầu trang (bộ chọn mảng chung duy nhất của cả app).</p>` + kpiHTML()+`<div class="grid2"><div><div class="section-heading"><div><h2>Pipeline theo mảng</h2><p>${curLine==='all'?'Bốn mảng kinh doanh, mỗi mảng một quy trình.':LINES[curLine].desc}</p></div><button class="text-action" onclick="setView('board')">Xem pipeline ${SavaUI.icon('arrow')}</button></div><div class="pipeline-overview">${funnel}</div></div><div><section class="panel"><div class="panel-title"><h3>Việc cần làm <span class="count-badge">${scopedTasks.length}</span></h3><button class="text-action" onclick="setView('tasks')" aria-label="Xem tất cả việc">Tất cả ${SavaUI.icon('arrow')}</button></div>${tasks}</section><section class="panel"><div class="panel-title"><h3>Hoạt động gần nhất</h3>${SavaUI.icon('clock')}</div>${activities}${activityAddBlockHTML("dash", dashActDeals)}</section></div></div>` + `</details>`;
 }
 /* ===== Khu PHÂN TÍCH (Dashboard) trong Tổng quan =====
    BỘ LỌC CHUNG (gộp 2026-11-05): MỘT thanh lọc duy nhất ở đầu khu Phân
@@ -1269,9 +1269,11 @@ function vDash() {
    khoảng dashCustomFrom..dashCustomTo — khi bật, khoảng tường minh
    THẮNG dashPeriodDays ở mọi helper qua tham số range của SavaDash) ×
    Người (dashScope = "" Toàn hệ / member id / "__none__" Chưa gán) ×
-   Mảng (dashLine = "" Tất cả mảng / một key của LINES; trục Mảng bổ
-   sung 2026-11-05, hợp nhất nốt bộ lọc mảng RIÊNG của phễu lên thanh
-   chung và GỠ select mảng riêng trong đầu phễu). UI-state THUẦN trong
+   Mảng (tab mảng toàn cục ở đầu trang: curLine = "all" Tất cả mảng /
+   một key của LINES — nguồn sự thật DUY NHẤT cho cả app từ đợt gom
+   15/11/2026; Dashboard đọc mảng qua helper dashboardLineKey() duy nhất:
+   curLine "all" -> "" không lọc, còn lại -> chính key đó; select
+   Mảng riêng của Dashboard đã GỠ hẳn). UI-state THUẦN trong
    phiên (không nằm trong S, không qua save(), cùng họ leadOwnerFilter):
    chuyển view qua lại rồi quay về Tổng quan KHÔNG reset lựa chọn.
    QUY TẮC KỲ (cohort) thống nhất cho MỌI khối bên dưới: chỉ tính bản ghi
@@ -1297,12 +1299,18 @@ function vDash() {
    theo d.line; lead theo l.line (đúng bộ lọc mảng cũ của phễu); công ty
    theo c.roles[line] (đúng tab mảng của view Công ty). Bản ghi không
    thuộc mảng nào chỉ hiện khi Mảng = Tất cả mảng (mỏ neo hồi quy của
-   trục Mảng: dashLine = "" -> mọi số y hệt trước đợt này). Việc không
+   trục Mảng: dashboardLineKey() = "" -> mọi số y hệt trước đợt này). Việc không
    mang line: suy mảng từ đối tượng được gắn, không suy được thì không
    tính khi đang lọc một mảng cụ thể. Mọi con số qua helper thuần
    window.SavaDash (shared.js) — khu này CHỈ hiển thị, không đổi đường
    lưu nào. */
-let dashPeriodDays = 30, dashScope = "", dashLine = "";
+let dashPeriodDays = 30, dashScope = "";
+/* ĐIỂM ÁNH XẠ DUY NHẤT mảng Dashboard (đợt gom 15/11/2026): mọi khối
+   Dashboard lấy mảng qua hàm này — curLine "all" (tab mảng toàn cục ở
+   đầu trang) -> "" (không lọc, đúng ngữ nghĩa các hàm SavaDash), một
+   key mảng cụ thể -> chính key đó. Không rải phép đổi "all"->"" ở nơi
+   khác; không còn trạng thái mảng riêng của Dashboard. */
+function dashboardLineKey() { return curLine === "all" ? "" : curLine; }
 /* Kỳ "Tuỳ chỉnh" (bổ sung 05/11/2026): dashCustomActive = đang chọn kỳ
    tuỳ chỉnh; dashCustomFrom/dashCustomTo = khoảng đang ÁP DỤNG, lưu ISO
    yyyy-mm-dd (chuẩn lưu trữ nội bộ), hiển thị ở ô nhập qua isoToDMY.
@@ -1465,7 +1473,6 @@ function setDashCustomRange() {
   render();
 }
 function setDashScope(v) { dashScope = v || ""; render(); }
-function setDashLine(v) { dashLine = v || ""; render(); }
 function dashPctTxt(p) { return (p === null || p === undefined) ? "—" : fmtPctVal(p); }
 /* % RIÊNG cho khối phễu Lead: làm tròn 0 chữ số thập phân (số nguyên) để
    tránh hiểu nhầm số lẻ — yêu cầu trình bày của bản chốt phễu. Ngoài khối
@@ -1521,10 +1528,11 @@ function dashAnalyticsHTML() {
   const scoped = D.dashScopeFilter(dashState, dashScope);
   /* Áp trục MẢNG lên tập theo Người: lineScoped là tập NỀN của mọi khối
      (KPI tổng + xu hướng dùng thẳng tập này; các khối cohort lọc tiếp
-     theo kỳ trên nó). dashLine = "" -> dashFilterByLine trả bản sao
+     theo kỳ trên nó). dashboardLineKey() = "" -> dashFilterByLine trả bản sao
      nguyên vẹn (mỏ neo hồi quy của trục Mảng). */
-  const lineScoped = D.dashFilterByLine(scoped, dashLine, S);
-  /* Cohort kỳ đang chọn cho từng loại bản ghi (trục Kỳ × Người × Mảng):
+  const lineScoped = D.dashFilterByLine(scoped, dashboardLineKey(), S);
+  const dl = dashboardLineKey(); /* mảng đang chọn ở tab mảng toàn cục — dùng cho mọi khối dưới đây */
+  /* Cohort kỳ đang chọn cho từng loại bản ghi (Kỳ × Người ở Dashboard + Mảng ở tab mảng đầu trang):
      mọi khối bên dưới tính trên các tập này; thẻ KPI lấy số CHÍNH từ
      các tập cohort này và số tổng hiện tại của tập theo Người + Mảng
      (lineScoped) chỉ còn ở dòng phụ "Tổng hiện tại: N" (hoán đổi
@@ -1535,7 +1543,7 @@ function dashAnalyticsHTML() {
   const cDeals = D.dashCohort(lineScoped.deals, dashPeriodDays, now, range);
   const periodTxt = range ? `từ ${isoToDMY(range.from)} đến ${isoToDMY(range.to)}` : dashPeriodDays === null ? "từ trước tới nay (kỳ: Tất cả)" : `trong ${dashPeriodDays} ngày gần nhất`;
   const periodLabel = range ? `từ ${isoToDMY(range.from)} đến ${isoToDMY(range.to)}` : dashPeriodDays === null ? "Tất cả" : `${dashPeriodDays} ngày`;
-  /* --- THANH LỌC CHUNG: Kỳ × Người × Mảng (một chỗ chọn duy nhất) --- */
+  /* --- THANH LỌC DASHBOARD: Kỳ × Người (Mảng chọn ở tab mảng đầu trang — bộ chọn chung duy nhất) --- */
   const activeMembers = memberList(S).filter(m => m.active);
   let personOpts = `<option value="" ${!dashScope ? "selected" : ""}>Toàn hệ</option>` + activeMembers.map(m => `<option value="${esc(m.id)}" ${dashScope === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("");
   if (dashScope && dashScope !== "__none__" && !activeMembers.some(m => m.id === dashScope)) personOpts += `<option value="${esc(dashScope)}" selected>${esc(memberName(S, dashScope))} (đã ngừng)</option>`;
@@ -1549,11 +1557,9 @@ function dashAnalyticsHTML() {
   const scopeNote = dashScope === "__none__"
     ? ` Đang xem phạm vi <b>Chưa gán</b>: “công ty của BD” ở đây = tập công ty phân biệt của các lead chưa gán người phụ trách ∪ các deal chưa gán người phụ trách.`
     : dashScope ? ` Đang xem phạm vi của <b>${esc(memberName(S, dashScope))}</b>: “công ty của BD” = tập công ty phân biệt của các lead BD đó phụ trách ∪ các deal BD đó phụ trách (công ty không có trường người phụ trách riêng).` : "";
-  const lineOpts = `<option value="" ${!dashLine ? "selected" : ""}>Tất cả mảng</option>` + Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${dashLine === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
-  const lineNote = dashLine ? ` Đang lọc riêng mảng <b>${esc(LINES[dashLine].name)}</b>: deal tính theo mảng của deal, lead theo mảng của lead, công ty theo vai trò mảng (roles) của công ty; bản ghi không thuộc mảng nào không được tính. Trong bảng so sánh BD, việc không mang mảng nên được suy mảng từ đối tượng việc được gắn (deal/lead/công ty/game/sự kiện) — việc không gắn đối tượng hoặc không suy ra được mảng này không được tính.` : "";
-  const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div>${customCtl}<div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div><div class="dash-ctl"><span class="dash-ctl-label">Mảng</span><select class="dash-select" onchange="setDashLine(this.value)" aria-label="Mảng — bộ lọc chung phân tích">${lineOpts}</select></div></div>
-  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung (Kỳ × Người × Mảng) áp dụng như sau: <b>(a)</b> Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b> — chỉ tính bản ghi <b>được tạo trong kỳ</b>, trạng thái/stage lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay); tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”. <b>(b)</b> Phễu Lead (gồm dòng lối ra Not yet have demand) tính trên <b>toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>. <b>(c)</b> Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ. <b>(d)</b> Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>; khối “Chuyển đổi trong kỳ” trong tab này đếm thêm <b>số lead/deal được đưa vào từng trạng thái trong kỳ theo từng BD</b> — đếm theo sự kiện chuyển trạng thái lead và sự kiện chuyển stage deal trong nhật ký hệ thống, chỉ là số đếm, không tính tỉ lệ. <b>(e)</b> Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>.${scopeNote}${lineNote}</p></details>`;
-  /* --- Dải KPI (hoán đổi 12/11/2026, Zac chốt): số CHÍNH = số TRONG
+  const lineNote = dl ? ` Đang lọc riêng mảng <b>${esc(LINES[dl].name)}</b> (chọn ở tab mảng đầu trang): deal tính theo mảng của deal, lead theo mảng của lead, công ty theo vai trò mảng (roles) của công ty; bản ghi không thuộc mảng nào không được tính. Trong bảng so sánh BD, việc không mang mảng nên được suy mảng từ đối tượng việc được gắn (deal/lead/công ty/game/sự kiện) — việc không gắn đối tượng hoặc không suy ra được mảng này không được tính.` : "";
+  const controls = `<div class="dash-controls dash-filterbar"><div class="dash-ctl"><span class="dash-ctl-label">Kỳ</span>${periodBtns}</div>${customCtl}<div class="dash-ctl"><span class="dash-ctl-label">Người</span><select class="dash-select" onchange="setDashScope(this.value)" aria-label="Người phụ trách — bộ lọc chung phân tích">${personOpts}</select></div></div>
+  <details class="ex-definitions"><summary>Phạm vi số liệu</summary><p class="dash-note">Bộ lọc chung = Kỳ × Người ở thanh lọc của Dashboard + Mảng ở tab mảng đầu trang (bộ chọn mảng chung duy nhất, áp cho cả app) áp dụng như sau: <b>(a)</b> Số chính trên thẻ KPI, khu Phân tích và donut “Deal Pipeline theo mảng” ở Tổng quan kinh doanh tính theo <b>cohort</b> — chỉ tính bản ghi <b>được tạo trong kỳ</b>, trạng thái/stage lấy theo hiện tại (“Tất cả” = toàn bộ bản ghi từ trước tới nay); tổng hiện tại nằm ở dòng phụ của thẻ KPI với nhãn “Tổng hiện tại”. <b>(b)</b> Phễu Lead (gồm dòng lối ra Not yet have demand) tính trên <b>toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ</b>. <b>(c)</b> Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ. <b>(d)</b> Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>; khối “Chuyển đổi trong kỳ” trong tab này đếm thêm <b>số lead/deal được đưa vào từng trạng thái trong kỳ theo từng BD</b> — đếm theo sự kiện chuyển trạng thái lead và sự kiện chuyển stage deal trong nhật ký hệ thống, chỉ là số đếm, không tính tỉ lệ. <b>(e)</b> Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp Kỳ × Người của Dashboard</b>, nhưng <b>có theo Mảng ở tab mảng đầu trang</b>.${scopeNote}${lineNote}</p></details>`;  /* --- Dải KPI (hoán đổi 12/11/2026, Zac chốt): số CHÍNH = số TRONG
      KỲ theo cohort (cCompanies/cLeads/cDeals — bản ghi tạo trong kỳ,
      trạng thái hiện tại, cùng phạm vi Người × Mảng); số PHỤ = tổng
      hiện tại với nhãn "Tổng hiện tại: N". Kỳ "Tất cả": cohort = toàn
@@ -1589,8 +1595,8 @@ function dashAnalyticsHTML() {
   if (dashboardMode === "activity") {
     conversionState = conversionAuditEnsure();
     if (conversionState === "loaded") {
-      const convLeads = D.dashFilterByLine({ companies: [], leads: dashState.leads || [], deals: [], tasks: [] }, dashLine, S).leads;
-      const convDeals = D.dashFilterByLine({ companies: [], leads: [], deals: dashState.deals || [], tasks: [] }, dashLine, S).deals;
+      const convLeads = D.dashFilterByLine({ companies: [], leads: dashState.leads || [], deals: [], tasks: [] }, dl, S).leads;
+      const convDeals = D.dashFilterByLine({ companies: [], leads: [], deals: dashState.deals || [], tasks: [] }, dl, S).deals;
       conversion = D.dashConversionsByStatusInPeriod(convLeads, convDeals, conversionAudit.events, dashPeriodDays, now, range, dashScope);
       dashConversionLast = { conversion, periodLabel };
     }
@@ -1643,14 +1649,14 @@ function dashAnalyticsHTML() {
      (cDeals vốn đã chỉ còn deal của mảng đó qua dashFilterByLine; lọc
      thêm ở tầng thẻ để 3 mảng còn lại không hiện thẻ 0 gây nhiễu). Tất
      cả mảng -> đủ 4 thẻ như trước. */
-  const byLine = D.dashDealStages(cDeals, LINES).filter(r => !dashLine || r.line === dashLine);
+  const byLine = D.dashDealStages(cDeals, LINES).filter(r => !dl || r.line === dl);
   const lineCards = byLine.map(r => {
     const L = LINES[r.line], maxC = Math.max(1, ...r.stages.map(s => s.count));
     const bars = r.stages.map(s => `<div class="dash-col" title="${esc(s.label)}: ${s.count} deal"><div class="dash-col-plot"><div class="dash-col-num">${s.count}</div><div class="dash-col-bar" style="height:${Math.max(s.count ? 6 : 0, s.count / maxC * 100)}%;background:${L.color}"></div></div><div class="dash-col-lb">${esc(s.label)}</div></div>`).join("");
     const amt = Object.entries(r.openAmounts).map(([c, v]) => money(v, c)).join(" + ");
     return `<section class="panel dash-panel dash-line-card" style="--line-accent:${L.color}"><div class="panel-title"><h3>${esc(L.name)}</h3><span class="dash-badge">${r.openCount} deal đang mở</span></div><div class="dash-cols">${bars}</div><p class="dash-note">Tỉ lệ thắng: ${r.rate === null ? "Chưa có deal đóng" : `<b>${dashPctTxt(r.rate)}</b> (${r.won} won / ${r.lost} lost)`}${amt ? ` · Tổng giá trị deal đang mở: <b>${amt}</b>` : ""}</p></section>`;
   }).join("");
-  const dealHTML = `<div class="section-heading dash-subhead"><div><h2>Tiến trình Deal theo mảng</h2><p>${dashPeriodDays === null && !range ? "Số deal đang ở từng stage theo đúng thứ tự pipeline của mảng — ảnh chụp hiện tại." : `Chỉ gồm deal tạo trong kỳ (${periodLabel}) — stage và tỉ lệ thắng theo hiện tại trong cùng nhóm deal đó.`}${dashLine ? ` Đang lọc riêng mảng <b>${esc(LINES[dashLine].name)}</b> theo bộ lọc chung nên chỉ hiện thẻ của mảng này.` : ""}</p></div></div><div class="dash-line-grid">${lineCards}</div>`;
+  const dealHTML = `<div class="section-heading dash-subhead"><div><h2>Tiến trình Deal theo mảng</h2><p>${dashPeriodDays === null && !range ? "Số deal đang ở từng stage theo đúng thứ tự pipeline của mảng — ảnh chụp hiện tại." : `Chỉ gồm deal tạo trong kỳ (${periodLabel}) — stage và tỉ lệ thắng theo hiện tại trong cùng nhóm deal đó.`}${dl ? ` Đang lọc riêng mảng <b>${esc(LINES[dl].name)}</b> theo bộ lọc chung nên chỉ hiện thẻ của mảng này.` : ""}</p></div></div><div class="dash-line-grid">${lineCards}</div>`;
   /* --- Thẻ tỉ lệ chuyển đổi: cùng cohort của thanh lọc chung —
      Lead→Deal từ lead của kỳ; thắng deal từ deal của kỳ; công ty có deal
      từ công ty TẠO trong kỳ (mẫu) và số công ty đó có ≥1 deal trong kỳ
@@ -1661,13 +1667,13 @@ function dashAnalyticsHTML() {
   /* --- Bảng so sánh BD (chỉ phạm vi Toàn hệ) --- */
   let compareHTML = "";
   if (!dashScope) {
-    const rows = D.dashCompare(dashState, dashPeriodDays, now, isOverdue, range, dashLine);
+    const rows = D.dashCompare(dashState, dashPeriodDays, now, isOverdue, range, dl);
     const trs = rows.map(r => {
       const name = r.none ? "Chưa gán" : memberName(S, r.id);
       const click = r.none ? "" : ` onclick="setDashScope('${esc(r.id)}')" style="cursor:pointer" title="Bấm để xem phạm vi của ${esc(name)}"`;
       return `<tr${click}><td><b>${esc(name)}</b></td><td>${r.leadTotal}</td><td>${r.leadNew}</td><td>${r.converted} (${dashPctTxt(r.leadRate)})</td><td>${r.open}</td><td>${r.won} / ${r.lost} (${r.winRate === null ? "Chưa có deal đóng" : dashPctTxt(r.winRate)})</td><td>${r.overdue}</td></tr>`;
     }).join("");
-    compareHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>So sánh theo BD</h3><span class="dash-badge">bấm vào 1 BD để xem phạm vi của người đó</span></div><p class="dash-note">Kỳ đang áp dụng: <b>${periodLabel}</b> · Mảng đang áp dụng: <b>${dashLine ? esc(LINES[dashLine].name) : "Tất cả mảng"}</b>. Các cột dạng luồng — Lead mới trong kỳ, Lead đã chuyển đổi, Won / Lost — chỉ tính bản ghi <b>tạo trong kỳ</b> (trạng thái hiện tại); các cột Lead phụ trách, Deal đang mở, Việc quá hạn là <b>trạng thái hiện tại</b>, không đổi theo kỳ.${dashLine ? " Khi đang lọc một mảng, Việc quá hạn chỉ tính việc suy ra được đúng mảng đó từ đối tượng được gắn (deal/lead/công ty/game/sự kiện); việc không gắn đối tượng hoặc không thuộc mảng đang chọn không được tính." : ""}</p><div class="dash-table-wrap"><table class="dash-table"><thead><tr><th>BD</th><th>Lead phụ trách</th><th>Lead mới trong kỳ</th><th>Lead đã chuyển đổi (tỉ lệ Lead→Deal)</th><th>Deal đang mở</th><th>Won / Lost (tỉ lệ thắng)</th><th>Việc quá hạn</th></tr></thead><tbody>${trs}</tbody></table></div><p class="dash-note">Việc quá hạn: việc chưa xong và đã qua hạn theo đúng logic hạn việc của app (isOverdue). Hàng “Chưa gán” gồm lead/deal/việc chưa có người phụ trách.</p></section>`;
+    compareHTML = `<section class="panel dash-panel"><div class="panel-title"><h3>So sánh theo BD</h3><span class="dash-badge">bấm vào 1 BD để xem phạm vi của người đó</span></div><p class="dash-note">Kỳ đang áp dụng: <b>${periodLabel}</b> · Mảng đang áp dụng: <b>${dl ? esc(LINES[dl].name) : "Tất cả mảng"}</b>. Các cột dạng luồng — Lead mới trong kỳ, Lead đã chuyển đổi, Won / Lost — chỉ tính bản ghi <b>tạo trong kỳ</b> (trạng thái hiện tại); các cột Lead phụ trách, Deal đang mở, Việc quá hạn là <b>trạng thái hiện tại</b>, không đổi theo kỳ.${dl ? " Khi đang lọc một mảng, Việc quá hạn chỉ tính việc suy ra được đúng mảng đó từ đối tượng được gắn (deal/lead/công ty/game/sự kiện); việc không gắn đối tượng hoặc không thuộc mảng đang chọn không được tính." : ""}</p><div class="dash-table-wrap"><table class="dash-table"><thead><tr><th>BD</th><th>Lead phụ trách</th><th>Lead mới trong kỳ</th><th>Lead đã chuyển đổi (tỉ lệ Lead→Deal)</th><th>Deal đang mở</th><th>Won / Lost (tỉ lệ thắng)</th><th>Việc quá hạn</th></tr></thead><tbody>${trs}</tbody></table></div><p class="dash-note">Việc quá hạn: việc chưa xong và đã qua hạn theo đúng logic hạn việc của app (isOverdue). Hàng “Chưa gán” gồm lead/deal/việc chưa có người phụ trách.</p></section>`;
   }
   const executive = dashboardExecutiveHTML({ D, dashState, lineScoped, cCompanies, cLeads, cDeals, range, now, nC, nL, nD, openDeals, funnel, conversion, conversionState, periodLabel }, controls);
   return executive + `<details class="ex-analytics-details"><summary>Phân tích chi tiết · đầy đủ các bước phễu và tỷ lệ chuyển đổi</summary><div class="dash-wrap">${kpis}${trendHTML}${funnelHTML}${dealHTML}${convHTML}${compareHTML}</div></details>`;
@@ -1679,8 +1685,8 @@ let dashboardMode = 'overview', dashboardPipeline = '';
    UI-state thuần trong phiên như dashboardMode: bấm thẻ KPI của một loại /
    dòng Cơ cấu hoạt động / đoạn cột Xu hướng / ô loại trong bảng theo thành
    viên -> đặt lọc này (bấm lại đúng loại đang lọc = bỏ lọc); danh sách các
-   hoạt động thuộc loại đó — trong ĐÚNG phạm vi bộ lọc chung Kỳ × Người ×
-   Mảng qua dashboardActivityModel — hiện ngay dưới dải KPI kèm chip ghi rõ
+   hoạt động thuộc loại đó — trong ĐÚNG phạm vi bộ lọc chung (Kỳ × Người ở
+   Dashboard + Mảng ở tab mảng đầu trang) qua dashboardActivityModel — hiện ngay dưới dải KPI kèm chip ghi rõ
    loại đang lọc và nút xoá lọc (dashboardActivityTypeListHTML).
    resetDashboardFilters xoá cả lọc này. */
 let dashboardActivityTypeFilter = '';
@@ -1698,9 +1704,9 @@ function setDashboardActivityTypeForMember(key, memberId) {
   render();
 }
 function setDashboardMode(mode) { dashboardMode = mode === 'activity' ? 'activity' : 'overview'; render(); }
-function setDashboardPipeline(line) { dashboardPipeline = Object.prototype.hasOwnProperty.call(LINES, line) ? line : ''; render(); }
+function setDashboardPipeline(line) { /* Select con "Pipeline hiển thị" (đợt gom 15/11/2026): khi tab mảng toàn cục đang chọn 1 mảng cụ thể, cột stage KHOÁ theo mảng đó — lựa chọn ở select con không ghi đè được; khi tab đang ở "Tất cả" thì giữ quyền chọn mảng để xem cột stage như trước. */ if (curLine !== 'all') { dashboardPipeline = curLine; render(); return; } dashboardPipeline = Object.prototype.hasOwnProperty.call(LINES, line) ? line : ''; render(); }
 function resetDashboardFilters() {
-  dashPeriodDays = 30; dashScope = ''; dashLine = '';
+  dashPeriodDays = 30; dashScope = ''; curLine = 'all'; /* Đợt gom 15/11/2026: reset Dashboard cũng đặt lại Mảng về "Tất cả" ở tab mảng toàn cục — vì chỉ còn MỘT bộ chọn mảng duy nhất nên reset này đổi lựa chọn mảng chung của CẢ APP, không chỉ Dashboard. */
   dashCustomActive = false; dashCustomFrom = ''; dashCustomTo = '';
   dashboardPipeline = ''; dashboardActivityTypeFilter = ''; render();
 }
@@ -1726,7 +1732,7 @@ function dashboardLegend(items, total) {
 }
 function dashboardTeamHTML(ctx) {
   const { D, dashState, range, now } = ctx;
-  let rows = D.dashCompare(dashState, dashPeriodDays, now, isOverdue, range, dashLine);
+  let rows = D.dashCompare(dashState, dashPeriodDays, now, isOverdue, range, dashboardLineKey());
   if (dashScope) rows = rows.filter(r => dashScope === '__none__' ? r.none : r.id === dashScope);
   const body = rows.map(r => {
     const name = r.none ? 'Chưa gán' : memberName(S, r.id);
@@ -1773,7 +1779,7 @@ function dashboardOverviewHTML(ctx) {
   const conversion = funnel.summary.convertedPct;
   funnelHTML = `<section class="ex-panel">${dashboardHeading('Phễu chuyển đổi Lead', 'Toàn bộ lead theo trạng thái hiện tại · không theo kỳ', 'pipeline', `<span class="ex-pill">Lead → Deal: ${dashPctTxt(conversion)}</span>`)}<div class="ex-funnel">${funnelRows}</div><p class="ex-footnote">Tích lũy theo trạng thái hiện tại của lead trong phạm vi Người × Mảng — phễu tính trên toàn bộ hành trình từ đầu tới cuối phễu, không chia theo kỳ và không dùng nhật ký · ${dashboardNumber(funnel.dropped.count)} lead tạm dừng${funnel.unknown ? ` · ${dashboardNumber(funnel.unknown)} trạng thái chưa xác định` : ''}.</p></section>`;
   }
-  const lines = Object.keys(LINES).filter(k => !dashLine || k === dashLine);
+  const lines = Object.keys(LINES).filter(k => !dashboardLineKey() || k === dashboardLineKey());
   const items = lines.map(k => ({ label: LINES[k].name, value: cohortOpen.filter(d => d.line === k).length, color: LINES[k].color }));
   const unknownOpen = cohortOpen.filter(d => !LINES[d.line]).length;
   if (unknownOpen) items.push({ label: 'Chưa xác định mảng', value: unknownOpen, color: '#94a3b8' });
@@ -1783,7 +1789,7 @@ function dashboardOverviewHTML(ctx) {
   const max = Math.max(1, ...stages.map(st => st.count));
   const stageBars = stages.map(st => `<button class="ex-stage" onclick="curLine='${selected}';setView('board')" title="${esc(st.label)}: ${st.count}"><span class="ex-stage-track"><b style="height:${st.count / max * 100}%;background:${pipeline.color}"></b><strong>${dashboardNumber(st.count)}</strong></span><span>${esc(st.label)}</span></button>`).join('');
   const options = lines.map(k => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(LINES[k].name)}</option>`).join('');
-  const pipelineHTML = `<section class="ex-panel">${dashboardHeading('Deal Pipeline theo mảng', `Phân bổ deal đang mở · chỉ tính deal tạo trong kỳ (${esc(periodLabel || '')})`, 'cube', `<select class="ex-pipeline-select" aria-label="Pipeline hiển thị" onchange="setDashboardPipeline(this.value)">${options}</select>`)}<div class="ex-pipeline"><div class="ex-distribution">${dashboardRing(items, items.reduce((n, i) => n + i.value, 0), 'Deal đang mở')}${dashboardLegend(items, cohortOpen.length)}</div><div class="ex-stage-chart"><h4>Pipeline: ${esc(pipeline ? pipeline.name : '—')}</h4><div class="ex-stages">${stageBars}</div><p class="ex-footnote">Từng stage gồm cả Won · chỉ tính deal tạo trong kỳ, stage lấy theo hiện tại.</p></div></div></section>`;
+  const pipelineHTML = `<section class="ex-panel">${dashboardHeading('Deal Pipeline theo mảng', `Phân bổ deal đang mở · chỉ tính deal tạo trong kỳ (${esc(periodLabel || '')})`, 'cube', `<select class="ex-pipeline-select" aria-label="Pipeline hiển thị" onchange="setDashboardPipeline(this.value)" ${curLine !== 'all' ? 'disabled title="Đang khoá theo mảng đã chọn ở tab mảng đầu trang"' : 'title="Chọn mảng để xem cột stage"'}>${options}</select>`)}<div class="ex-pipeline"><div class="ex-distribution">${dashboardRing(items, items.reduce((n, i) => n + i.value, 0), 'Deal đang mở')}${dashboardLegend(items, cohortOpen.length)}</div><div class="ex-stage-chart"><h4>Pipeline: ${esc(pipeline ? pipeline.name : '—')}</h4><div class="ex-stages">${stageBars}</div><p class="ex-footnote">Từng stage gồm cả Won · chỉ tính deal tạo trong kỳ, stage lấy theo hiện tại.</p></div></div></section>`;
   const overdue = lineScoped.tasks.filter(t => isOverdue(t)).length;
   const followup = open.filter(d => d.idle >= 5).length;
   const replies = cLeads.filter(l => l.status === 'in_reply').length;
@@ -1823,7 +1829,7 @@ function dashboardActivityModel(now) {
   let missingDates = 0;
   const records = (S.activities || []).filter(a => {
     if (dashScope && (dashScope === '__none__' ? !!a.who : a.who !== dashScope)) return false;
-    if (dashLine && !D.dashTaskInLine(a, S, dashLine)) return false;
+    if (dashboardLineKey() && !D.dashTaskInLine(a, S, dashboardLineKey())) return false;
     if (query && !(String(a.text || '') + ' ' + String(a.type || '')).toLowerCase().includes(query)) return false;
     return true;
   }).map(a => ({ activity: a, date: dashboardActivityDate(a), type: dashboardActivityType(a) })).filter(record => {
@@ -1898,8 +1904,8 @@ function dashboardRecentActivityHTML(records) {
   return `<section class="ex-panel ex-recent">${dashboardHeading('Hoạt động gần nhất', 'Trong kỳ và phạm vi đang chọn · bấm một dòng để mở chủ của hoạt động', 'clock')}${rows || '<p class="ex-empty">Chưa có hoạt động trong phạm vi này.</p>'}</section>`;
 }
 /* Danh sách hoạt động của ĐÚNG MỘT LOẠI đang lọc (dashboardActivityTypeFilter):
-   tập lấy từ model.records — tức ĐÃ qua bộ lọc chung Kỳ × Người × Mảng của
-   Dashboard (dashboardActivityModel) — sắp mới nhất trước, phân trang
+   tập lấy từ model.records — tức ĐÃ qua bộ lọc chung (Kỳ × Người ở Dashboard
+   + Mảng ở tab mảng đầu trang) của Dashboard (dashboardActivityModel) — sắp mới nhất trước, phân trang
    10/trang bằng cơ chế pager dùng chung của app (key "dashacttype:<key>"),
    mỗi dòng bấm tiếp được qua dashboardActivityRowHTML/dashOpenActivity.
    Đầu khối có chip ghi rõ loại đang lọc + phạm vi chung đang áp và nút ✕
@@ -1914,7 +1920,7 @@ function dashboardActivityTypeListHTML(model) {
   const slice = (typeof listPageSlice === 'function') ? listPageSlice(key, filtered) : { info: null, pageItems: filtered.slice(0, 10) };
   const rows = slice.pageItems.map(dashboardActivityRowHTML).join('');
   const pager = slice.info && typeof listPagerHTML === 'function' ? listPagerHTML(key, slice.info, 'hoạt động') : '';
-  const scopeTxt = `Kỳ: ${dashCustomActive ? 'Tuỳ chỉnh' : dashPeriodDays === null ? 'Tất cả' : dashPeriodDays + ' ngày'} · Người: ${dashScope === '__none__' ? 'Chưa gán' : dashScope ? esc(memberName(S, dashScope)) : 'Toàn hệ'} · Mảng: ${dashLine ? esc((LINES[dashLine] || {}).name || dashLine) : 'Tất cả mảng'}`;
+  const scopeTxt = `Kỳ: ${dashCustomActive ? 'Tuỳ chỉnh' : dashPeriodDays === null ? 'Tất cả' : dashPeriodDays + ' ngày'} · Người: ${dashScope === '__none__' ? 'Chưa gán' : dashScope ? esc(memberName(S, dashScope)) : 'Toàn hệ'} · Mảng: ${dashboardLineKey() ? esc((LINES[dashboardLineKey()] || {}).name || dashboardLineKey()) : 'Tất cả mảng'}`;
   return `<section class="ex-panel ex-act-type-list">${dashboardHeading('Hoạt động loại: ' + esc(type.label), 'Trong đúng phạm vi bộ lọc chung · mới nhất trước · bấm một dòng để mở drawer của chủ và highlight hoạt động', type.icon, `<button class="ex-chip-clear" onclick="clearDashboardActivityType()" title="Bỏ lọc loại này, xem lại toàn bộ báo cáo hoạt động">✕ Đang lọc: ${esc(type.label)}</button>`)}<p class="ex-footnote">${dashboardNumber(filtered.length)} hoạt động · ${scopeTxt}</p>${rows || '<p class="ex-empty">Chưa có hoạt động loại này trong phạm vi đang chọn.</p>'}${pager}</section>`;
 }
 /* Khối "Chuyển đổi trong kỳ" (tab Báo cáo hoạt động, đợt chiều
@@ -2089,7 +2095,7 @@ function dashboardConversionHTML(ctx) {
     return `<td>${cellHTML(cell.count, `dashOpenDealConversionCell('','${esc(col.key)}')`, 'Bấm để mở Pipeline của mảng tương ứng — view Deal chưa lọc được theo đúng tập deal của cột')}</td>`;
   }).join('');
   const footRow = `<tfoot><tr><th>Tổng</th>${footLead}${footDeal}</tr></tfoot>`;
-  const metaRow = `<p class="ex-conversion-total">Kỳ: ${esc(ctx.periodLabel || '')}${dashLine ? ` · Mảng: ${esc((LINES[dashLine] || {}).name || dashLine)}` : ''} · Đã chuyển đổi trong kỳ: <b>${dashboardNumber(conv.total)}</b> lead</p>`;
+  const metaRow = `<p class="ex-conversion-total">Kỳ: ${esc(ctx.periodLabel || '')}${dashboardLineKey() ? ` · Mảng: ${esc((LINES[dashboardLineKey()] || {}).name || dashboardLineKey())}` : ''} · Đã chuyển đổi trong kỳ: <b>${dashboardNumber(conv.total)}</b> lead</p>`;
   const hasAny = (totals.lead || []).some(c => c.count > 0) || (totals.deal || []).some(c => c.count > 0);
   const empty = hasAny ? '' : '<p class="ex-empty">Chưa có lead/deal nào được đưa vào trạng thái nào trong kỳ này.</p>';
   const colCount = 1 + leadCols.length + dealCols.length;
@@ -2461,7 +2467,7 @@ function dashOpenLeadFunnelStep(stepKey) {
   leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Phễu Lead — ${label} · toàn bộ theo trạng thái hiện tại` };
   leadFunnelVersion++;
   leadOwnerFilter = dashScope || "";
-  curLine = dashLine || "all";
+  curLine = dashboardLineKey() || "all";
   leadViewMode = "block";
   if (stepKey && stepKey !== "__dropped__") leadBlockCollapsed[stepKey] = false;
   setView("leads");
@@ -2473,7 +2479,7 @@ function dashOpenLeadFunnelStep(stepKey) {
    thấy / tập rỗng -> không làm gì. leadOwnerFilter đặt "" (không lọc
    theo owner) vì BD được gán của khối này là người thực hiện lần đầu
    đưa vào trạng thái đó, không đồng nhất với owner hiện tại của lead
-   — lọc owner sẽ giấu mất lead đã đếm; tab mảng vẫn đặt theo dashLine
+   — lọc owner sẽ giấu mất lead đã đếm; tab mảng vẫn đặt theo mảng đang chọn ở tab mảng toàn cục
    vì tập đã đếm vốn được lọc theo mảng của lead. Chip ghi đúng mẫu:
    "Chuyển đổi trong kỳ — {BD} · {Trạng thái} · kỳ {kỳ}".
    (Hàm dashOpenLeadConversionRow của bản ma trận theo mảng đã GỠ:
@@ -2503,7 +2509,7 @@ function dashOpenLeadConversionCell(rowId, statusKey) {
   leadFunnelIds = { ids: idStrs, set: new Set(idStrs), label: `Chuyển đổi trong kỳ — ${bdLabel} · ${statusLabel} · kỳ ${last.periodLabel}` };
   leadFunnelVersion++;
   leadOwnerFilter = "";
-  curLine = dashLine || "all";
+  curLine = dashboardLineKey() || "all";
   leadViewMode = "block";
   setView("leads");
 }
@@ -2534,14 +2540,14 @@ function dashOpenDealConversionCell(rowId, stageKey) {
   if (!ids || !ids.length) return;
   const dealObjs = ids.map(id => (S.deals || []).find(d => String(d.id) === String(id))).filter(Boolean);
   const dealLines = [...new Set(dealObjs.map(d => d.line).filter(Boolean))];
-  curLine = dashLine || (dealLines.length === 1 ? dealLines[0] : "all");
+  curLine = dashboardLineKey() || (dealLines.length === 1 ? dealLines[0] : "all");
   setView("board");
 }
 function dashOpenLeadStatus(statusKey) {
   if (leadFunnelIds) { leadFunnelIds = null; leadFunnelVersion++; }
   leadStatusFilter = statusKey || "";
   leadOwnerFilter = dashScope || "";
-  curLine = dashLine || "all";
+  curLine = dashboardLineKey() || "all";
   /* Kỳ đang chọn ở thanh lọc chung: preset -> số ngày như cũ; "Tuỳ
      chỉnh" -> khoảng tường minh qua leadCreatedRange (và xoá số ngày
      để hai cơ chế không đè nhau). */

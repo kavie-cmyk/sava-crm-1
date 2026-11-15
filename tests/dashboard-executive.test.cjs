@@ -22,13 +22,14 @@ function harness() {
     ],
   };
   const ctx = vm.createContext({ console, S, Date, Map, Set, structuredClone, setTimeout, clearTimeout,
-    dashPeriodDays: 7, dashScope: '', dashLine: '', dashCustomActive: false,
+    dashPeriodDays: 7, dashScope: '', curLine: 'all', dashCustomActive: false,
     dashCustomFrom: '', dashCustomTo: '', query: '', appliedRange: null, renders: 0,
     render() { ctx.renders++; },
   });
   ctx.window = ctx;
   vm.runInContext(read('shared.js'), ctx);
   vm.runInContext('function dashActiveRange() { return appliedRange; }', ctx);
+  vm.runInContext('function dashboardLineKey() { return curLine === "all" ? "" : curLine; }', ctx); /* helper thật ở index.html ngoài lát cắt harness — stub đúng cùng ánh xạ */
   const source = read('index.html');
   const start = source.indexOf('/* Read-only dashboard presentation.');
   const end = source.indexOf('/* Quá hạn tính ĐỘNG:', start);
@@ -51,13 +52,13 @@ test('activity period uses occurrence date, includes both boundaries, and exclud
 
 test('activity actor filter uses who rather than the owner of the linked lead/deal; line filter uses linked records', () => {
   const h = harness();
-  h.run("dashScope = 'one'; dashLine = 'ai'");
+  h.run("dashScope = 'one'; curLine = 'ai'");
   assert.deepEqual(ids(h.model()), ['a1', 'a4']);
   h.run("dashScope = 'two'");
   assert.deepEqual(ids(h.model()), ['a2']);
   h.run("dashScope = '__none__'; dashPeriodDays = null");
   assert.deepEqual(ids(h.model()), ['a6']);
-  h.run("dashScope = ''; dashLine = 'metaverse'");
+  h.run("dashScope = ''; curLine = 'metaverse'");
   assert.deepEqual(ids(h.model()), ['a3']);
 });
 
@@ -89,9 +90,9 @@ test('empty report and reset remain read-only and restore all dashboard filter a
   const model = h.model();
   assert.equal(model.records.length, 0);
   assert.equal(model.buckets.length, 7);
-  h.run("dashboardMode = 'activity'; dashboardPipeline = 'ai'; dashLine = 'ai'; dashCustomActive = true; dashCustomFrom = '2026-11-01'; dashCustomTo = '2026-11-09'; resetDashboardFilters()");
+  h.run("dashboardMode = 'activity'; dashboardPipeline = 'ai'; curLine = 'ai'; dashCustomActive = true; dashCustomFrom = '2026-11-01'; dashCustomTo = '2026-11-09'; resetDashboardFilters()");
   assert.equal(h.ctx.dashScope, '');
-  assert.equal(h.ctx.dashLine, '');
+  assert.equal(h.ctx.curLine, 'all', 'reset Dashboard đặt lại mảng chung của cả app về Tất cả (đợt gom 15/11/2026)');
   assert.equal(h.ctx.dashPeriodDays, 30);
   assert.equal(h.ctx.dashCustomActive, false);
   assert.equal(h.ctx.renders, 1);

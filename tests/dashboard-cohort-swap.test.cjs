@@ -241,9 +241,9 @@ test('tĩnh hạng mục 4+5: nhãn mới, đoạn Phạm vi (a)-(e) không còn
     'đếm theo sự kiện chuyển trạng thái lead và sự kiện chuyển stage deal trong nhật ký hệ thống, chỉ là số đếm, không tính tỉ lệ',
     'Cột trạng thái trong bảng Hiệu suất team / So sánh theo BD (Lead phụ trách · Deal đang mở · Việc quá hạn) và khối “Cần xử lý” là <b>số hiện tại</b>, không theo kỳ',
     'Tab Báo cáo hoạt động tính theo <b>ngày hoạt động trong kỳ</b>',
-    'Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp bộ lọc chung</b>',
+    'Khu legacy “Pipeline chi tiết, việc cần làm &amp; ghi hoạt động” ở cuối trang <b>không áp Kỳ × Người của Dashboard</b>, nhưng <b>có theo Mảng ở tab mảng đầu trang</b>', /* đợt gom 15/11/2026: (e) viết lại — legacy không áp Kỳ × Người nhưng CÓ theo bộ chọn mảng chung duy nhất */
   ]) assert.ok(html.includes(frag), 'đoạn Phạm vi số liệu thiếu ý: ' + frag);
   assert.equal((html.match(/ex-legacy-note/g) || []).length, 1, 'đúng 1 dòng chú thích trong khu legacy');
-  assert.ok(html.includes('Chú thích: Khu legacy này không áp bộ lọc chung của Dashboard (Kỳ × Người × Mảng) — các số dưới đây không đổi theo bộ lọc chung đã chọn ở trên.'), 'nguyên văn chú thích legacy');
+  assert.ok(html.includes('Chú thích: Khu legacy này không áp Kỳ × Người của Dashboard — các số dưới đây không đổi theo Kỳ × Người đã chọn ở trên, nhưng CÓ theo Mảng ở tab mảng đầu trang (bộ chọn mảng chung duy nhất của cả app).'), 'nguyên văn chú thích legacy sau đợt gom 15/11/2026');
   assert.ok(html.includes('Lead/deal được đưa vào trạng thái bằng thao tác không qua app (nhập theo lô) không có sự kiện chuyển trạng thái thì không được đếm'), 'chú thích khối Chuyển đổi trong kỳ: lead/deal nhập lô không có sự kiện thì không đếm (ý nhập lô nay nằm ở khối chuyển đổi, không còn ở phễu)');
 });

@@ -255,7 +255,8 @@ test('tĩnh: vDash gắn dashAnalyticsHTML; đủ nhãn trung thực + điều k
   assert.ok(html.includes('Toàn bộ · theo trạng thái hiện tại') && html.includes('Tính trên toàn bộ lead trong phạm vi Người × Mảng theo trạng thái hiện tại, không theo kỳ'), 'phễu (đợt chiều 12/11/2026): nhãn mới nói rõ toàn bộ theo trạng thái hiện tại, không theo kỳ');
   assert.ok(!html.includes('Theo lần chuyển stage trong kỳ') && !html.includes('dashLeadFunnelByEvents'), 'phễu theo sự kiện đã gỡ hẳn khỏi index.html');
   assert.ok(html.includes('Chưa có deal đóng'));
-  assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('setDashLine'));
+  assert.ok(html.includes('setDashPeriod') && html.includes('setDashScope') && html.includes('dashboardLineKey'), 'thanh lọc Dashboard còn Kỳ × Người; mảng đọc qua helper dashboardLineKey() từ tab mảng toàn cục');
+  assert.ok(!html.includes('setDashLine') && !/let dashPeriodDays[^;]*dashLine/.test(html), 'đợt gom 15/11/2026: select/hàm/trạng thái mảng riêng của Dashboard đã gỡ hẳn');
   assert.ok(!html.includes('setDashFunnelOwner'), 'bộ lọc chung 2026-11-05: trục Người của phễu đã gộp vào thanh lọc chung — không còn select người riêng của phễu');
   assert.ok(html.includes('dash-filterbar') && html.includes('leadCreatedPeriodSel') && html.includes('setLeadCreatedPeriodFilter'), 'thanh lọc chung + bộ lọc kỳ tạo nhìn thấy/gỡ được ở view Lead');
   assert.ok(html.includes('công ty của BD'), 'phải có chú thích định nghĩa công ty của BD khi scope != Toàn hệ');

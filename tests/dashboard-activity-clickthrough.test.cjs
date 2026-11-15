@@ -127,7 +127,7 @@ test('dashOpenActivity: chủ đã xoá -> không mở drawer nào', () => {
 
 test('Dashboard: dòng hoạt động gần nhất + thẻ KPI loại đều có handler bấm xuyên', () => {
   const { run, getEl } = loadIndex();
-  run("dashboardMode='activity'; dashPeriodDays=30; dashScope=''; dashLine=''; render();");
+  run("dashboardMode='activity'; dashPeriodDays=30; dashScope=''; curLine='all'; render();");
   const v = getEl('view').innerHTML;
   assert.ok(v.includes("dashOpenActivity('ad01')"), 'dòng hoạt động gần nhất (executive) bấm xuyên được');
   assert.ok(v.includes("dashOpenActivity('ad12')") || v.includes('Hoạt động gần nhất'), 'khối hoạt động gần nhất hiện diện');
@@ -139,7 +139,7 @@ test('Dashboard: dòng hoạt động gần nhất + thẻ KPI loại đều có
 
 test('lọc theo loại: danh sách đúng loại trong phạm vi chung, chip xoá được, bấm lại loại = bỏ lọc', () => {
   const { run, getEl } = loadIndex();
-  run("dashboardMode='activity'; dashPeriodDays=30; dashScope=''; dashLine=''; setDashboardActivityType('email');");
+  run("dashboardMode='activity'; dashPeriodDays=30; dashScope=''; curLine='all'; setDashboardActivityType('email');");
   assert.equal(run('dashboardActivityTypeFilter'), 'email');
   let v = getEl('view').innerHTML;
   assert.ok(v.includes('Hoạt động loại: Email'), 'hiện danh sách loại Email');
@@ -156,7 +156,7 @@ test('lọc theo loại: danh sách đúng loại trong phạm vi chung, chip xo
 
 test('lọc theo loại tôn trọng bộ lọc chung Người: ô loại của thành viên đặt cả scope', () => {
   const { run, getEl } = loadIndex();
-  run("dashboardMode='activity'; dashPeriodDays=30; dashScope=''; dashLine=''; setDashboardActivityTypeForMember('message','linh');");
+  run("dashboardMode='activity'; dashPeriodDays=30; dashScope=''; curLine='all'; setDashboardActivityTypeForMember('message','linh');");
   assert.equal(run('dashScope'), 'linh');
   assert.equal(run('dashboardActivityTypeFilter'), 'message');
   const v = getEl('view').innerHTML;
