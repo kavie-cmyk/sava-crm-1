@@ -188,7 +188,10 @@ test('Việc 4 bổ sung / hiển thị: mọi danh sách CRM có chỉ dấu C�
   assert.ok(!TH_WHEN.test(h.getEl('view').innerHTML), 'không còn cột "Thời gian" đọc when ở bảng Lead');
   h.run(`vCompanies();`);
   assert.ok(TH_UPDATED.test(h.getEl('view').innerHTML) && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Công ty có cột Cập nhật cuối + số thật');
-  h.run(`vEvents();`);
+  /* 16/11/2026: view Sự kiện mặc định lọc "Của tôi" cho BD — fixture ev1
+     chưa có chủ nên phải chuyển phạm vi "Tất cả" mới thấy hàng của nó;
+     ca này chỉ kiểm cột Cập nhật cuối nên chuyển phạm vi tường minh. */
+  h.run(`setEventScope('all'); vEvents();`);
   assert.ok(TH_UPDATED.test(h.getEl('view').innerHTML) && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Sự kiện có cột Cập nhật cuối + số thật');
   h.run(`vMembers();`);
   assert.ok(TH_UPDATED.test(h.getEl('view').innerHTML) && h.getEl('view').innerHTML.includes('🕘 ' + dstr), 'bảng Thành viên có cột Cập nhật cuối + số thật');

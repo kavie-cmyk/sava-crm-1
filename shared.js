@@ -158,7 +158,7 @@ const FIELD_LABELS = {
   task: { title: "Tiêu đề việc", assignee: "Người được giao", deal: "Deal liên kết", company: "Công ty liên kết", lead: "Lead liên kết", game: "Game liên kết", event: "Sự kiện liên kết", due: "Hạn (nhãn)", startDate: "Ngày bắt đầu", dueDate: "Hạn", done: "Đã xong", overdue: "Quá hạn" },
   member: { name: "Tên thành viên", role: "Vai trò", active: "Đang hoạt động" },
   activity: { deal: "Deal", lead: "Lead", game: "Game", event: "Sự kiện", type: "Loại hoạt động", who: "Người thực hiện", when: "Thời gian", text: "Nội dung", url: "Link hội thoại / tài liệu" },
-  event: { name: "Tên sự kiện", date: "Ngày diễn ra", endDate: "Ngày kết thúc", location: "Địa điểm", attendees: "Người tham dự", note: "Ghi chú", status: "Trạng thái sự kiện", eventUrl: "Link sự kiện", line: "Mảng liên quan", reportMet: "Báo cáo — Đã gặp ai", reportOutcome: "Báo cáo — Kết quả", reportNext: "Báo cáo — Việc tiếp theo", reportLinks: "Báo cáo — Link đính kèm", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
+  event: { name: "Tên sự kiện", date: "Ngày diễn ra", endDate: "Ngày kết thúc", location: "Địa điểm", attendees: "Người tham dự", owner: "Người phụ trách", note: "Ghi chú", status: "Trạng thái sự kiện", eventUrl: "Link sự kiện", line: "Mảng liên quan", reportMet: "Báo cáo — Đã gặp ai", reportOutcome: "Báo cáo — Kết quả", reportNext: "Báo cáo — Việc tiếp theo", reportLinks: "Báo cáo — Link đính kèm", companies: "Công ty từ sự kiện", leads: "Lead từ sự kiện", deals: "Deal từ sự kiện" },
   sales_material: { title: "Tiêu đề", kind: "Loại tài liệu", url: "Link tài liệu", description: "Mô tả", line: "Mảng", createdBy: "Người thêm", imageUrl: "Link ảnh đại diện" },
   request: { kind: "Loại hồ sơ", entityId: "Hồ sơ CRM", requestedBy: "BD phụ trách", assignee: "MKT được giao", due: "Hạn đánh giá", requestNote: "Thông tin đầu vào / yêu cầu BD", source: "Link build / bằng chứng", build: "Build / phiên bản", status: "Trạng thái", intake: "Hồ sơ đầu vào", entitySnapshot: "Dữ liệu chụp hồ sơ" },
 };
@@ -167,6 +167,7 @@ const REF_FIELDS = {
   lead: { company: "company", ownerId: "member" },
   game: { company: "company" },
   task: { assignee: "member", deal: "deal", company: "company", lead: "lead", game: "game", event: "event" },
+  event: { owner: "member" },
   activity: { who: "member", deal: "deal", lead: "lead", game: "game", event: "event" },
   request: { requestedBy: "member", assignee: "member", entityId: "entity" },
   sales_material: { createdBy: "member" },

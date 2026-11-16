@@ -188,6 +188,15 @@
      cũng CỐ Ý không nằm trong EVENT_KNOWN — tất cả đi qua legacy_extra
      của events như trên. Đừng thêm chúng vào EVENT_KNOWN khi chưa có
      cột thật, extrasOf sẽ làm rơi field.
+     Cùng đường đó (đợt Sự kiện theo tài khoản 16/11/2026 — Zac chốt
+     đây là BỘ LỌC HIỂN THỊ trong view Sự kiện, KHÔNG phải khoá quyền):
+     field `owner` (member id của người phụ trách sự kiện) CỐ Ý không
+     nằm trong EVENT_KNOWN và TUYỆT ĐỐI không phát key `owner_id` trong
+     dòng events — server KHÔNG có cột owner cho events trong đợt này
+     (không DDL, không đổi RLS). Nếu client gửi key lạ, upsert của
+     supabase-data.js sẽ THROW khi PostgREST báo lỗi và kẹt mọi vòng
+     sync có events; owner đi qua legacy_extra thì round-trip nguyên
+     vẹn, đủ cho app hiển thị người phụ trách + lọc phạm vi "Của tôi".
      Ba mảng liên kết companies/leads/deals thì KHÔNG đi qua legacy_extra:
      chúng là nguồn sự thật của quan hệ Event<->{Company,Lead,Deal} và
      được vật hoá thành dòng ở bảng nối event_links (xem hai chiều dưới). */

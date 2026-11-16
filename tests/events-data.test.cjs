@@ -45,6 +45,7 @@ test('shared: emptyState có events đúng vị trí; CRM_ENTITY_TYPES/FIELD_LAB
   const labels = ctx.window.SavaSys.FIELD_LABELS.event;
   assert.deepEqual({ ...labels }, {
     name: 'Tên sự kiện', date: 'Ngày diễn ra', endDate: 'Ngày kết thúc', location: 'Địa điểm', attendees: 'Người tham dự',
+    owner: 'Người phụ trách',
     note: 'Ghi chú', status: 'Trạng thái sự kiện', eventUrl: 'Link sự kiện', line: 'Mảng liên quan',
     reportMet: 'Báo cáo — Đã gặp ai', reportOutcome: 'Báo cáo — Kết quả', reportNext: 'Báo cáo — Việc tiếp theo', reportLinks: 'Báo cáo — Link đính kèm',
     companies: 'Công ty từ sự kiện', leads: 'Lead từ sự kiện', deals: 'Deal từ sự kiện',

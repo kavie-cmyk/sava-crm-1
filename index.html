@@ -2870,12 +2870,61 @@ function vLeadsPipeline() {
    Phía công ty/lead/deal KHÔNG lưu chiều ngược: mọi hiển thị "nguồn sự
    kiện" ở drawer entity đều suy ra bằng cách quét S.events (eventsLinkedTo).
    S.events có thể chưa có ở state cũ (tầng dữ liệu bổ sung sau) nên mọi
-   truy cập đều qua eventsList()/ensureEvents() — không giả định mảng tồn tại. */
+   truy cập đều qua eventsList()/ensureEvents() — không giả định mảng tồn tại.
+   Người phụ trách (16/11/2026): field `owner` (member id) trên event, đi
+   qua legacy_extra như các field phụ khác (xem EVENT_KNOWN trong
+   supabase-adapter.js) — CHỈ là dữ kiện hiển thị + phục vụ BỘ LỌC PHẠM VI
+   của riêng view Sự kiện (khối eventScope ở dưới), KHÔNG phải khoá quyền:
+   sự kiện vẫn xem chung ở mọi bề mặt khác (Lịch, drawer, picker...) và
+   ở tầng dữ liệu như chốt 09/11/2026. */
 let pendingEventLink = null;
 function eventsList() { return Array.isArray(S.events) ? S.events : []; }
 function ensureEvents() { if (!Array.isArray(S.events)) S.events = []; return S.events; }
 function eventById(id) { return eventsList().find(e => e.id === id) || null; }
 function eventAttendeeNames(ev) { return (Array.isArray(ev.attendees) ? ev.attendees : []).map(mid => memberName(S, mid)); }
+/* Chủ HIỆU LỰC của một sự kiện — hàm DÙNG CHUNG cho bộ lọc phạm vi ở view
+   Sự kiện lẫn nhãn hiển thị "Phụ trách":
+   1) field `owner` (member id) nếu có — nguồn sự thật, do form sự kiện ghi;
+   2) sự kiện CHƯA có owner: suy từ DẤU NGƯỜI TẠO `createdBy` nếu bản ghi
+      có mang (đã kiểm tra toàn repo: dữ liệu event hiện tại KHÔNG có
+      field này — createdBy chỉ tồn tại ở sales_material — nên nhánh này
+      là chốt cho dữ liệu nạp ngoài về sau, không phải nguồn đang có);
+   3) không có cả hai -> "" = CHƯA RÕ CHỦ: nhãn hiển thị "Chưa gán" và
+      sự kiện chỉ thuộc phạm vi "Tất cả", không thuộc "Của tôi" của ai.
+   TUYỆT ĐỐI không dùng updatedBy (đó là người SỬA CUỐI, không phải
+   người tạo/chủ). Hàm này chỉ ĐỌC, không ghi bù dữ liệu: sự kiện cũ chỉ
+   có owner thật khi người dùng tự mở form sửa của nó và lưu — khi đó
+   owner theo đúng ô chọn trong form. */
+function eventOwnerId(ev) {
+  if (!ev) return "";
+  const o = String(ev.owner || "").trim();
+  if (o) return o;
+  const c = String(ev.createdBy || "").trim();
+  if (c) return c;
+  return "";
+}
+function eventOwnerLabel(ev) { const oid = eventOwnerId(ev); return oid ? memberName(S, oid) : "Chưa gán"; }
+/* ===== Phạm vi hiển thị của view Sự kiện: "Của tôi" / "Tất cả" =====
+   (Zac chốt 16/11/2026: BỘ LỌC HIỂN THỊ thuần, KHÔNG khoá quyền — chuyển
+   sang "Tất cả" là thấy sự kiện của mọi người; các bề mặt khác không áp
+   bộ lọc này.) eventScopeFilter là UI-state thuần trong phiên như các
+   filter khác của app (salesTypeFilter, listSortStates...): giữ nguyên
+   khi chuyển view qua lại, không nằm trong S, không qua save().
+   null = chưa chọn -> mặc định theo vai: non-Admin (BD/MKT) = "mine",
+   Admin = "all", chưa resolve được danh tính (demo/local/test) = "all"
+   để giữ hành vi xem chung cũ. Phạm vi áp NHƯ NHAU cho mọi vai: "mine"
+   của Admin cũng chỉ gồm sự kiện Admin là chủ (khác nhau duy nhất là
+   giá trị mặc định). "mine" kết hợp AND với tìm kiếm + nhóm trạng thái
+   + sort + phân trang sẵn có của view: số đếm/phân trang tính trên tập
+   đã qua cả hai lớp lọc. */
+let eventScopeFilter = null;
+function eventScopeDefault() {
+  const u = authCurrentUser();
+  if (!u) return "all";
+  return u.role === "admin" ? "all" : "mine";
+}
+function eventScope() { return eventScopeFilter === "mine" || eventScopeFilter === "all" ? eventScopeFilter : eventScopeDefault(); }
+function setEventScope(v) { eventScopeFilter = v === "mine" ? "mine" : "all"; render(); }
 /* ===== Vòng đời sự kiện 2 giai đoạn (đợt 3/11) =====
    Trạng thái vòng đời lưu ở ev.status qua legacy_extra (KHÔNG migration
    SQL — xem EVENT_KNOWN trong supabase-adapter.js): "planned" (Sắp tới)
@@ -2948,16 +2997,24 @@ function eventGroupSort(key, items) {
   });
 }
 function vEvents() {
+  /* Lớp lọc 1 — PHẠM VI (bộ lọc hiển thị 16/11/2026): "mine" chỉ giữ sự
+     kiện mình là chủ theo eventOwnerId (sự kiện chưa rõ chủ không thuộc
+     "mine" của ai); "all" giữ toàn bộ như hành vi xem chung trước đây.
+     Lớp lọc 2 — tìm kiếm toàn cục như cũ. Hai lớp kết hợp AND; nhóm
+     trạng thái + sort + phân trang ở dưới chạy trên tập đã qua cả hai. */
+  const scope = eventScope();
+  const me = authCurrentUser();
   const all = eventsList();
-  const filtered = all.filter(ev => {
+  const scoped = scope === "mine" ? all.filter(ev => !!(me && me.memberId) && eventOwnerId(ev) === String(me.memberId)) : all;
+  const filtered = scoped.filter(ev => {
     if (!query) return true;
-    const hay = [ev.name || "", ev.date || "", ev.endDate || "", fmtWhen(ev.date || ""), fmtWhen(ev.endDate || ""), ev.location || "", ev.note || "", (eventStatusDef(eventStatusKey(ev)) || {}).label || "", ev.line ? lineName(ev.line) : "", eventAttendeeNames(ev).join(" ")].join(" ").toLowerCase();
+    const hay = [ev.name || "", ev.date || "", ev.endDate || "", fmtWhen(ev.date || ""), fmtWhen(ev.endDate || ""), ev.location || "", ev.note || "", (eventStatusDef(eventStatusKey(ev)) || {}).label || "", ev.line ? lineName(ev.line) : "", eventAttendeeNames(ev).join(" "), eventOwnerId(ev) ? memberName(S, eventOwnerId(ev)) : ""].join(" ").toLowerCase();
     return hay.includes(query);
   });
   /* Phân trang TRONG TỪNG NHÓM như mẫu Lead Block (Việc 8): key trang
-     riêng theo nhóm, đổi tìm kiếm/sort -> mọi nhóm về trang 1. */
-  pagerSyncFilter("events", query + "|" + JSON.stringify(listSortState("events")));
-  const filtering = !!query;
+     riêng theo nhóm, đổi tìm kiếm/phạm vi/sort -> mọi nhóm về trang 1. */
+  pagerSyncFilter("events", query + "|" + scope + "|" + JSON.stringify(listSortState("events")));
+  const filtering = !!query || scope === "mine";
   const groups = EVENT_STATUSES.map(def => ({ ...def, events: eventGroupSort(def.key, filtered.filter(ev => eventStatusKey(ev) === def.key)) }));
   const blocks = groups.map(g => {
     if (!g.events.length && filtering) return "";
@@ -2973,15 +3030,16 @@ function vEvents() {
         ? `<div style="color:#b45309;font-weight:600">⚠️ đã qua ngày — cập nhật trạng thái?</div>`
         : di.label ? `<div class="mut">⏳ ${esc(di.label)}</div>` : "";
       const lineChip = ev.line ? ` <span class="chip" style="background:${lineColor(ev.line)}">${esc(lineName(ev.line))}</span>` : "";
-      return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td class="list-stt">${info.start + pIdx + 1}</td><td><b>🎪 ${esc(ev.name || "—")}</b> ${eventStatusChipHTML(ev)}${lineChip}<div class="mut">${esc(ev.note || "")}</div></td><td>${esc(eventDateRangeText(ev))}<div class="mut">${esc(ev.location || "")}</div>${dayNote}</td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${eventCountsHTML(ev)}</td><td>${sysUpdatedCell(ev)}</td></tr>`;
+      return `<tr onclick="openEvent('${ev.id}')" style="cursor:pointer" title="Bấm để xem chi tiết sự kiện"><td class="list-stt">${info.start + pIdx + 1}</td><td><b>🎪 ${esc(ev.name || "—")}</b> ${eventStatusChipHTML(ev)}${lineChip}<div class="mut">${esc(ev.note || "")}</div><div class="mut">Phụ trách: ${esc(eventOwnerLabel(ev))}</div></td><td>${esc(eventDateRangeText(ev))}<div class="mut">${esc(ev.location || "")}</div>${dayNote}</td><td>${esc(eventAttendeeNames(ev).join(", ") || "—")}</td><td>${eventCountsHTML(ev)}</td><td>${sysUpdatedCell(ev)}</td></tr>`;
     }).join("");
     const body = collapsed ? "" : (g.events.length
       ? `<div class="table-wrap"><table><tr><th>STT</th>${sortThHTML("events", "name", "Sự kiện")}<th>Ngày · Địa điểm</th><th>Người tham dự</th><th>Liên kết</th>${sortThHTML("events", "updated", "Cập nhật cuối")}</tr>${rows}</table></div>${listPagerHTML(pageKey, info, "sự kiện")}`
       : `<div class="mut">Chưa có sự kiện nào ở nhóm này.</div>`);
     return `<section class="panel lead-status-block${collapsed ? " lead-status-block--collapsed" : ""}" data-event-status="${g.key}"><div class="panel-title lead-block-head" onclick="toggleListBlock('${blockKey}')" style="cursor:pointer" title="Bấm để ${collapsed ? "mở" : "thu gọn"} nhóm này"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.events.length} sự kiện</span></h3><button class="btn ghost small" onclick="event.stopPropagation(); toggleListBlock('${blockKey}')" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mở nhóm" : "Thu gọn nhóm"}">${collapsed ? "▸ Mở" : "▾ Thu gọn"}</button></div>${body}</section>`;
   }).join("");
-  const emptyMsg = !all.length ? `<div class="panel mut">Chưa có sự kiện nào.</div>` : (filtering && !filtered.length ? `<div class="panel mut">Không có sự kiện nào khớp tìm kiếm hiện tại.</div>` : "");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button></div>${emptyMsg}${blocks}
+  const emptyMsg = !all.length ? `<div class="panel mut">Chưa có sự kiện nào.</div>` : (!filtered.length ? (query ? `<div class="panel mut">Không có sự kiện nào khớp tìm kiếm hiện tại.</div>` : `<div class="panel mut">Chưa có sự kiện nào thuộc phạm vi “Của tôi” của bạn — chuyển phạm vi sang “Tất cả” để xem mọi sự kiện.</div>`) : "");
+  const scopeCtl = `<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="mut">Phạm vi:</span><button class="btn ${scope === "mine" ? "" : "ghost"} small" onclick="setEventScope('mine')" aria-pressed="${scope === "mine"}">Của tôi</button><button class="btn ${scope === "all" ? "" : "ghost"} small" onclick="setEventScope('all')" aria-pressed="${scope === "all"}">Tất cả</button></span>`;
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button>${scopeCtl}</div>${emptyMsg}${blocks}
   <div class="mut" style="margin-top:10px">Sự kiện là nơi team gặp gỡ đối tác: công ty, lead và deal phát sinh từ sự kiện được gắn ngay trong chi tiết sự kiện. Sự kiện sắp tới nằm ở nhóm “Sắp tới” (ngày gần nhất trước); sau khi đi về, bấm “Đánh dấu đã tham dự” trong chi tiết sự kiện để nhập báo cáo.</div>`;
 }
 /* ===== Tài liệu bán hàng (S.salesMaterials) =====
@@ -3322,6 +3380,7 @@ function openEvent(id) {
       <div class="k">Địa điểm</div><div>${esc(ev.location || "—")}</div>
       <div class="k">Link sự kiện</div><div>${ev.eventUrl ? extLinkHTML(ev.eventUrl) : "—"}</div>
       <div class="k">Mảng liên quan</div><div>${ev.line ? `<span class="chip" style="background:${lineColor(ev.line)}">${esc(lineName(ev.line))}</span>` : "—"}</div>
+      <div class="k">Người phụ trách</div><div>${esc(eventOwnerLabel(ev))}</div>
       <div class="k">Người tham dự</div><div>${esc(attendeeNames.join(", ") || "—")}</div>
       <div class="k">Ghi chú</div><div>${esc(ev.note || "—")}</div>
     </div>
@@ -3367,6 +3426,7 @@ function openEventForm(id, prefillDate) {
     ${field("Địa điểm", txt("e_evlocation", ev ? ev.location : ""))}
     ${field("Link sự kiện", txt("e_evurl", ev ? (ev.eventUrl || "") : "", "https://…"))}
     ${field("Mảng liên quan (không bắt buộc)", lineSel)}
+    ${field("Người phụ trách", ownerSel("e_evowner", ev ? eventOwnerId(ev) : defaultOwnerId(), ev ? undefined : { placeholder: "— Chọn người phụ trách —" }))}
     <label>Người tham dự</label>
     <div>${memberChecks || '<div class="mut">Chưa có thành viên đang hoạt động</div>'}</div>
     ${field("Ghi chú", `<textarea id="e_evnote">${esc(ev ? (ev.note || "") : "")}</textarea>`)}
@@ -3388,7 +3448,13 @@ function saveEvent(id) {
   const date = dateR.value;
   const statusRaw = v("e_evstatus");
   const status = eventStatusDef(statusRaw) ? statusRaw : (existing ? eventStatusKey(existing) : "planned");
-  const data = { name, date, endDate: endR.value || date, location: v("e_evlocation"), note: v("e_evnote"), attendees, status, eventUrl: v("e_evurl"), line: v("e_evline") };
+  /* Người phụ trách (owner): đọc từ ĐÚNG ô chọn của form (ownerSel —
+     có lựa chọn trống = chưa gán). Đây là lần DUY NHẤT owner của một sự
+     kiện cũ được ghi: người dùng tự mở form sửa và lưu thì owner theo
+     form; các đường lưu khác không tự ghi bù owner cho sự kiện cũ.
+     Form không có ô này (đường gọi lạ) -> giữ nguyên owner đã lưu. */
+  const ownerEl = document.getElementById("e_evowner");
+  const data = { name, date, endDate: endR.value || date, location: v("e_evlocation"), note: v("e_evnote"), attendees, status, eventUrl: v("e_evurl"), line: v("e_evline"), owner: ownerEl ? ownerEl.value : (existing ? (existing.owner || "") : "") };
   let ev;
   if (id) { ev = existing; if (!ev) return; Object.assign(ev, data); }
   else { ev = { id: "ev" + Date.now(), ...data, companies: [], leads: [], deals: [] }; ensureEvents().push(ev); }
@@ -3701,7 +3767,7 @@ function calBuildItems() {
     else undated.push({ kind: "task", id: t.id, title: t.title || "—", ref: t, reason: t.dueDate ? "Hạn không đọc được thành ngày: " + t.dueDate : (t.due ? "Hạn dạng chữ: " + t.due : "Chưa có hạn ngày") });
   });
   eventsList().forEach(ev => {
-    if (calKindFilter === "task") return; /* trục LOẠI: Chỉ Việc -> bỏ mọi Sự kiện; trục NGƯỜI không áp cho Sự kiện */
+    if (calKindFilter === "task") return; /* trục LOẠI: Chỉ Việc -> bỏ mọi Sự kiện; trục NGƯỜI (lọc việc theo thành viên) không áp cho Sự kiện — sự kiện xem chung, hiển thị đầy đủ trên Lịch cho mọi người */
     if (query && !(ev.name || "").toLowerCase().includes(query)) return;
     const r = calEventRange(ev);
     if (r) { const st = calEventState(ev); dated.push({ kind: "event", id: ev.id, title: ev.name || "—", start: r.start, end: r.end, phase: st.phase, warn: st.warn, ref: ev }); }
@@ -3829,7 +3895,7 @@ function vCalendar() {
   const memberOpts = `<option value="" ${!calMemberFilter ? "selected" : ""}>Tất cả</option>` + memberList(S).map(m => `<option value="${esc(m.id)}" ${calMemberFilter === m.id ? "selected" : ""}>${esc(m.name)}${m.active ? "" : " (đã ngừng)"}</option>`).join("") + `<option value="__none__" ${calMemberFilter === "__none__" ? "selected" : ""}>Chưa gán</option>`;
   const head = `<div class="cal-head"><button class="btn ghost small" onclick="calNav(-1)" aria-label="Lùi">‹</button><button class="btn ghost small" onclick="calToday()">Hôm nay</button><button class="btn ghost small" onclick="calNav(1)" aria-label="Tiến">›</button><h3>${esc(title)}</h3>
     <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mut">Xem:</span><button class="btn ${calMode === "month" ? "" : "ghost"} small" onclick="calSetMode('month')">Tháng</button><button class="btn ${calMode === "week" ? "" : "ghost"} small" onclick="calSetMode('week')">Tuần</button><span class="mut">Loại:</span><button class="btn ${!calKindFilter ? "" : "ghost"} small" onclick="calSetKind('')" aria-pressed="${!calKindFilter}">Tất cả</button><button class="btn ${calKindFilter === "task" ? "" : "ghost"} small" onclick="calSetKind('task')" aria-pressed="${calKindFilter === "task"}">Chỉ Việc</button><button class="btn ${calKindFilter === "event" ? "" : "ghost"} small" onclick="calSetKind('event')" aria-pressed="${calKindFilter === "event"}">Chỉ Sự kiện</button><span class="mut">Việc theo:</span><select onchange="calSetMember(this.value)" style="min-width:150px" aria-label="Lọc việc theo người phụ trách">${memberOpts}</select></span></div>`;
-  const legend = `<div class="cal-legend"><span>Việc: màu theo người phụ trách (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Hai bộ lọc Loại × Người kết hợp nhau (AND): lọc người chỉ áp cho Việc — Sự kiện không có người phụ trách nên vẫn hiện ở mọi lựa chọn người (trừ khi đang lọc “Chỉ Việc”); lọc loại áp cả cho panel ngày và panel “Chưa có ngày” bên dưới lịch. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó; bấm vào một Việc để sửa ngay, bấm vào một Sự kiện để mở chi tiết/sửa.</span></div>`;
+  const legend = `<div class="cal-legend"><span>Việc: màu theo người phụ trách (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Hai bộ lọc Loại × Người kết hợp nhau (AND): lọc người chỉ áp cho Việc — Sự kiện xem chung nên hiện đầy đủ cho mọi người (trừ khi đang lọc “Chỉ Việc”); lọc loại áp cả cho panel ngày và panel “Chưa có ngày” bên dưới lịch. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó; bấm vào một Việc để sửa ngay, bấm vào một Sự kiện để mở chi tiết/sửa.</span></div>`;
   const peopleLegend = calPeopleLegendHTML(dated, weeks[0][0], weeks[weeks.length - 1][6]);
   const grid = `<div class="cal-grid"><div class="cal-wdrow">${wd.map(d => `<div>${d}</div>`).join("")}</div>${weeks.map(w => calWeekHTML(w, dated, maxLanes)).join("")}</div>`;
   return head + legend + peopleLegend + grid + calDayPanelHTML(dated) + calUndatedHTML(undated);
@@ -4001,9 +4067,9 @@ function vImport() {
     const lineOpts = Object.entries(LINES).map(([k, v]) => `<option value="${k}" ${lineSel === k ? "selected" : ""}>${esc(v.name)}</option>`).join("");
     const vertOpts = [`<option value="" ${!impSettings.vertical ? "selected" : ""}>— Không đặt —</option>`].concat(companyProfileVerticalOptions().map(v => `<option value="${esc(v)}" ${impSettings.vertical === v ? "selected" : ""}>${esc(v)}</option>`)).join("");
     const batchVal = impSettings.batch || impDefaultBatchName();
-    /* Gắn lô vào sự kiện (không bắt buộc): chỉ liệt kê sự kiện HIỆN CÓ;
-       giá trị đã chọn mà sự kiện đã bị xoá thì giữ 1 option "(sự kiện đã
-       xoá)" để không lặng lẽ đổi lựa chọn của người dùng. */
+    /* Gắn lô vào sự kiện (không bắt buộc): liệt kê toàn bộ sự kiện;
+       giá trị đã chọn mà sự kiện đã bị xoá thì giữ 1 option
+       "(sự kiện đã xoá)" để không lặng lẽ đổi lựa chọn của người dùng. */
     const evOpts = [`<option value="" ${!impSettings.eventId ? "selected" : ""}>— Không gắn —</option>`]
       .concat(eventsList().map(ev => `<option value="${esc(ev.id)}" ${impSettings.eventId === ev.id ? "selected" : ""}>${esc(ev.name || "—")}${ev.date ? " · " + esc(fmtWhen(ev.date)) : ""}</option>`))
       .concat(impSettings.eventId && !eventById(impSettings.eventId) ? [`<option value="${esc(impSettings.eventId)}" selected>(sự kiện đã xoá) ${esc(impSettings.eventId)}</option>`] : [])
@@ -7629,6 +7695,7 @@ function taskLinkSelectHTML(curVal) {
     ["company", S.companies.filter(c => c && c.id).map(c => [c.id, c.name || "—"])],
     ["lead", S.leads.map(l => [l.id, leadLabel(l)])],
     ["game", S.games.map(g => [g.id, g.title || "—"])],
+    /* Nhóm Sự kiện: liệt kê toàn bộ sự kiện (xem chung); các nhóm còn lại không đổi. */
     ["event", (Array.isArray(S.events) ? S.events : []).map(ev => [ev.id, ev.name || "—"])],
   ];
   let extra = "";
@@ -7962,6 +8029,7 @@ function editActivity(id) {
     + S.deals.map(d => `<option value="${esc(d.id)}" ${curRef === d.id ? "selected" : ""}>${esc(d.title || "—")} · ${esc(comp(d.company).name)}</option>`).join("")
     + S.leads.map(l => `<option value="lead:${esc(l.id)}" ${curRef === "lead:" + l.id ? "selected" : ""}>📥 Lead: ${esc(leadDisplayName(l))} · ${esc(leadCompanyName(l))}</option>`).join("")
     + S.games.map(g => `<option value="game:${esc(g.id)}" ${curRef === "game:" + g.id ? "selected" : ""}>🎮 Game: ${esc(g.title || "—")}</option>`).join("")
+    /* Chủ Sự kiện: liệt kê toàn bộ sự kiện (xem chung). */
     + (Array.isArray(S.events) ? S.events : []).map(ev => `<option value="event:${esc(ev.id)}" ${curRef === "event:" + ev.id ? "selected" : ""}>🎪 Sự kiện: ${esc(ev.name || "—")}</option>`).join("")
     + (curOwner && !curOwner.target ? `<option value="${esc(curRef)}" selected>(${esc(curOwner.kind)} đã xoá) ${esc(curOwner.id)}</option>` : "")
     + (!curOwner && (a.deal || a.lead || a.game || a.event) ? `<option value="" selected>(chủ không hợp lệ) ${(a.deal || a.lead || a.game || a.event)}</option>` : "");
