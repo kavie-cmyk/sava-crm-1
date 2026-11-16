@@ -2310,14 +2310,14 @@ function vCompanies() {
     const open = S.deals.filter(d => d.company === c.id && isOpen(d) && (curLine === "all" || d.line === curLine)).length;
     /* D3: roles có key lạ (không có trong LINES) -> nhãn thô + màu trung tính, không crash */
     const roleChips = Object.entries(c.roles || {}).map(([k,r]) => `<span class="chip" style="background:${lineColor(k)}">${esc(lineName(k))}: ${esc(r)}</span>`).join("");
-    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td class="list-stt">${idx + 1}</td><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${esc(c.last)}</td><td>${sysUpdatedCell(c)}</td></tr>`;
+    return `<tr onclick="openCompany('${c.id}')" style="cursor:pointer" title="Bấm để xem hồ sơ + các deal của công ty này"><td class="list-stt">${idx + 1}</td><td><b>${esc(c.name)}</b><div class="mut">${esc(c.type)}</div>${partnerEvalBadge(c)}${isStudioCompany(c) && window.PublishingBridge && typeof PublishingBridge.evalBadge === "function" ? `<div style="margin-top:5px">${PublishingBridge.evalBadge("company", c.id)}</div>` : ""}</td><td>${roleChips}</td><td>${companyLeadsHTML(c.id)}</td><td><b>${open} deal mở</b><div class="mut">Cơ hội đang theo dõi</div></td><td>${sysUpdatedCell(c)}</td></tr>`;
   }).join("");
   /* F4: phân biệt trống-thật với đang-lọc-mà-không-khớp như vLeads/vTasks:
      đang lọc = có từ khóa tìm kiếm HOẶC đang xem một mảng (curLine khác
      "all") — cùng quy ước nhận biết "đang lọc" của vLeads. */
   const filteringCompanies = !!query || curLine !== "all";
   const emptyCompaniesMsg = filteringCompanies ? "Không có công ty nào khớp tìm kiếm hiện tại." : "Chưa có công ty nào.";
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table class="companies-table"><tr><th>STT</th>${sortThHTML("companies", "name", "Công ty")}<th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th><th>Tương tác cuối</th>${sortThHTML("companies", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="7" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>${listPagerHTML("companies", compPageInfo, "công ty")}
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="editCompany(null)">+ Thêm công ty</button></div><div class="panel"><div class="table-wrap"><table class="companies-table"><tr><th>STT</th>${sortThHTML("companies", "name", "Công ty")}<th>Vai trò theo mảng</th><th>Đầu mối liên hệ (lead)</th><th>Deal</th>${sortThHTML("companies", "updated", "Cập nhật cuối")}</tr>${rows || `<tr><td colspan="6" class="mut">${emptyCompaniesMsg}</td></tr>`}</table></div>${listPagerHTML("companies", compPageInfo, "công ty")}
   <div class="mut" style="margin-top:10px">Một hồ sơ công ty có thể gắn với nhiều mảng kinh doanh.</div></div>`;
 }
 
@@ -5365,7 +5365,7 @@ function openCompany(id) {
   const coActsSlice = listPageSlice("companyacts:" + id, acts);
   showDrawer(`<button class="x" onclick="closeDrawer()">✕</button>
     <div style="margin-bottom:4px">${typeBadgeHTML("company")}</div>
-    <h2>🏢 ${esc(c.name)}</h2><div class="mut">${esc(c.type)} · Tương tác cuối: ${esc(c.last)}</div>
+    <h2>🏢 ${esc(c.name)}</h2><div class="mut">${esc(c.type)}</div>
     ${sysMetaHTML(c)}
     <div style="margin:10px 0">${roleChips}</div>
     <div class="kv">
