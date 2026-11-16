@@ -445,9 +445,10 @@ create index deal_leads_lead_id_idx on public.deal_leads (lead_id);
 -- - due = nhãn chữ cũ ('Hôm nay'…), CHỈ còn là fallback hiển thị;
 --   dueDate = 'YYYY-MM-DD' là hạn thật để tính quá hạn (isOverdue index.html).
 -- - overdue lưu trong app nhưng HIỆN TÍNH ĐỘNG: task xong -> không quá hạn;
---   có dueDate hợp lệ -> dueDate < hôm nay; còn lại mới dùng cờ. Cột
---   overdue_stored giữ đúng cờ đã lưu để đối chiếu; giai đoạn 2 tính động
---   như app, không coi cột này là sự thật.
+--   quá hạn CHỈ tính từ dueDate hợp lệ (ngày lịch có thật): dueDate < hôm
+--   nay; không có dueDate hợp lệ -> KHÔNG quá hạn. Cột overdue_stored CHỈ
+--   là field lưu trữ/round-trip giữ đúng cờ đã lưu, KHÔNG còn là căn cứ
+--   tính quá hạn.
 -- - deal có thể KHÔNG có (task độc lập) hoặc bị delete khi lưu rỗng -> NULL.
 -- app activity: {id, deal?|lead?|game?, type, who, when, text, url?} — đúng
 --   MỘT khoá chủ (deal cũ giữ nguyên; lead/game là gắn TRỰC TIẾP không qua

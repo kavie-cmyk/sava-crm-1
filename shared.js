@@ -2113,14 +2113,28 @@ function dashConversions(scoped) {
     companyWithDeal: { x: withDeal.size, y: companies.length, pct: dashPct(withDeal.size, companies.length) },
   };
 }
+/* Kiểm ngày hợp lệ cho bản dự phòng phía Dashboard: CHÉP ĐÚNG logic của
+   isValidDateStr ở BD app (index.html) — helper đó nằm ở index.html nên
+   shared.js không truy cập được trực tiếp. Ngoài mẫu YYYY-MM-DD còn phải
+   kiểm ngày lịch CÓ THẬT (2020-02-30, 2021-02-29, 2020-04-31 -> không
+   hợp lệ), không chỉ khớp regex như bản cũ. */
+function dashIsValidDateStr(v) {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
 /* Quá hạn DỰ PHÒNG khi không có hàm của app: chưa xong + dueDate hợp lệ
    (YYYY-MM-DD) đã qua hôm nay — bản sao tối thiểu của isOverdue ở BD app;
    khi render thật, app truyền isOverdue của chính nó vào dashCompare.
    Đợt D2 (16/11/2026, Zac chốt): KHÔNG có dueDate hợp lệ -> KHÔNG quá hạn,
-   KHÔNG đọc cờ lưu sẵn t.overdue nữa (giữ đồng nhất với isOverdue). */
+   KHÔNG đọc cờ lưu sẵn t.overdue nữa (giữ đồng nhất với isOverdue).
+   Vá ca biên (16/11/2026): phần kiểm ngày dùng dashIsValidDateStr ở trên
+   (khớp isValidDateStr của app) thay regex đơn thuần, để ngày không tồn
+   tại như 2020-02-30 cũng cho "không quá hạn" như hàm chính. */
 function dashIsOverdueFallback(t, now) {
   if (!t || t.done) return false;
-  if (typeof t.dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(t.dueDate)) return false;
+  if (!dashIsValidDateStr(t.dueDate)) return false;
   const n = now || new Date();
   const today = n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-" + String(n.getDate()).padStart(2, "0");
   return t.dueDate < today;
