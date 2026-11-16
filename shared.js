@@ -2115,10 +2115,12 @@ function dashConversions(scoped) {
 }
 /* Quá hạn DỰ PHÒNG khi không có hàm của app: chưa xong + dueDate hợp lệ
    (YYYY-MM-DD) đã qua hôm nay — bản sao tối thiểu của isOverdue ở BD app;
-   khi render thật, app truyền isOverdue của chính nó vào dashCompare. */
+   khi render thật, app truyền isOverdue của chính nó vào dashCompare.
+   Đợt D2 (16/11/2026, Zac chốt): KHÔNG có dueDate hợp lệ -> KHÔNG quá hạn,
+   KHÔNG đọc cờ lưu sẵn t.overdue nữa (giữ đồng nhất với isOverdue). */
 function dashIsOverdueFallback(t, now) {
   if (!t || t.done) return false;
-  if (typeof t.dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(t.dueDate)) return !!t.overdue;
+  if (typeof t.dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(t.dueDate)) return false;
   const n = now || new Date();
   const today = n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-" + String(n.getDate()).padStart(2, "0");
   return t.dueDate < today;

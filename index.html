@@ -2127,9 +2127,16 @@ function dashboardExecutiveHTML(ctx, controls) {
   return `<div class="executive-dashboard">${tabs}<div class="ex-filters"><div class="ex-filter-heading">${SavaUI.icon('search')}<b>Bộ lọc</b></div>${controls}<button class="ex-reset" onclick="resetDashboardFilters()">${SavaUI.icon('reset')}Đặt lại</button></div>${dashboardMode === 'activity' ? dashboardActivityHTML(ctx) : dashboardOverviewHTML(ctx)}</div>`;
 }
 
-/* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ (YYYY-MM-DD)
-   -> quá hạn khi dueDate < hôm nay (giờ local, so chuỗi cùng định dạng); không có
-   dueDate hợp lệ -> dùng cờ t.overdue cũ (dữ liệu mẫu "Hôm nay"/"Tuần trước"...). */
+/* Quá hạn tính ĐỘNG: task đã xong -> không quá hạn; có dueDate hợp lệ
+   (YYYY-MM-DD) -> quá hạn khi dueDate < hôm nay (giờ local, so chuỗi cùng
+   định dạng); KHÔNG có dueDate hợp lệ -> KHÔNG quá hạn, chấm hết.
+   Đợt D2 (16/11/2026, Zac chốt): bỏ nhánh fallback cũ đọc cờ lưu sẵn
+   t.overdue — cờ này không có cơ chế tự bật (việc không hạn không bao giờ
+   tự thành quá hạn) nhưng dữ kiện legacy mang cờ true thì hiện "quá hạn"
+   mãi mãi. Field t.overdue VẪN giữ trong model + round-trip adapter
+   (TASK_KNOWN chứa 'overdue', cột overdue_stored) và write-site ở
+   saveTask giữ nguyên — chỉ là từ nay KHÔNG còn nơi đọc nghiệp vụ nào
+   dùng nó làm căn cứ quá hạn (đúng mẫu đợt deal.idle / company.last). */
 function todayStr() { const n = new Date(); return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-" + String(n.getDate()).padStart(2, "0"); }
 function isValidDateStr(v) {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
@@ -2140,7 +2147,7 @@ function isValidDateStr(v) {
 function isOverdue(t) {
   if (!t || t.done) return false;
   if (isValidDateStr(t.dueDate)) return t.dueDate < todayStr();
-  return !!t.overdue;
+  return false;
 }
 /* ===== Số ngày deal chưa cập nhật — TÍNH TẠI LÚC ĐỌC (đợt 15/11/2026) =====
    Bệnh cũ: d.idle (DB idle_days, nhãn "Số ngày chưa cập nhật") là số LƯU
