@@ -3661,8 +3661,12 @@ function vTasksByMember() {
    UI-state THUẦN trong phiên (cùng họ taskMemberFilter / dashScope):
    calMode ("month" mặc định | "week"), calAnchor (ngày ISO neo — tháng/
    tuần đang xem suy ra từ nó), calMemberFilter ("" = Tất cả, member id,
-   "__none__" = Chưa gán — CHỈ áp cho Việc theo assignee; Sự kiện không
-   có người phụ trách nên luôn hiện ở mọi lựa chọn người),
+   "__none__" = Chưa gán — áp cho CẢ Việc theo assignee LẪN Sự kiện theo
+   chủ qua eventOwnerId (owner -> createdBy -> ""); chọn 1 người thì chỉ
+   thấy việc được gán cho người đó + sự kiện người đó là chủ, mục chưa
+   gán chỉ hiện ở "Tất cả" hoặc khi chọn đúng "Chưa gán". Đây là bộ lọc
+   HIỂN THỊ riêng của Lịch, KHÁC phạm vi Của tôi/Tất cả của view Sự kiện
+   (phạm vi đó không áp lên Lịch) và không đổi theo vai Admin/BD),
    calKindFilter ("" = Tất cả | "task" = Chỉ Việc | "event" = Chỉ Sự
    kiện), calSelectedDay (ngày ISO đang mở panel chi tiết, "" = đóng).
    Hai trục lọc kết hợp kiểu AND và áp NHẤT QUÁN cho lưới + panel chi
@@ -3767,7 +3771,17 @@ function calBuildItems() {
     else undated.push({ kind: "task", id: t.id, title: t.title || "—", ref: t, reason: t.dueDate ? "Hạn không đọc được thành ngày: " + t.dueDate : (t.due ? "Hạn dạng chữ: " + t.due : "Chưa có hạn ngày") });
   });
   eventsList().forEach(ev => {
-    if (calKindFilter === "task") return; /* trục LOẠI: Chỉ Việc -> bỏ mọi Sự kiện; trục NGƯỜI (lọc việc theo thành viên) không áp cho Sự kiện — sự kiện xem chung, hiển thị đầy đủ trên Lịch cho mọi người */
+    if (calKindFilter === "task") return; /* trục LOẠI: Chỉ Việc -> bỏ mọi Sự kiện (cả dated lẫn undated) */
+    if (calMemberFilter) {
+      /* trục NGƯỜI: áp cho Sự kiện theo CHỦ qua eventOwnerId (owner ->
+         createdBy -> ""), cùng semantics với Việc theo assignee ở trên:
+         chọn 1 người -> chỉ sự kiện người đó là chủ; "__none__" -> chỉ
+         sự kiện chưa gán. Trước 17/11/2026 nhánh này KHÔNG tồn tại nên
+         sự kiện rò qua mọi lựa chọn người trên mọi bề mặt của Lịch. */
+      const oid = eventOwnerId(ev);
+      if (calMemberFilter === "__none__") { if (oid) return; }
+      else if (oid !== calMemberFilter) return;
+    }
     if (query && !(ev.name || "").toLowerCase().includes(query)) return;
     const r = calEventRange(ev);
     if (r) { const st = calEventState(ev); dated.push({ kind: "event", id: ev.id, title: ev.name || "—", start: r.start, end: r.end, phase: st.phase, warn: st.warn, ref: ev }); }
@@ -3814,7 +3828,7 @@ function calSegHTML(sg) {
   }
   const rangeTxt = fmtWhen(it.start) + (it.end !== it.start ? " – " + fmtWhen(it.end) : "");
   const onclick = isTask ? `editTask('${it.id}')` : `openEvent('${it.id}')`;
-  const whoTxt = isTask ? " · Người phụ trách: " + (it.ref && it.ref.assignee ? memberName(S, it.ref.assignee) : "Chưa gán") : "";
+  const whoTxt = isTask ? " · Người phụ trách: " + (it.ref && it.ref.assignee ? memberName(S, it.ref.assignee) : "Chưa gán") : " · Người phụ trách: " + eventOwnerLabel(it.ref);
   return `<div class="${cls}" style="grid-column:${sg.colStart + 1} / ${sg.colEnd + 2};${segStyle}" onclick="event.stopPropagation(); ${onclick}" title="${esc((isTask ? "Việc: " : "Sự kiện: ") + it.title + " · " + rangeTxt + whoTxt + (isTask ? " · Bấm để sửa việc" : " · Bấm để mở sự kiện"))}">${prefix}${esc(it.title)}</div>`;
 }
 function calWeekHTML(week, items, maxLanes) {
@@ -3840,7 +3854,7 @@ function calItemStatusText(it) {
     return "Chưa xong · " + who;
   }
   const def = eventStatusDef(it.phase) || EVENT_STATUSES[0];
-  return def.label + (it.warn ? " · ⚠️ đã qua ngày — cập nhật trạng thái?" : "");
+  return def.label + " · " + eventOwnerLabel(it.ref) + (it.warn ? " · ⚠️ đã qua ngày — cập nhật trạng thái?" : "");
 }
 function calItemRowHTML(it) {
   const isTask = it.kind === "task";
@@ -3858,7 +3872,7 @@ function calDayPanelHTML(dated) {
 function calUndatedHTML(undated) {
   const rows = undated.map(u => {
     const isTask = u.kind === "task";
-    const chip = isTask ? `<span class="chip" style="background:${calMemberColor(u.ref && u.ref.assignee)}" title="Người phụ trách: ${esc(u.ref && u.ref.assignee ? memberName(S, u.ref.assignee) : "Chưa gán")}">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed">🎪 Sự kiện</span>`;
+    const chip = isTask ? `<span class="chip" style="background:${calMemberColor(u.ref && u.ref.assignee)}" title="Người phụ trách: ${esc(u.ref && u.ref.assignee ? memberName(S, u.ref.assignee) : "Chưa gán")}">✅ Việc</span>` : `<span class="chip" style="background:#7c3aed" title="Người phụ trách: ${esc(eventOwnerLabel(u.ref))}">🎪 Sự kiện</span>`;
     const onclick = isTask ? `editTask('${u.id}')` : `openEvent('${u.id}')`;
     return `<div class="cal-itemrow" onclick="${onclick}" title="${isTask ? "Bấm để sửa việc" : "Bấm để mở sự kiện"}"><span style="font-weight:700">${esc(u.title)}</span>${chip}<span class="mut">${esc(u.reason)}</span></div>`;
   }).join("");
@@ -3894,8 +3908,8 @@ function vCalendar() {
   const wd = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"];
   const memberOpts = `<option value="" ${!calMemberFilter ? "selected" : ""}>Tất cả</option>` + memberList(S).map(m => `<option value="${esc(m.id)}" ${calMemberFilter === m.id ? "selected" : ""}>${esc(m.name)}${m.active ? "" : " (đã ngừng)"}</option>`).join("") + `<option value="__none__" ${calMemberFilter === "__none__" ? "selected" : ""}>Chưa gán</option>`;
   const head = `<div class="cal-head"><button class="btn ghost small" onclick="calNav(-1)" aria-label="Lùi">‹</button><button class="btn ghost small" onclick="calToday()">Hôm nay</button><button class="btn ghost small" onclick="calNav(1)" aria-label="Tiến">›</button><h3>${esc(title)}</h3>
-    <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mut">Xem:</span><button class="btn ${calMode === "month" ? "" : "ghost"} small" onclick="calSetMode('month')">Tháng</button><button class="btn ${calMode === "week" ? "" : "ghost"} small" onclick="calSetMode('week')">Tuần</button><span class="mut">Loại:</span><button class="btn ${!calKindFilter ? "" : "ghost"} small" onclick="calSetKind('')" aria-pressed="${!calKindFilter}">Tất cả</button><button class="btn ${calKindFilter === "task" ? "" : "ghost"} small" onclick="calSetKind('task')" aria-pressed="${calKindFilter === "task"}">Chỉ Việc</button><button class="btn ${calKindFilter === "event" ? "" : "ghost"} small" onclick="calSetKind('event')" aria-pressed="${calKindFilter === "event"}">Chỉ Sự kiện</button><span class="mut">Việc theo:</span><select onchange="calSetMember(this.value)" style="min-width:150px" aria-label="Lọc việc theo người phụ trách">${memberOpts}</select></span></div>`;
-  const legend = `<div class="cal-legend"><span>Việc: màu theo người phụ trách (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Hai bộ lọc Loại × Người kết hợp nhau (AND): lọc người chỉ áp cho Việc — Sự kiện xem chung nên hiện đầy đủ cho mọi người (trừ khi đang lọc “Chỉ Việc”); lọc loại áp cả cho panel ngày và panel “Chưa có ngày” bên dưới lịch. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó; bấm vào một Việc để sửa ngay, bấm vào một Sự kiện để mở chi tiết/sửa.</span></div>`;
+    <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mut">Xem:</span><button class="btn ${calMode === "month" ? "" : "ghost"} small" onclick="calSetMode('month')">Tháng</button><button class="btn ${calMode === "week" ? "" : "ghost"} small" onclick="calSetMode('week')">Tuần</button><span class="mut">Loại:</span><button class="btn ${!calKindFilter ? "" : "ghost"} small" onclick="calSetKind('')" aria-pressed="${!calKindFilter}">Tất cả</button><button class="btn ${calKindFilter === "task" ? "" : "ghost"} small" onclick="calSetKind('task')" aria-pressed="${calKindFilter === "task"}">Chỉ Việc</button><button class="btn ${calKindFilter === "event" ? "" : "ghost"} small" onclick="calSetKind('event')" aria-pressed="${calKindFilter === "event"}">Chỉ Sự kiện</button><span class="mut">Theo người:</span><select onchange="calSetMember(this.value)" style="min-width:150px" aria-label="Lọc việc và sự kiện theo người">${memberOpts}</select></span></div>`;
+  const legend = `<div class="cal-legend"><span>Việc: màu theo người phụ trách (dải: ngày bắt đầu → hạn)</span><span><span class="cal-dot" style="background:#7c3aed"></span>Sự kiện (dải: ngày bắt đầu → kết thúc)</span><span><span class="cal-dot" style="background:#dc2626"></span>Việc quá hạn chưa xong (cả dải đỏ)</span><span>✓ + gạch ngang = đã xong / đã tham dự · xám = đã huỷ · viền vàng ⚠️ = sự kiện sắp tới đã qua ngày</span><span class="mut">Hai bộ lọc Loại × Người kết hợp nhau (AND): lọc người áp cho cả Việc (theo người phụ trách) lẫn Sự kiện (theo người phụ trách/chủ sự kiện) — chọn một người thì chỉ thấy việc và sự kiện của người đó, mục chưa gán chỉ hiện khi chọn “Tất cả” hoặc “Chưa gán”; cả hai lọc áp cho lưới, panel ngày và panel “Chưa có ngày” bên dưới lịch. Bấm vào 1 ngày để xem toàn bộ mục của ngày đó; bấm vào một Việc để sửa ngay, bấm vào một Sự kiện để mở chi tiết/sửa.</span></div>`;
   const peopleLegend = calPeopleLegendHTML(dated, weeks[0][0], weeks[weeks.length - 1][6]);
   const grid = `<div class="cal-grid"><div class="cal-wdrow">${wd.map(d => `<div>${d}</div>`).join("")}</div>${weeks.map(w => calWeekHTML(w, dated, maxLanes)).join("")}</div>`;
   return head + legend + peopleLegend + grid + calDayPanelHTML(dated) + calUndatedHTML(undated);

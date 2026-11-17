@@ -6,8 +6,10 @@
      KHÔNG có ở mkt.html / publishing.html.
    - Lịch lọc ĐỒNG THỜI 2 trục kết hợp AND: loại (calKindFilter: "" Tất cả
      / "task" Chỉ Việc / "event" Chỉ Sự kiện) × người (calMemberFilter,
-     chỉ áp cho Việc); cả hai áp nhất quán cho lưới + panel ngày + panel
-     "Chưa có ngày" qua calBuildItems, và giữ nguyên khi chuyển tháng/tuần.
+     áp cho Việc theo assignee VÀ Sự kiện theo chủ eventOwnerId — sửa
+     17/11/2026, trước đó sự kiện rò qua lọc người); cả hai áp nhất quán
+     cho lưới + panel ngày + panel "Chưa có ngày" qua calBuildItems, và
+     giữ nguyên khi chuyển tháng/tuần.
    - Chế độ Tháng (mặc định) + Tuần; tuần bắt đầu Thứ 2; điều hướng ‹ Hôm nay ›.
    - Việc: dải startDate -> dueDate; CHƯA đặt startDate -> đầu dải = chính
      ngày hạn (startDate ?? dueDate, KHÔNG dùng createdAt — Zac chốt lại
@@ -19,7 +21,9 @@
    - Ô ngày chật (Tháng): tối đa 3 làn + "+N nữa"; panel chi tiết ngày liệt kê
      MỌI mục chạm ngày đó (kể cả mục kéo dải qua) + nút + Việc / + Sự kiện điền
      sẵn ngày; mục không đặt được ngày -> panel "Chưa có ngày", không biến mất.
-   - Lọc theo người: chỉ áp cho Việc (assignee), Sự kiện hiện tất cả.
+   - Lọc theo người: Việc theo assignee, Sự kiện theo chủ (eventOwnerId:
+     owner -> createdBy -> ""); chưa gán chỉ hiện ở "Tất cả"/"Chưa gán".
+     Ma trận đầy đủ khoá ở tests/calendar-person-filter.test.cjs.
    - startDate của Việc: ô nhập dd-mm-yyyy trong form việc DUY NHẤT (editTask),
      lưu qua legacy_extra (adapter round-trip, KHÔNG cột), chặn lưu khi
      startDate > dueDate. */
@@ -186,7 +190,13 @@ test('calTaskState / calEventState: done/overdue/open + attended/cancelled/plann
 });
 
 /* ---------- Gom mục + lọc theo người + chưa có ngày ---------- */
-test('calBuildItems: mục chưa có ngày gom riêng (không biến mất); lọc theo người CHỈ áp cho Việc', () => {
+test('calBuildItems: mục chưa có ngày gom riêng (không biến mất); lọc theo người áp cho Việc (assignee) VÀ Sự kiện (chủ qua eventOwnerId)', () => {
+  /* SỬA CÓ CHỦ ĐÍCH 17/11/2026: bản cũ khoá semantics SAI "lọc người chỉ
+     áp cho Việc, sự kiện hiện tất cả" — chính là gốc rễ Zac báo (chọn 1
+     người vẫn thấy sự kiện của người khác/chưa gán). Fixture của file này
+     KHÔNG sự kiện nào có owner/createdBy (tất cả chưa gán) nên khi lọc
+     'linh' thì MỌI sự kiện phải bị ẩn; ma trận dương tính đầy đủ (sự kiện
+     có owner từng người) nằm ở tests/calendar-person-filter.test.cjs. */
   const h = loadIndex();
   const all = h.run('calBuildItems()');
   assert.deepEqual([...all.undated.map(u => u.id)].sort(), ['evFree', 'tNoDate']);
@@ -194,9 +204,13 @@ test('calBuildItems: mục chưa có ngày gom riêng (không biến mất); l�
   h.run("calMemberFilter = 'linh'");
   const f = h.run('calBuildItems()');
   assert.ok(f.dated.every(i => i.kind !== 'task' || i.ref.assignee === 'linh'), 'sau lọc, việc dated chỉ còn của Linh');
-  assert.ok(f.dated.some(i => i.kind === 'event'), 'sự kiện vẫn hiện tất cả sau lọc theo người');
+  assert.ok(!f.dated.some(i => i.kind === 'event'), 'sau lọc theo Linh: không còn sự kiện nào (fixture không có sự kiện Linh là chủ; sự kiện chưa gán không thuộc về Linh)');
   assert.ok(!f.undated.some(u => u.id === 'tNoDate'), 'việc chưa có ngày của Zac cũng bị lọc theo người');
-  assert.ok(f.undated.some(u => u.id === 'evFree'), 'sự kiện chưa có ngày không bị lọc');
+  assert.ok(!f.undated.some(u => u.id === 'evFree'), 'sự kiện chưa có ngày CHƯA GÁN cũng bị lọc khi chọn 1 người cụ thể');
+  h.run("calMemberFilter = '__none__'");
+  const n = h.run('calBuildItems()');
+  assert.ok(n.dated.length && n.dated.every(i => i.kind === 'event'), 'lọc "Chưa gán": dated chỉ còn sự kiện chưa gán (fixture không có việc chưa gán có ngày)');
+  assert.deepEqual([...n.undated.map(u => u.id)].sort(), ['evFree'], 'lọc "Chưa gán": panel Chưa có ngày chỉ còn sự kiện chưa gán');
 });
 
 /* ---------- Render: lưới tháng + trạng thái + "+N nữa" + panel ---------- */
@@ -388,15 +402,24 @@ test('calBuildItems: trục LOẠI — Chỉ Việc bỏ hết Sự kiện, Ch�
   assert.ok(b.dated.some(i => i.kind === 'task') && b.dated.some(i => i.kind === 'event'), 'Tất cả: cả việc lẫn sự kiện');
 });
 
-test('lọc AND: Chỉ Việc + theo Linh -> chỉ việc của Linh; Chỉ Sự kiện + theo Linh -> chỉ sự kiện (lọc người KHÔNG ẩn sự kiện)', () => {
+test('lọc AND: Chỉ Việc + theo Linh -> chỉ việc của Linh; Chỉ Sự kiện + theo Linh -> chỉ sự kiện LINH LÀ CHỦ (lọc người áp cả cho sự kiện)', () => {
+  /* SỬA CÓ CHỦ ĐÍCH 17/11/2026: bản cũ khoá "Chỉ Sự kiện + theo Linh ->
+     chỉ sự kiện (lọc người KHÔNG ẩn sự kiện)" = semantics sai gây rò sự
+     kiện. Nay: thêm 1 sự kiện Linh là chủ vào fixture ngay trong test;
+     Chỉ Sự kiện + Linh phải chỉ còn đúng sự kiện đó. */
   const h = loadIndex();
+  h.run("S.events.push({id:'evLinh', name:'Expo Của Linh', owner:'linh', status:'planned', date:'" + iso(1) + "', endDate:'" + iso(1) + "', location:'', note:'', attendees:[], companies:[], leads:[], deals:[]})");
   h.run("calKindFilter = 'task'; calMemberFilter = 'linh';");
   let b = h.run('calBuildItems()');
   assert.ok(b.dated.length && b.dated.every(i => i.kind === 'task' && i.ref.assignee === 'linh'), 'Chỉ Việc + Linh: chỉ việc của Linh');
   h.run("calKindFilter = 'event'; calMemberFilter = 'linh';");
   b = h.run('calBuildItems()');
-  assert.ok(b.dated.length && b.dated.every(i => i.kind === 'event'), 'Chỉ Sự kiện + Linh: chỉ sự kiện, lọc người không ẩn sự kiện');
+  assert.deepEqual([...b.dated.map(i => i.id)], ['evLinh'], 'Chỉ Sự kiện + Linh: chỉ sự kiện Linh là chủ (sự kiện chưa gán / của người khác bị ẩn)');
   assert.ok(!b.undated.some(u => u.kind === 'task'), 'Chỉ Sự kiện + Linh: không còn việc nào kể cả ở Chưa có ngày');
+  assert.ok(!b.undated.some(u => u.id === 'evFree'), 'Chỉ Sự kiện + Linh: sự kiện chưa gán ở panel Chưa có ngày cũng bị ẩn');
+  h.run("calKindFilter = 'event'; calMemberFilter = '';");
+  b = h.run('calBuildItems()');
+  assert.ok(b.dated.filter(i => i.kind === 'event').length >= 5, 'Chỉ Sự kiện + Tất cả: mọi sự kiện hiện lại');
 });
 
 test('lọc loại áp nhất quán cho panel ngày + panel Chưa có ngày khi render; lọc của Lịch KHÔNG đụng khối danh sách bên dưới', () => {
