@@ -1068,6 +1068,13 @@ function revertLeadIfOrphaned(leadId) {
    impFold) đều đã fold. Helper này là NGUỒN KHỚP DUY NHẤT cho các bề
    mặt đã sửa (deal qua dealsFiltered/vDash/vBoard, công ty ở
    vCompanies, lead qua filteredLeads):
+   ĐỢT RÀ TOÀN APP 17/11/2026: thuật toán chuyển NGUYÊN VĂN sang
+   shared.js (window.SavaSearch / savaSearchMatches) để publishing.js
+   (Publishing + MKT) dùng CHUNG một cơ chế; hai hàm dưới đây chỉ UỶ
+   QUYỀN sang shared.js (fallback giữ thuật toán gốc khi shared.js chưa
+   nạp — môi trường harness cắt đoạn), và MỌI bề mặt list-search còn
+   lại của index.html (Game / Sự kiện / Việc / Lịch / hoạt động
+   Dashboard / tài liệu bán hàng) đều khớp qua searchMatches này.
    - fold CẢ hai phía qua comboFoldText (bỏ dấu + thường + gộp cách);
    - khớp nếu: (1) cụm đã fold nằm liền trong haystack đã fold, hoặc
      (2) bản GỘP SÁT (bỏ mọi ký tự không phải chữ/số ở hai phía) khớp — bắt "DatBike",
@@ -1080,10 +1087,12 @@ function revertLeadIfOrphaned(leadId) {
    bộ lọc kế thừa nào (curLine / owner / status / kỳ / funnel giữ nguyên
    ở từng bề mặt như cũ). */
 function searchFoldText(s) {
+  if (typeof savaSearchFold === "function") return savaSearchFold(s);
   if (typeof comboFoldText === "function") return comboFoldText(s);
   return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim().replace(/\s+/g, " ");
 }
 function searchMatches(hay, rawQuery) {
+  if (typeof savaSearchMatches === "function") return savaSearchMatches(hay, rawQuery);
   const q = searchFoldText(rawQuery || "");
   if (!q) return true;
   const h = searchFoldText(hay || "");
@@ -1101,14 +1110,93 @@ function searchMatches(hay, rawQuery) {
    nhiễu khớp giả; lead mồ côi đóng góp đoạn công ty RỖNG, chỉ còn khớp
    qua field của chính nó) + ghi chú + email + SĐT (hai field này bản cũ
    KHÔNG hề có trong haystack dù lead mang chúng — lead chỉ nhận diện
-   được qua email kiểu @datbike.vn thì search cũ không bao giờ thấy). */
+   được qua email kiểu @datbike.vn thì search cũ không bao giờ thấy).
+   ĐỢT RÀ 17/11/2026 bổ sung nốt hai field nhận diện còn thiếu mà người
+   dùng thực sự gõ vào: linkedinUrl (LinkedIn cá nhân) + source (nguồn
+   lead, vd "Sự kiện" / tên nguồn giới thiệu — hiện ngay trên thẻ lead). */
 function leadSearchHaystack(l) {
   const c = (typeof leadCompany === "function") ? leadCompany(l) : null;
-  return [l.name || "", l.person || "", c ? (c.name || "") : "", l.note || "", l.email || "", l.phone || ""].join(" ");
+  return [l.name || "", l.person || "", c ? (c.name || "") : "", l.note || "", l.email || "", l.phone || "", l.linkedinUrl || "", l.source || ""].join(" ");
+}
+/* ===== Haystack search cho các entity còn lại (đợt rà toàn app
+   17/11/2026) — nguyên tắc: mọi field VĂN BẢN NHẬN DIỆN mà người dùng
+   NHÌN THẤY trên thẻ/drawer của entity đó hoặc THỰC SỰ GÕ VÀO khi tìm.
+   Chỉ field của chính entity + tên của đối tượng LIÊN KẾT SỐNG hiện
+   trên thẻ (công ty của deal, game của deal, đối tượng gắn của việc,
+   chủ của hoạt động…); KHÔNG đưa placeholder của liên kết đã xoá vào
+   haystack (như lead mồ côi ở trên) để tránh khớp giả. ===== */
+function companySearchHaystack(c) {
+  /* CHỈ field của chính công ty (tên + loại + vai trò theo mảng + toàn bộ
+     hồ sơ COMPANY_PROFILE_FIELDS: website / LinkedIn / địa điểm / ngành…).
+     CỐ Ý không đưa tên lead liên kết vào: token AND trộn xuyên field sẽ
+     bắt nhầm (vd tìm "cong ty 07" bắt cả "Cong Ty 01" vì lead của nó tên
+     "Lead 07" — ca list-pagination đã bắt được); lead có view tìm riêng. */
+  const parts = [c.name || "", c.type || ""];
+  Object.entries(c.roles || {}).forEach(([k, r]) => { parts.push(lineName(k), r || ""); });
+  if (typeof COMPANY_PROFILE_FIELDS !== "undefined") COMPANY_PROFILE_FIELDS.forEach(f => { if (c[f.key]) parts.push(String(c[f.key])); });
+  return parts.join(" ");
+}
+function dealSearchHaystack(d) {
+  const parts = [d.title || "", comp(d.company).id ? comp(d.company).name : ""];
+  const g = (typeof dealVisibleGame === "function") ? dealVisibleGame(d) : null;
+  if (g) parts.push(g.title || "");
+  parts.push(lineName(d.line), (stagePairSafe(d.line, d.stage) || [])[1] || "");
+  if (d.owner) parts.push(memberName(S, d.owner));
+  if (d.line === "metaverse") parts.push(dealVerticalLabel(d));
+  (Array.isArray(d.leads) ? d.leads : []).forEach(lid => { const l = S.leads.find(x => x.id === lid); if (l) parts.push(l.name || "", l.person || ""); });
+  return parts.join(" ");
+}
+function gameSearchHaystack(g) {
+  const parts = [g.title || "", g.genre || "", g.platform || "", g.stage || "", g.own === "ours" ? "Game của Sava" : "Game đối tác", g.desc || ""];
+  const c = g.company ? comp(g.company) : null;
+  if (c && c.id) parts.push(c.name || "");
+  return parts.join(" ");
+}
+function taskSearchHaystack(t) {
+  const parts = [t.title || ""];
+  if (t.assignee) parts.push(memberName(S, t.assignee));
+  const link = (typeof taskLinkOf === "function") ? taskLinkOf(t) : null;
+  if (link && link.target) {
+    parts.push(link.label || "");
+    /* Việc gắn deal: nhận diện thêm qua CÔNG TY + GAME của deal (thẻ việc
+       chỉ hiện tiêu đề deal, nhưng người dùng tìm việc theo tên công ty
+       của deal là thói quen có thật — cùng lý do deal search qua công ty). */
+    if (link.type === "deal") {
+      const c = comp(link.target.company);
+      if (c && c.id) parts.push(c.name || "");
+      const g = (typeof dealVisibleGame === "function") ? dealVisibleGame(link.target) : null;
+      if (g) parts.push(g.title || "");
+    }
+  }
+  return parts.join(" ");
+}
+function activitySearchHaystack(a) {
+  const parts = [a.text || "", a.type || ""];
+  const o = (typeof activityOwnerOf === "function") ? activityOwnerOf(a) : null;
+  if (o && o.target) {
+    parts.push(activityOwnerLabel(o));
+    /* Chủ là deal: nhận diện thêm qua CÔNG TY + GAME của deal (nhãn chủ
+       chỉ là tiêu đề deal — tìm hoạt động theo tên công ty là thói quen
+       có thật, cùng lý do ở taskSearchHaystack). */
+    if (o.kind === "deal") {
+      const c = comp(o.target.company);
+      if (c && c.id) parts.push(c.name || "");
+      const g = (typeof dealVisibleGame === "function") ? dealVisibleGame(o.target) : null;
+      if (g) parts.push(g.title || "");
+    }
+  }
+  if (a.who) parts.push(memberName(S, a.who));
+  return parts.join(" ");
+}
+function eventSearchHaystack(ev) {
+  return [ev.name || "", ev.date || "", ev.endDate || "", fmtWhen(ev.date || ""), fmtWhen(ev.endDate || ""), ev.location || "", ev.note || "", ev.eventUrl || "", (eventStatusDef(eventStatusKey(ev)) || {}).label || "", ev.line ? lineName(ev.line) : "", eventAttendeeNames(ev).join(" "), eventOwnerId(ev) ? memberName(S, eventOwnerId(ev)) : ""].join(" ");
+}
+function salesSearchHaystack(m) {
+  return [m.title || "", m.description || "", salesKindDef(m.kind).label || "", salesLineLabel(m.line)].join(" ");
 }
 function dealsFiltered() {
   return S.deals.filter(d => (curLine === "all" || d.line === curLine) &&
-    (!query || searchMatches(d.title + " " + comp(d.company).name, query)));
+    (!query || searchMatches(dealSearchHaystack(d), query)));
 }
 function lineTabs() {
   const el = document.getElementById("linetabs");
@@ -1284,7 +1372,7 @@ function vDash() {
   const icons = {game_studio:'game',publishing:'pipeline',ai:'spark',metaverse:'cube'};
   const funnel = lines.map(k => {
     const L = LINES[k];
-    const dsLine = S.deals.filter(d => d.line === k && (!query || searchMatches(d.title+' '+comp(d.company).name, query)));
+    const dsLine = S.deals.filter(d => d.line === k && (!query || searchMatches(dealSearchHaystack(d), query)));
     const open = dsLine.filter(isOpen), max = Math.max(1, dsLine.length);
     const rows = L.stages.filter(s=>s[0]!=='lost').map(stage => {
       const count = dsLine.filter(d=>d.stage===stage[0]).length;
@@ -1292,7 +1380,7 @@ function vDash() {
     }).join('');
     return `<section class="panel line-panel" style="--line-accent:${L.color}"><div class="line-panel-heading"><span class="line-symbol">${SavaUI.icon(icons[k])}</span><div><h3>${L.name}</h3><p>${L.target}</p></div><button class="icon-button line-open" onclick="curLine='${k}';setView('board')" aria-label="Mở pipeline ${L.name}">${SavaUI.icon('arrow')}</button></div><div class="line-total"><strong>${open.length}</strong><span>deal đang mở</span></div><div class="line-value">${GAME_LINES.includes(k)?'Hợp tác theo thỏa thuận rev share':pipelineValue(open)+' · Giá trị dự kiến'}</div>${rows}</section>`;
   }).join('');
-  const scopedTasks = visibleTasks().filter(t=>!t.done&&(curLine==='all'||(S.deals.find(x=>x.id===t.deal)||{}).line===curLine)&&(!query||(t.title+' '+(S.deals.find(x=>x.id===t.deal)||{}).title).toLowerCase().includes(query)));
+  const scopedTasks = visibleTasks().filter(t=>!t.done&&(curLine==='all'||(S.deals.find(x=>x.id===t.deal)||{}).line===curLine)&&(!query||searchMatches(taskSearchHaystack(t), query)));
   const tasks = scopedTasks.slice(0,5).map(taskRow).join('') || '<div class="empty-state">Không có việc phù hợp.</div>';
   const activityIcons = {Meeting:'meeting',Note:'note',Call:'call',Email:'mail',Demo:'cube'};
   /* Hoạt động gần nhất ở Tổng quan: hoạt động qua deal lọc theo mảng như
@@ -1300,8 +1388,7 @@ function vDash() {
      nên chỉ hiện khi đang xem "Tất cả" (curLine='all') — nhãn chủ Lead/
      Game hiện ở dòng tiêu đề, bấm vào mở đúng drawer của chủ. */
   const actOwnerLine = a => a.deal ? (S.deals.find(x=>x.id===a.deal)||{}).line : null;
-  const actOwnerTitle = a => { const o = activityOwnerOf(a); return o && o.target ? activityOwnerLabel(o) : ""; };
-  const activities = S.activities.filter(a=>(curLine==='all'||actOwnerLine(a)===curLine)&&(!query||(a.text+' '+actOwnerTitle(a)).toLowerCase().includes(query))).slice(0,4).map(a=>{
+  const activities = S.activities.filter(a=>(curLine==='all'||actOwnerLine(a)===curLine)&&(!query||searchMatches(activitySearchHaystack(a), query))).slice(0,4).map(a=>{
     const o = activityOwnerOf(a);
     const head = o ? (o.kind==='deal' ? (o.target?o.target.title:a.type) : (o.kind==='lead'?'📥 Lead: ':o.kind==='event'?'🎪 Sự kiện: ':'🎮 Game: ')+activityOwnerLabel(o)) : a.type;
     return `<div class="activity-item" ${o&&o.target?`onclick="dashOpenActivity('${a.id}')" title="Bấm để mở hồ sơ của chủ hoạt động và highlight hoạt động này"`:''}><span class="activity-icon">${SavaUI.icon(activityIcons[a.type]||'note')}</span><div class="activity-content"><strong>${esc(head)}</strong><p>${esc(a.text)}</p><div class="when">${esc(a.type)} · ${memberLinkHTML(a.who)} · ${esc(fmtWhen(a.when))}${sysShortDate(a.updatedAt) ? " · " + sysUpdatedSpan(a) : ""}</div></div></div>`;
@@ -1877,7 +1964,7 @@ function dashboardActivityModel(now) {
   const records = (S.activities || []).filter(a => {
     if (dashScope && (dashScope === '__none__' ? !!a.who : a.who !== dashScope)) return false;
     if (dashboardLineKey() && !D.dashTaskInLine(a, S, dashboardLineKey())) return false;
-    if (query && !(String(a.text || '') + ' ' + String(a.type || '')).toLowerCase().includes(query)) return false;
+    if (query && !searchMatches(activitySearchHaystack(a), query)) return false;
     return true;
   }).map(a => ({ activity: a, date: dashboardActivityDate(a), type: dashboardActivityType(a) })).filter(record => {
     if (!record.date) { missingDates++; return !start; }
@@ -2322,7 +2409,7 @@ function vBoard() {
   const note = curLine === "all" ? `<div class="prototype-note" style="padding:11px 14px;margin-bottom:18px">Đang xem <b>Game Studio</b>. Chọn mảng ở trên để đổi pipeline.</div>` : "";
   const L = LINES[line];
   const cols = L.stages.map(s => {
-    const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (line !== "metaverse" || dealMatchesVerticalFilter(d)) && (!query || searchMatches(d.title+" "+comp(d.company).name, query)));
+    const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (line !== "metaverse" || dealMatchesVerticalFilter(d)) && (!query || searchMatches(dealSearchHaystack(d), query)));
     const amt = {}; ds.forEach(d => { if (d.amount) amt[d.cur] = (amt[d.cur]||0)+d.amount; });
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
     const sds = applyListSort("deals", ds, d => d.title || "");
@@ -2354,7 +2441,7 @@ function drop(e, line, stage) {
 }
 
 function vCompanies() {
-  const filteredCompanies = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || searchMatches(c.name, query)));
+  const filteredCompanies = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || searchMatches(companySearchHaystack(c), query)));
   const sortedCompanies = applyListSort("companies", filteredCompanies, c => c.name || "");
   /* Việc 8: sort TRƯỚC, phân trang SAU (10/trang); đổi lọc/sort -> trang 1;
      STT = info.from + idx nên liên tục qua các trang. */
@@ -2376,7 +2463,7 @@ function vCompanies() {
 }
 
 function vGames() {
-  const show = S.games.filter(g => (curLine==="all" || (curLine==="game_studio" && g.own==="ours") || (curLine==="publishing" && g.own==="partner")) && (!query || (g.title + " " + g.genre).toLowerCase().includes(query)));
+  const show = S.games.filter(g => (curLine==="all" || (curLine==="game_studio" && g.own==="ours") || (curLine==="publishing" && g.own==="partner")) && (!query || searchMatches(gameSearchHaystack(g), query)));
   const sortedGames = applyListSort("games", show, g => g.title || "");
   /* Việc 8: phân trang thẻ game 10/trang sau sort; STT liên tục qua trang. */
   pagerSyncFilter("games", curLine + "|" + query + "|" + JSON.stringify(listSortState("games")));
@@ -3059,8 +3146,7 @@ function vEvents() {
   const scoped = scope === "mine" ? all.filter(ev => !!(me && me.memberId) && eventOwnerId(ev) === String(me.memberId)) : all;
   const filtered = scoped.filter(ev => {
     if (!query) return true;
-    const hay = [ev.name || "", ev.date || "", ev.endDate || "", fmtWhen(ev.date || ""), fmtWhen(ev.endDate || ""), ev.location || "", ev.note || "", (eventStatusDef(eventStatusKey(ev)) || {}).label || "", ev.line ? lineName(ev.line) : "", eventAttendeeNames(ev).join(" "), eventOwnerId(ev) ? memberName(S, eventOwnerId(ev)) : ""].join(" ").toLowerCase();
-    return hay.includes(query);
+    return searchMatches(eventSearchHaystack(ev), query);
   });
   /* Phân trang TRONG TỪNG NHÓM như mẫu Lead Block (Việc 8): key trang
      riêng theo nhóm, đổi tìm kiếm/phạm vi/sort -> mọi nhóm về trang 1. */
@@ -3157,7 +3243,7 @@ function vSalesMaterials() {
   const filtered = all.filter(m => {
     if (salesTypeFilter && salesKindDef(m.kind).key !== salesTypeFilter) return false;
     if (salesLineFilter && String(m.line || "chung") !== salesLineFilter) return false;
-    if (q && !salesFold(m.title || "").includes(q)) return false;
+    if (q && !searchMatches(salesSearchHaystack(m), query)) return false;
     return true;
   }).slice().sort((a, b) => String(b.createdAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.updatedAt || "")));
   const typeOpts = [["", "Tất cả loại"], ...SALES_KINDS.map(k => [k.key, k.label])];
@@ -3625,7 +3711,7 @@ function vTasks() {
 }
 function vTasksList() {
   const myTasks = visibleTasks();
-  const filtered = myTasks.filter(t => !query || t.title.toLowerCase().includes(query));
+  const filtered = myTasks.filter(t => !query || searchMatches(taskSearchHaystack(t), query));
   const sortedTasks = applyListSort("tasks", filtered, t => t.title || "");
   /* Việc 8: phân trang việc 10/trang sau sort; STT liên tục qua trang. */
   pagerSyncFilter("tasks", query + "|" + JSON.stringify(listSortState("tasks")));
@@ -3679,7 +3765,7 @@ function vTasksByMember() {
      lọc/trạng thái/tìm kiếm/sort -> mọi cột về trang 1, đóng/mở giữ nguyên. */
   pagerSyncFilter("tbm", f + "|" + query + "|" + JSON.stringify(listSortState("tasksByMember")));
   const cols = groups.map(g => {
-    const shown = applyListSort("tasksByMember", g.tasks.filter(t => matchFilter(t) && (!query || t.title.toLowerCase().includes(query))), t => t.title || "");
+    const shown = applyListSort("tasksByMember", g.tasks.filter(t => matchFilter(t) && (!query || searchMatches(taskSearchHaystack(t), query))), t => t.title || "");
     /* M7: member ĐANG HOẠT ĐỘNG có 0 việc vẫn hiện cột (số 0) — không ẩn vì shown rỗng.
        Chỉ ẩn cột member active khi đang lọc (trạng thái != tất cả hoặc có từ khóa) mà cột trống sau lọc.
        Member đã ngừng / nhóm Chưa gán: giữ hành vi cũ (trống là ẩn). */
@@ -3816,7 +3902,7 @@ function calBuildItems() {
       if (calMemberFilter === "__none__") { if (t.assignee) return; }
       else if (t.assignee !== calMemberFilter) return;
     }
-    if (query && !(t.title || "").toLowerCase().includes(query)) return;
+    if (query && !searchMatches(taskSearchHaystack(t), query)) return;
     const r = calTaskRange(t);
     if (r) dated.push({ kind: "task", id: t.id, title: t.title || "—", start: r.start, end: r.end, source: r.source, state: calTaskState(t), ref: t });
     else undated.push({ kind: "task", id: t.id, title: t.title || "—", ref: t, reason: t.dueDate ? "Hạn không đọc được thành ngày: " + t.dueDate : (t.due ? "Hạn dạng chữ: " + t.due : "Chưa có hạn ngày") });
@@ -3833,7 +3919,7 @@ function calBuildItems() {
       if (calMemberFilter === "__none__") { if (oid) return; }
       else if (oid !== calMemberFilter) return;
     }
-    if (query && !(ev.name || "").toLowerCase().includes(query)) return;
+    if (query && !searchMatches(eventSearchHaystack(ev), query)) return;
     const r = calEventRange(ev);
     if (r) { const st = calEventState(ev); dated.push({ kind: "event", id: ev.id, title: ev.name || "—", start: r.start, end: r.end, phase: st.phase, warn: st.warn, ref: ev }); }
     else undated.push({ kind: "event", id: ev.id, title: ev.name || "—", ref: ev, reason: ev.date ? "Ngày dạng chữ: " + ev.date : "Chưa có ngày" });
@@ -6176,8 +6262,14 @@ function comboFilterOptions(options, query, limit, selectedValue) {
     : { value: String((o && o.value) ?? ""), label: String((o && (o.label ?? o.value)) ?? ""), searchLabel: o && o.searchLabel ? String(o.searchLabel) : "" });
   const q = comboFoldText(query);
   const tokens = q ? q.split(" ").filter(Boolean) : [];
+  /* ĐỢT RÀ 17/11/2026: picker GIỮ token-substring như cũ (gõ dở từng
+     phần — "nguy" tìm "Nguyễn" — là tính năng cốt lõi của ô chọn, siết
+     nguyên từ như list-search sẽ làm hỏng), nhưng CỘNG thêm nhánh
+     searchMatches dùng chung: trước đây query dính liền "datbike" /
+     dấu câu "dat-bike" KHÔNG khớp "Dat Bike" (token nguyên văn không
+     phải chuỗi con của nhãn) — đúng lỗi cùng kiểu với list-search. */
   const matched = tokens.length
-    ? all.filter(o => { const hay = comboFoldText(o.searchLabel || o.label); return tokens.every(tok => hay.includes(tok)); })
+    ? all.filter(o => { const raw = o.searchLabel || o.label; const hay = comboFoldText(raw); return tokens.every(tok => hay.includes(tok)) || (typeof searchMatches === "function" && searchMatches(raw, query)); })
     : all;
   let windowStart = 0;
   if (!tokens.length && selectedValue !== undefined && selectedValue !== null && matched.length > lim) {

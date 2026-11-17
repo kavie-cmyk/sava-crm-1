@@ -812,6 +812,38 @@ function pagerSlice(items, page, size) {
 }
 const SavaPager = { PAGE_SIZE: LIST_PAGE_SIZE, info: pagerInfo, slice: pagerSlice };
 if (typeof window !== "undefined") { window.SavaPager = SavaPager; }
+/* === Khớp tìm kiếm dùng chung (window.SavaSearch) — NGUỒN KHỚP DUY NHẤT ===
+   cho MỌI list-search của app (BD ở index.html + Publishing/MKT ở
+   publishing.js), tách từ bản sửa vụ search "dat bike" 17/11/2026 vốn chỉ
+   nằm trong index.html. Thuật toán GIỮ NGUYÊN TỪNG CHỮ so với
+   searchMatches gốc của đợt dat bike (hành vi ở index.html không đổi):
+   - fold CẢ hai phía (bỏ dấu tiếng Việt + thường + gộp khoảng trắng);
+   - khớp nếu: (1) cụm đã fold nằm liền trong haystack đã fold, hoặc
+     (2) bản GỘP SÁT (bỏ mọi ký tự không phải chữ/số ở hai phía) khớp —
+     bắt "DatBike" / "dat-bike", hoặc (3) query >= 2 từ: MỌI từ đều xuất
+     hiện NGUYÊN TỪ trong haystack (token AND nguyên từ, thứ tự tự do) —
+     từ ngắn KHÔNG khớp nhầm bên trong từ khác ("ân corp" KHÔNG bắt
+     "Đà Nẵng Corp" vì "an" chỉ là mảnh của "nang").
+   Query rỗng -> luôn khớp. Helper CHỈ đổi cách khớp chuỗi, KHÔNG đổi
+   bộ lọc kế thừa nào (mảng / owner / status / kỳ / funnel giữ nguyên ở
+   từng bề mặt như cũ). */
+function savaSearchFold(s) {
+  return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim().replace(/\s+/g, " ");
+}
+function savaSearchMatches(hay, rawQuery) {
+  const q = savaSearchFold(rawQuery || "");
+  if (!q) return true;
+  const h = savaSearchFold(hay || "");
+  if (h.includes(q)) return true;
+  const qSq = q.replace(/[^a-z0-9]/g, ""), hSq = h.replace(/[^a-z0-9]/g, "");
+  if (qSq && hSq.includes(qSq)) return true;
+  const toks = q.split(/[^a-z0-9]+/).filter(Boolean);
+  if (toks.length < 2) return false;
+  const words = new Set(h.split(/[^a-z0-9]+/).filter(Boolean));
+  return toks.every(t => words.has(t));
+}
+const SavaSearch = { fold: savaSearchFold, matches: savaSearchMatches };
+if (typeof window !== "undefined") { window.SavaSearch = SavaSearch; window.savaSearchFold = savaSearchFold; window.savaSearchMatches = savaSearchMatches; }
 /* === Partner Eval hợp nhất (khung file 2 — Publishing Partner Selection) ===
    Implementation Partner DUY NHẤT dùng chung cho BD (drawer công ty trong
    index.html), module Publishing (adapter trong publishing-score.js) và bridge.

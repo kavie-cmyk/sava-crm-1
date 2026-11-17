@@ -82,8 +82,13 @@ test('tĩnh: searchMatches/searchFoldText/leadSearchHaystack tồn tại; filter
   assert.ok(html.includes('function searchFoldText(s)'), 'thiếu helper searchFoldText');
   assert.ok(html.includes('function leadSearchHaystack(l)'), 'thiếu leadSearchHaystack');
   assert.ok(html.includes('searchMatches(leadSearchHaystack(l), query)'), 'filteredLeads phải khớp qua helper + haystack lead');
-  assert.ok(html.includes('searchMatches(c.name, query)'), 'vCompanies phải khớp qua helper');
-  assert.ok(html.includes('searchMatches(d.title + " " + comp(d.company).name, query)'), 'dealsFiltered phải khớp qua helper');
+  /* Sửa có chủ đích (đợt rà toàn app 17/11/2026): haystack công ty/deal
+     chuyển từ chuỗi inline (chỉ tên / title+công ty) sang builder riêng
+     companySearchHaystack/dealSearchHaystack (thêm field nhận diện) —
+     khẳng định đổi đích tương ứng, độ chặt giữ nguyên (vẫn bắt buộc
+     khớp qua searchMatches, không includes thô). */
+  assert.ok(html.includes('searchMatches(companySearchHaystack(c), query)'), 'vCompanies phải khớp qua helper + haystack công ty');
+  assert.ok(html.includes('searchMatches(dealSearchHaystack(d), query)'), 'dealsFiltered phải khớp qua helper + haystack deal');
   assert.ok(!html.includes('(l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)'), 'haystack lead cũ (cụm liền, không fold, thiếu email/phone) phải đã bị thay');
   const haySeg = html.slice(html.indexOf('function leadSearchHaystack'), html.indexOf('function dealsFiltered'));
   assert.ok(haySeg.includes('l.email') && haySeg.includes('l.phone'), 'haystack lead phải gồm email + SĐT');

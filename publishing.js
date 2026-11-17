@@ -58,6 +58,20 @@
      ở cả publishing.html lẫn mkt.html. Điểm thành phần (Market/Prototype/
      từng tiêu chí, /5) và % completeness/coverage vẫn qua num()/pct(). */
   const fmtFinalScore = window.fmtFinalScore;
+  /* Khớp tìm kiếm DÙNG CHUNG với app BD: window.SavaSearch (shared.js —
+     nạp trước publishing.js ở cả publishing.html lẫn mkt.html) là NGUỒN
+     KHỚP DUY NHẤT cho mọi list-search (fold dấu hai phía + cụm / gộp sát
+     / token AND nguyên từ — xem shared.js). Fallback khi shared.js chưa
+     nạp: fold + cụm đã fold (vẫn bỏ dấu, không quay về includes thô).
+     ĐỢT RÀ 17/11/2026: hai ô tìm của module này (thị trường + hồ sơ đánh
+     giá) trước đây khớp (haystack).toLowerCase().includes(query) — cụm
+     liền nguyên văn, KHÔNG bỏ dấu — đúng lỗi cùng kiểu vụ "dat bike". */
+  const pubSearchFold = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim().replace(/\s+/g, ' ');
+  const pubSearchMatches = (hay, rawQuery) => {
+    if (typeof window !== 'undefined' && window.SavaSearch && typeof window.SavaSearch.matches === 'function') return window.SavaSearch.matches(hay, rawQuery);
+    const q = pubSearchFold(rawQuery || ''); if (!q) return true;
+    return pubSearchFold(hay || '').includes(q);
+  };
   /* D7 (đợt 3): NaN / thiếu dữ liệu -> "—" nhất quán; bản cũ để lọt "—%"
      và "$—" vì NaN vẫn là typeof 'number' rồi num() trả "—" sau khi đã
      cộng thêm ký hiệu % / $. */
@@ -1076,7 +1090,7 @@
     return list;
   }
   function renderMarket() {
-    const rows=observations().filter(r=>(category==='all'||r.category===category)&&(!query||(r.name+' '+r.category).toLowerCase().includes(query)));
+    const rows=observations().filter(r=>(category==='all'||r.category===category)&&(!query||pubSearchMatches([r.name||'',r.category||'',r.geo||'',r.platform||''].join(' '), query)));
     /* Việc 8: BẢNG mechanic phân trang 10 dòng/trang (đổi nhóm/tìm kiếm
        -> trang 1); phần trực quan (marketVisualsHTML) vẫn tính trên TOÀN
        tập đã lọc như cũ — chỉ bảng chi tiết ở dưới mới chia trang. */
@@ -1155,7 +1169,7 @@
   }
   function renderReviews() {
     const data=read(),s=crm();
-    const filteredRows=data.requests.filter(r=>reviewFilter==='all'||r.status===reviewFilter).filter(r=>reviewKindFilter==='all'||r.kind===reviewKindFilter).filter(r=>!query||(label(entity(s,r.kind,r.entityId))+' '+r.kind).toLowerCase().includes(query));
+    const filteredRows=data.requests.filter(r=>reviewFilter==='all'||r.status===reviewFilter).filter(r=>reviewKindFilter==='all'||r.kind===reviewKindFilter).filter(r=>{ if(!query) return true; const en=entity(s,r.kind,r.entityId); const hay=[label(en),r.kind,r.status||'',r.requestNote||'',r.kind==='game'?label(s.companies.find(c=>c.id===en?.company)):('')].join(' '); return pubSearchMatches(hay, query); });
     /* Sort SAU lọc bằng SavaSort thuần (không mutate data.requests);
        tên = tên hiển thị của hồ sơ (label của entity company/game). */
     const rows=(typeof window !== 'undefined' && window.SavaSort && reviewSort.key)
