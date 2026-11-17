@@ -369,15 +369,20 @@ test('B4 đường (b2) ô "Chuyển đổi trong kỳ" sent_connect: đếm the
 
 test('B5 kiểm kê HIỂN THỊ restriction khi đang search ở view Leads', () => {
   const h = loadIndex(fixtureHarish());
-  /* (i) Trạng thái exact đang bật + đang search: chỉ dấu hiệu là option
-     được chọn sẵn trong dropdown; KHÔNG banner/cảnh báo/số đếm thu hẹp;
-     block In-response (nơi Harish thuộc về) biến mất hẳn không dấu vết. */
+  /* (i) Trạng thái exact đang bật + đang search: option được chọn sẵn
+     trong dropdown VẪN là dấu hiệu tại chỗ của dropdown; block
+     In-response (nơi Harish thuộc về) biến mất hẳn khỏi danh sách.
+     SỬA CÓ CHỦ ĐÍCH (đợt dải cảnh báo 17/11/2026, Zac chốt phương án
+     1): khẳng định cũ "KHÔNG có banner/cảnh báo nào" ghim đúng trạng
+     thái LỖI mà đợt này sửa — nay dải "Đang lọc bởi: Trạng thái =
+     Sent connect" + nút "Bỏ tất cả lọc" BẮT BUỘC hiện (chi tiết đầy
+     đủ ở tests/filter-active-banner.test.cjs). */
   h.run('curView = "leads"; curLine = "all"; query = "dat bike"; setLeadStatusFilter("sent_connect");');
   let v = viewHTML(h);
-  assert.ok(v.includes('<option value="sent_connect" selected>Sent connect</option>'), 'dấu hiệu duy nhất của lọc trạng thái: option selected trong dropdown');
-  assert.ok(!v.includes('data-lead-status="in_response"'), 'block In-response bị ẩn hẳn khi đang lọc — không dấu vết nào cho biết Harish bị giấu ở đây (nhãn "In-response" chỉ còn trong dropdown + dòng chú thích liệt kê trạng thái)');
+  assert.ok(v.includes('<option value="sent_connect" selected>Sent connect</option>'), 'lọc trạng thái vẫn hiện qua option selected trong dropdown như cũ');
+  assert.ok(!v.includes('data-lead-status="in_response"'), 'block In-response bị ẩn hẳn khi đang lọc (semantics hiển thị block không đổi)');
   assert.ok(v.includes('data-lead-status="sent_connect"'), 'block Sent connect là block duy nhất còn hiện');
-  assert.ok(!v.includes('Đang lọc') && !v.includes('đang bị thu hẹp') && !v.includes('kết quả khớp'), 'không có banner/cảnh báo/số đếm kết quả nào nói kết quả đang bị thu hẹp bởi bộ lọc kế thừa');
+  assert.ok(v.includes('Đang lọc bởi:') && v.includes('Trạng thái = Sent connect') && v.includes('Bỏ tất cả lọc'), 'dải cảnh báo phải nói rõ kết quả đang bị thu hẹp bởi lọc trạng thái kế thừa + có nút bỏ lọc (đợt 17/11/2026)');
   /* (ii) Kỳ tạo preset (số ngày): không chip — chỉ option trong select. */
   h.run('setLeadStatusFilter(""); leadCreatedPeriodDays = 30; render();');
   v = viewHTML(h);

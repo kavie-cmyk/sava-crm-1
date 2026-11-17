@@ -2424,7 +2424,7 @@ function vBoard() {
     return `<div class="col" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="drop(event,'${line}','${s[0]}')">
       <h4>${s[1]} <span class="pill" style="background:${L.color}">${ds.length}</span></h4><div class="sum">${sum||"—"} · xác suất ${s[2]}%</div><div class="col-cards">${cards||'<div class="mut" style="padding:4px 2px">Kéo deal vào đây</div>'}</div></div>`;
   }).join("");
-  document.getElementById("view").innerHTML = note + (line === "metaverse" ? boardVerticalFilterHTML() : "") + sortBarHTML("deals", { amount: true }) + `<div class="board pipeline-board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động. Hàng sắp xếp ở trên áp dụng TRONG từng cột stage; số # trên thẻ là STT trong cột sau khi lọc + sắp xếp.</div>`;
+  document.getElementById("view").innerHTML = note + (line === "metaverse" ? dealBoardFilterBannerHTML() : "") + (line === "metaverse" ? boardVerticalFilterHTML() : "") + sortBarHTML("deals", { amount: true }) + `<div class="board pipeline-board">${cols}</div><div class="mut">💡 Kéo thẻ deal sang cột khác để chuyển stage, hoặc bấm vào thẻ để xem chi tiết + chấm điểm (mảng Publishing) + hoạt động. Hàng sắp xếp ở trên áp dụng TRONG từng cột stage; số # trên thẻ là STT trong cột sau khi lọc + sắp xếp.</div>`;
 }
 let dragId = null;
 function drag(e, id) { dragId = id; }
@@ -2626,6 +2626,117 @@ function leadInCreatedPeriod(l) {
 let leadFunnelIds = null;
 let leadFunnelVersion = 0;
 function clearLeadFunnelIds() { if (leadFunnelIds) { leadFunnelIds = null; leadFunnelVersion++; } render(); }
+/* ===== Dải cảnh báo "Đang lọc bởi" khi đang SEARCH (Zac chốt phương án 1, 17/11/2026) =====
+   Bối cảnh: vụ "dat bike" — leadStatusFilter='sent_connect' còn để ở
+   dropdown view Leads bị ô search header KẾ THỪA LẶNG, làm mất lead
+   Harish Deepak (in_response) khi search "dat bike" (ra 3 thay vì 4).
+   Đợt này CHỈ sửa lớp HIỂN THỊ: KHÔNG đổi bất kỳ semantics lọc/khớp nào
+   (filteredLeads và mọi hàm lọc giữ nguyên). Khi ô search có nội dung
+   VÀ có restriction kế thừa đang bật, một dải hiện ngay trên kết quả:
+   "Đang lọc bởi: <từng restriction kèm nhãn hiển thị thật> — [Bỏ tất
+   cả lọc]". Nút bỏ lọc CHỈ xoá restriction cục bộ của view đó, GIỮ
+   NGUYÊN chữ đang search và KHÔNG đụng tab mảng toàn cục (curLine —
+   bộ chọn mảng duy nhất của cả app, chốt 15/11/2026). Dải hiện cả khi
+   kết quả = 0 (nó nằm ngoài khối kết quả). */
+/* HTML dải dùng chung cho mọi view đã áp mẫu này: restrictions là mảng
+   { kind, text } với text ĐÃ gồm "Nhãn = giá trị đọc được"; rỗng hoặc
+   không có chữ search -> không dải. clearOnclick là lời gọi hàm xoá
+   lọc cục bộ của view (giữ nguyên query). */
+function searchFilterBannerHTML(restrictions, clearOnclick) {
+  if (!query || !restrictions || !restrictions.length) return "";
+  const items = restrictions.map(r => esc(r.text)).join(" · ");
+  return `<div class="filter-active-banner" data-filter-banner="1" role="alert" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:13.5px"><span>⚠️ <b>Đang lọc bởi:</b> ${items}</span><button type="button" class="btn small" onclick="${clearOnclick}">Bỏ tất cả lọc</button></div>`;
+}
+/* Restriction ĐANG BẬT của view Lead, theo đúng thứ tự trình bày:
+   trạng thái -> kỳ tạo -> người phụ trách -> chip tập lead -> mảng.
+   Nhãn trạng thái lấy qua leadStatusDef (NHÃN HIỂN THỊ THẬT của app —
+   vd sent_connect hiện "Sent connect" như trong chính dropdown lọc);
+   kỳ tạo preset hiện "N ngày gần nhất", khoảng tuỳ chỉnh hiện khoảng
+   dd-mm-yyyy qua isoToDMY; người phụ trách hiện tên member (hoặc
+   "Chưa gán"); chip hiện nguyên nhãn tập của nó; mảng hiện tên mảng
+   qua lineName. LƯU Ý semantics của filteredLeads: khi chip tập lead
+   (leadFunnelIds) đang bật, nó THẮNG lọc trạng thái + kỳ tạo — hai
+   restriction đó đang "ngủ" nên KHÔNG liệt kê (liệt kê sẽ sai sự
+   thật); chúng vẫn bị xoá cùng khi bấm Bỏ tất cả lọc để không sống
+   lại sau khi gỡ chip. Mảng (kind "line") chỉ để MINH BẠCH: nó không
+   tự kích hoạt dải và nút bỏ lọc không reset nó. */
+function leadActiveRestrictions() {
+  const out = [];
+  if (!leadFunnelIds) {
+    if (leadStatusFilter) { const def = leadStatusDef(leadStatusFilter); out.push({ kind: "status", text: "Trạng thái = " + (def ? def.label : String(leadStatusFilter)) }); }
+    if (leadCreatedRange) out.push({ kind: "created", text: "Kỳ tạo = " + isoToDMY(leadCreatedRange.from) + " → " + isoToDMY(leadCreatedRange.to) });
+    else if (leadCreatedPeriodDays !== null) out.push({ kind: "created", text: "Kỳ tạo = " + leadCreatedPeriodDays + " ngày gần nhất" });
+  }
+  if (leadOwnerFilter) out.push({ kind: "owner", text: "Người phụ trách = " + (leadOwnerFilter === "__none__" ? "Chưa gán" : memberName(S, leadOwnerFilter)) });
+  if (leadFunnelIds) out.push({ kind: "funnel", text: "Tập lead = " + leadFunnelIds.label });
+  if (curLine !== "all") out.push({ kind: "line", text: "Mảng = " + lineName(curLine) });
+  return out;
+}
+/* Dải của view Lead: chỉ hiện khi có ≥1 restriction CỤC BỘ (không tính
+   mảng) — mảng một mình không kích hoạt dải, nhưng khi dải đã hiện vì
+   restriction cục bộ thì mảng được ghi thêm cho minh bạch. */
+function leadFilterBannerHTML() {
+  const all = leadActiveRestrictions();
+  if (!all.some(r => r.kind !== "line")) return "";
+  return searchFilterBannerHTML(all, "clearLeadSearchFilters()");
+}
+/* Nút "Bỏ tất cả lọc" của view Lead: xoá trạng thái + kỳ tạo (cả
+   preset lẫn khoảng tuỳ chỉnh) + người phụ trách + chip tập lead;
+   GIỮ NGUYÊN query (chữ đang search) và curLine (tab mảng toàn cục). */
+function clearLeadSearchFilters() {
+  leadStatusFilter = "";
+  leadCreatedPeriodDays = null;
+  leadCreatedRange = null;
+  leadOwnerFilter = "";
+  if (leadFunnelIds) { leadFunnelIds = null; leadFunnelVersion++; }
+  render();
+}
+/* --- Các view danh sách khác áp CÙNG MẪU (kiểm kê 17/11/2026) ---
+   Deal/Pipeline (vBoard): boardVerticalFilter (chỉ mảng Metaverse) là
+   restriction cục bộ dạng select trơn, không dấu hiệu khi đang search
+   -> áp dải; nút bỏ chỉ xoá đúng lọc ngành này. */
+function dealBoardActiveRestrictions() {
+  if (!boardVerticalFilter) return [];
+  return [{ kind: "vertical", text: "Phân khúc ngành = " + (boardVerticalFilter === VERTICAL_UNSET_FILTER ? "Chưa phân ngành" : String(boardVerticalFilter)) }];
+}
+function dealBoardFilterBannerHTML() { return searchFilterBannerHTML(dealBoardActiveRestrictions(), "clearBoardVerticalSearchFilter()"); }
+function clearBoardVerticalSearchFilter() { boardVerticalFilter = ""; render(); }
+/* Sự kiện (vEvents): phạm vi eventScope "mine" (Của tôi) là restriction
+   cục bộ — khi mặc định theo vai (BD/MKT) nó bật LẶNG không qua thao
+   tác chọn nào, đúng khuôn mẫu sự cố -> áp dải khi đang ở "mine"; nút
+   bỏ = chuyển phạm vi về "all" (Tất cả), giữ nguyên chữ search. */
+function eventActiveRestrictions() {
+  if (eventScope() !== "mine") return [];
+  const me = authCurrentUser();
+  const nm = me && me.memberId ? memberName(S, String(me.memberId)) : "";
+  return [{ kind: "scope", text: "Phạm vi = Của tôi" + (nm && nm !== "—" ? " (" + nm + ")" : "") }];
+}
+function eventFilterBannerHTML() { return searchFilterBannerHTML(eventActiveRestrictions(), "clearEventScopeSearchFilter()"); }
+function clearEventScopeSearchFilter() { eventScopeFilter = "all"; render(); }
+/* Việc — chế độ Theo người (vTasksByMember): taskMemberFilter là
+   restriction cục bộ dạng select trơn (Đang mở / Quá hạn / Đã xong)
+   -> áp dải; nút bỏ chỉ đặt lại "all" (Tất cả), giữ nguyên chữ search.
+   Chế độ Danh sách (vTasksList) KHÔNG có restriction cục bộ nào ngoài
+   search nên không áp. */
+const TASK_MEMBER_FILTER_LABELS = { open: "Đang mở", overdue: "Quá hạn", done: "Đã xong" };
+function taskMemberActiveRestrictions() {
+  if (!taskMemberFilter || taskMemberFilter === "all") return [];
+  return [{ kind: "taskStatus", text: "Trạng thái việc = " + (TASK_MEMBER_FILTER_LABELS[taskMemberFilter] || String(taskMemberFilter)) }];
+}
+function taskMemberFilterBannerHTML() { return searchFilterBannerHTML(taskMemberActiveRestrictions(), "clearTaskMemberSearchFilter()"); }
+function clearTaskMemberSearchFilter() { taskMemberFilter = "all"; render(); }
+/* Tài liệu bán hàng (vSalesMaterials): salesTypeFilter (Loại) +
+   salesLineFilter (Mảng tài liệu — field line CỦA TÀI LIỆU, khác hẳn
+   tab mảng toàn cục curLine vốn không lọc view này) đều là select
+   trơn -> áp dải; nút bỏ chỉ xoá hai lọc cục bộ này. */
+function salesActiveRestrictions() {
+  const out = [];
+  if (salesTypeFilter) out.push({ kind: "type", text: "Loại = " + salesKindDef(salesTypeFilter).label });
+  if (salesLineFilter) out.push({ kind: "line", text: "Mảng tài liệu = " + salesLineLabel(salesLineFilter) });
+  return out;
+}
+function salesFilterBannerHTML() { return searchFilterBannerHTML(salesActiveRestrictions(), "clearSalesSearchFilters()"); }
+function clearSalesSearchFilters() { salesTypeFilter = ""; salesLineFilter = ""; render(); }
 /* Bấm một dòng phễu -> mở view Lead với ĐÚNG tập đã đếm ở dòng đó:
    dòng mốc = totalLeadIds; một bước = step.leadIds (chỉ số trạng
    thái >= bước); dòng lối ra = droppedLeadIds. Nguồn số liệu là
@@ -2866,7 +2977,7 @@ function vLeads() {
     return `<section class="panel lead-status-block${collapsed ? " lead-status-block--collapsed" : ""}" data-lead-status="${g.key}"><div class="panel-title lead-block-head" onclick="toggleLeadBlock('${g.key}')" style="cursor:pointer" title="Bấm để ${collapsed ? "mở" : "thu gọn"} block này"><h3><span class="pill" style="background:${g.color}">${esc(g.label)}</span> <span class="count-badge">${g.leads.length} lead</span></h3><button class="btn ghost small" onclick="event.stopPropagation(); toggleLeadBlock('${g.key}')" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mở block" : "Thu gọn block"}">${collapsed ? "▸ Mở" : "▾ Thu gọn"}</button></div>${body}</section>`;
   }).join("");
   const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
-  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${blocks}${emptyFiltered}
+  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${leadFilterBannerHTML()}${blocks}${emptyFiltered}
   <div class="mut" style="margin-top:10px">💡 Lead được chia thành từng block theo trạng thái (${LEAD_STATUSES.map(s => esc(s.label)).join(" → ")}). <b>Bấm vào một dòng</b> để xem chi tiết lead; bấm tên công ty (dòng phụ 🏢) để mở hồ sơ công ty, bấm tên deal để mở deal liên quan. Một công ty có thể có nhiều lead (nhiều người đầu mối / nhiều lần tiếp cận), và một deal có thể được tiếp cận qua nhiều lead. Lead từ form trên savameta.com sẽ tự rơi vào đúng mảng theo lựa chọn của khách và gán cho người phụ trách mảng đó. Bấm vào tiêu đề của một block để thu gọn/mở block đó; block có nhiều lead được chia trang ${LEAD_BLOCK_PAGE_SIZE} lead/trang, chuyển trang ở cuối block.</div>`;
 }
 /* ===== Lead Pipeline (kanban) — cách trình bày THỨ HAI của lead.status =====
@@ -2999,7 +3110,7 @@ function vLeadsPipeline() {
      trạng thái" để xử lý. */
   const unknownNote = unknownLeads.length ? `<div class="prototype-note" style="padding:11px 14px;margin-bottom:12px">⚠️ Có <b>${unknownLeads.length} lead</b> có trạng thái lạ (không thuộc ${LEAD_STATUSES.length} trạng thái chuẩn) nên không hiện trên bảng Pipeline. <button class="btn ghost small" onclick="setLeadViewMode('block')">Xem ở chế độ Block để xử lý →</button></div>` : "";
   const emptyFiltered = filtering && !filtered.length ? `<div class="panel mut" style="margin-bottom:12px">Không có lead nào khớp bộ lọc hiện tại.</div>` : "";
-  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${unknownNote}${emptyFiltered}<div class="board lead-board pipeline-board">${cols}</div>
+  document.getElementById("view").innerHTML = `${leadViewHeadHTML()}${leadFilterBannerHTML()}${unknownNote}${emptyFiltered}<div class="board lead-board pipeline-board">${cols}</div>
   <div class="mut" style="margin-top:10px">💡 Kéo thẻ lead sang cột khác để đổi trạng thái (sẽ hỏi xác nhận, cùng helper với đổi stage của deal), hoặc bấm vào thẻ để xem chi tiết lead — lead ở cột Đã chuyển đổi vẫn mở xem các deal của nó như thường; bấm tên công ty để mở hồ sơ công ty. Cột <b>Not yet have demand</b> là cột kết thúc âm (chưa có nhu cầu): lead vẫn xem/sửa được và kéo ra cột khác được khi có nhu cầu trở lại. Mỗi cột chỉ hiện ${LEAD_BOARD_PAGE_SIZE} thẻ đầu — bấm "Hiển thị thêm" ở cuối cột để xem tiếp.</div>`;
 }
 /* ===== Sự kiện (Events) =====
@@ -3176,7 +3287,7 @@ function vEvents() {
   }).join("");
   const emptyMsg = !all.length ? `<div class="panel mut">Chưa có sự kiện nào.</div>` : (!filtered.length ? (query ? `<div class="panel mut">Không có sự kiện nào khớp tìm kiếm hiện tại.</div>` : `<div class="panel mut">Chưa có sự kiện nào thuộc phạm vi “Của tôi” của bạn — chuyển phạm vi sang “Tất cả” để xem mọi sự kiện.</div>`) : "");
   const scopeCtl = `<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="mut">Phạm vi:</span><button class="btn ${scope === "mine" ? "" : "ghost"} small" onclick="setEventScope('mine')" aria-pressed="${scope === "mine"}">Của tôi</button><button class="btn ${scope === "all" ? "" : "ghost"} small" onclick="setEventScope('all')" aria-pressed="${scope === "all"}">Tất cả</button></span>`;
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button>${scopeCtl}</div>${emptyMsg}${blocks}
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" onclick="openEventForm()">+ Thêm sự kiện</button>${scopeCtl}</div>${eventFilterBannerHTML()}${emptyMsg}${blocks}
   <div class="mut" style="margin-top:10px">Sự kiện là nơi team gặp gỡ đối tác: công ty, lead và deal phát sinh từ sự kiện được gắn ngay trong chi tiết sự kiện. Sự kiện sắp tới nằm ở nhóm “Sắp tới” (ngày gần nhất trước); sau khi đi về, bấm “Đánh dấu đã tham dự” trong chi tiết sự kiện để nhập báo cáo.</div>`;
 }
 /* ===== Tài liệu bán hàng (S.salesMaterials) =====
@@ -3268,7 +3379,7 @@ function vSalesMaterials() {
   const emptyMsg = !all.length
     ? `<div class="panel mut" style="font-size:13.5px">Chưa có tài liệu bán hàng nào. Bấm “+ Thêm tài liệu” để thêm deck/demo đầu tiên cho team.</div>`
     : (filtering && !filtered.length ? `<div class="panel mut" style="font-size:13.5px">Không có tài liệu nào khớp bộ lọc / tìm kiếm hiện tại.</div>` : "");
-  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openSalesMaterialForm()">+ Thêm tài liệu</button></div>${filters}${emptyMsg}${filtered.length ? `<div class="cards">${cards}</div>` : ""}
+  document.getElementById("view").innerHTML = `<div style="margin-bottom:12px"><button class="btn" onclick="openSalesMaterialForm()">+ Thêm tài liệu</button></div>${filters}${salesFilterBannerHTML()}${emptyMsg}${filtered.length ? `<div class="cards">${cards}</div>` : ""}
   <div class="mut" style="margin-top:10px">Tài liệu bán hàng dùng chung cho cả team: mọi thành viên (kể cả MKT) đều xem được; Admin và BD nào cũng sửa/xoá được mọi tài liệu.</div>`;
 }
 function openSalesMaterialForm(id) {
@@ -3780,7 +3891,7 @@ function vTasksByMember() {
       <div class="sum">Đang mở: <b>${open}</b> · Quá hạn: <b class="${od ? "overdue" : ""}">${od}</b> · Đã xong: <b>${done}</b> · Tổng sau lọc: <b>${shown.length}</b> việc</div>
       ${body}</div>`;
   }).join("");
-  return overview + filterBar +
+  return overview + filterBar + taskMemberFilterBannerHTML() +
     (cols ? `<div class="board">${cols}</div>` : `<div class="panel mut">Không có việc nào khớp bộ lọc hiện tại.</div>`);
 }
 
