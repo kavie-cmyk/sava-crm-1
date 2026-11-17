@@ -1059,9 +1059,56 @@ function revertLeadIfOrphaned(leadId) {
 }
 </script>
 <script>
+/* ===== Khớp tìm kiếm dùng chung (đợt search "dat bike" 17/11/2026) =====
+   Gốc rễ vụ "dat bike" chỉ hiện 3/4 lead: các bề mặt search cũ khớp bằng
+   (haystack).toLowerCase().includes(query) — cụm LIỀN nguyên văn, KHÔNG
+   bỏ dấu tiếng Việt ở cả hai phía, nên trượt mọi biến thể: "DatBike"
+   (dính liền), "Dat-Bike" (dấu câu), thừa khoảng trắng, "Đạt Bike" (có
+   dấu) — trong khi các helper khác của app (comboFoldText, sortFold,
+   impFold) đều đã fold. Helper này là NGUỒN KHỚP DUY NHẤT cho các bề
+   mặt đã sửa (deal qua dealsFiltered/vDash/vBoard, công ty ở
+   vCompanies, lead qua filteredLeads):
+   - fold CẢ hai phía qua comboFoldText (bỏ dấu + thường + gộp cách);
+   - khớp nếu: (1) cụm đã fold nằm liền trong haystack đã fold, hoặc
+     (2) bản GỘP SÁT (bỏ mọi ký tự không phải chữ/số ở hai phía) khớp — bắt "DatBike",
+     hoặc (3) query >= 2 từ: MỌI từ đều xuất hiện NGUYÊN TỪ trong
+     haystack (token AND theo từ trọn, thứ tự tự do — họ hàng với
+     comboFilterOptions nhưng siết nguyên từ để từ ngắn không khớp
+     nhầm bên trong từ khác: "ân corp" KHÔNG được bắt "Đà Nẵng Corp"
+     vì "an" chỉ là mảnh của "nang"; ca dính liền đã có nhánh (2) lo).
+   Query rỗng -> luôn khớp. Helper CHỈ đổi cách khớp chuỗi, KHÔNG đổi
+   bộ lọc kế thừa nào (curLine / owner / status / kỳ / funnel giữ nguyên
+   ở từng bề mặt như cũ). */
+function searchFoldText(s) {
+  if (typeof comboFoldText === "function") return comboFoldText(s);
+  return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim().replace(/\s+/g, " ");
+}
+function searchMatches(hay, rawQuery) {
+  const q = searchFoldText(rawQuery || "");
+  if (!q) return true;
+  const h = searchFoldText(hay || "");
+  if (h.includes(q)) return true;
+  const qSq = q.replace(/[^a-z0-9]/g, ""), hSq = h.replace(/[^a-z0-9]/g, "");
+  if (qSq && hSq.includes(qSq)) return true;
+  const toks = q.split(/[^a-z0-9]+/).filter(Boolean);
+  if (toks.length < 2) return false;
+  const words = new Set(h.split(/[^a-z0-9]+/).filter(Boolean));
+  return toks.every(t => words.has(t));
+}
+/* Haystack search của MỘT lead: tên lead + person + tên công ty qua liên
+   kết CÒN SỐNG (leadCompany(l).name — CỐ Ý không dùng leadCompanyName(l)
+   vì chuỗi placeholder "— (chưa gắn công ty)" của lead mồ côi sẽ thành
+   nhiễu khớp giả; lead mồ côi đóng góp đoạn công ty RỖNG, chỉ còn khớp
+   qua field của chính nó) + ghi chú + email + SĐT (hai field này bản cũ
+   KHÔNG hề có trong haystack dù lead mang chúng — lead chỉ nhận diện
+   được qua email kiểu @datbike.vn thì search cũ không bao giờ thấy). */
+function leadSearchHaystack(l) {
+  const c = (typeof leadCompany === "function") ? leadCompany(l) : null;
+  return [l.name || "", l.person || "", c ? (c.name || "") : "", l.note || "", l.email || "", l.phone || ""].join(" ");
+}
 function dealsFiltered() {
   return S.deals.filter(d => (curLine === "all" || d.line === curLine) &&
-    (!query || (d.title + " " + comp(d.company).name).toLowerCase().includes(query)));
+    (!query || searchMatches(d.title + " " + comp(d.company).name, query)));
 }
 function lineTabs() {
   const el = document.getElementById("linetabs");
@@ -1237,7 +1284,7 @@ function vDash() {
   const icons = {game_studio:'game',publishing:'pipeline',ai:'spark',metaverse:'cube'};
   const funnel = lines.map(k => {
     const L = LINES[k];
-    const dsLine = S.deals.filter(d => d.line === k && (!query || (d.title+' '+comp(d.company).name).toLowerCase().includes(query)));
+    const dsLine = S.deals.filter(d => d.line === k && (!query || searchMatches(d.title+' '+comp(d.company).name, query)));
     const open = dsLine.filter(isOpen), max = Math.max(1, dsLine.length);
     const rows = L.stages.filter(s=>s[0]!=='lost').map(stage => {
       const count = dsLine.filter(d=>d.stage===stage[0]).length;
@@ -2275,7 +2322,7 @@ function vBoard() {
   const note = curLine === "all" ? `<div class="prototype-note" style="padding:11px 14px;margin-bottom:18px">Đang xem <b>Game Studio</b>. Chọn mảng ở trên để đổi pipeline.</div>` : "";
   const L = LINES[line];
   const cols = L.stages.map(s => {
-    const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (line !== "metaverse" || dealMatchesVerticalFilter(d)) && (!query || (d.title+" "+comp(d.company).name).toLowerCase().includes(query)));
+    const ds = S.deals.filter(d => d.line === line && d.stage === s[0] && (line !== "metaverse" || dealMatchesVerticalFilter(d)) && (!query || searchMatches(d.title+" "+comp(d.company).name, query)));
     const amt = {}; ds.forEach(d => { if (d.amount) amt[d.cur] = (amt[d.cur]||0)+d.amount; });
     const sum = GAME_LINES.includes(line) ? "theo rev share — xem term trong deal" : Object.entries(amt).map(([c,v])=>money(v,c)).join(" + ");
     const sds = applyListSort("deals", ds, d => d.title || "");
@@ -2307,7 +2354,7 @@ function drop(e, line, stage) {
 }
 
 function vCompanies() {
-  const filteredCompanies = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || c.name.toLowerCase().includes(query)));
+  const filteredCompanies = S.companies.filter(c => (curLine==="all" || c.roles[curLine]) && (!query || searchMatches(c.name, query)));
   const sortedCompanies = applyListSort("companies", filteredCompanies, c => c.name || "");
   /* Việc 8: sort TRƯỚC, phân trang SAU (10/trang); đổi lọc/sort -> trang 1;
      STT = info.from + idx nên liên tục qua các trang. */
@@ -2614,11 +2661,15 @@ function leadOwnerChipHTML(l) {
 }
 /* Tập lead SAU LỌC của view Lead — MỘT nguồn lọc duy nhất cho cả hai
    cách trình bày (Block + Pipeline): tab mảng (curLine) + ô tìm kiếm
-   (query trên tên lead + person + tên công ty + ghi chú) + bộ lọc người
-   phụ trách (leadOwnerFilter) + trạng thái (leadStatusFilter, do phễu
-   Lead ở Tổng quan đặt sẵn khi bấm một dòng), kết hợp AND với nhau. */
+   (query qua searchMatches trên leadSearchHaystack: tên lead + person
+   + tên công ty qua liên kết còn sống + ghi chú + email + SĐT, đã fold
+   dấu hai phía + token AND — đợt search "dat bike" 17/11/2026) + bộ lọc
+   người phụ trách (leadOwnerFilter) + trạng thái (leadStatusFilter, do
+   phễu Lead ở Tổng quan đặt sẵn khi bấm một dòng), kết hợp AND với nhau.
+   Các bộ lọc kế thừa (mảng/người/trạng thái/kỳ/funnel) GIỮ NGUYÊN ngữ
+   nghĩa như trước đợt sửa này. */
 function filteredLeads() {
-  return S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || (l.name + " " + (l.person||"") + " " + leadCompanyName(l) + " " + l.note).toLowerCase().includes(query)) && (!leadOwnerFilter || (leadOwnerFilter === "__none__" ? !l.ownerId : l.ownerId === leadOwnerFilter)) && (leadFunnelIds ? leadFunnelIds.set.has(String(l.id)) : ((!leadStatusFilter || l.status === leadStatusFilter) && leadInCreatedPeriod(l))));
+  return S.leads.filter(l => (curLine==="all"||l.line===curLine) && (!query || searchMatches(leadSearchHaystack(l), query)) && (!leadOwnerFilter || (leadOwnerFilter === "__none__" ? !l.ownerId : l.ownerId === leadOwnerFilter)) && (leadFunnelIds ? leadFunnelIds.set.has(String(l.id)) : ((!leadStatusFilter || l.status === leadStatusFilter) && leadInCreatedPeriod(l))));
 }
 /* ===== Chế độ xem Lead: Block ⇄ Pipeline =====
    leadViewMode là STATE HIỂN THỊ THUẦN TUÝ (không nằm trong S, không
